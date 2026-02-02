@@ -1,0 +1,169 @@
+use std::str::FromStr;
+
+use bech32::Hrp;
+use thiserror::Error;
+
+use crate::caip::ChainId;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RailgunAddress {
+    pub master_public_key: [u8; 32],
+    pub viewing_public_key: [u8; 32],
+    pub chain: ChainId,
+    pub version: u8,
+}
+
+#[derive(Debug, Error)]
+pub enum RailgunAddressError {
+    #[error("Bech32 decoding error: {0}")]
+    Bech32DecodeError(#[from] bech32::DecodeError),
+    #[error("Invalid Prefix: {0}")]
+    InvalidPrefix(String),
+    #[error("ParseInt Error: {0}")]
+    ParseIntError(#[from] std::num::ParseIntError),
+    #[error("ParseHex Error: {0}")]
+    ParseHexError(#[from] hex::FromHexError),
+    #[error("Invalid ChainId")]
+    InvalidChainId,
+    #[error("Invalid Key")]
+    InvalidKey,
+    #[error("Invalid Version: {0}")]
+    InvalidVersion(u8),
+}
+
+const ADDRESS_LENGTH_LIMIT: usize = 127;
+const PREFIX: Hrp = Hrp::parse_unchecked("0zk");
+const ADDRESS_VERSION: u8 = 1;
+
+impl RailgunAddress {
+    pub fn new(
+        master_public_key: &[u8; 32],
+        viewing_public_key: &[u8; 32],
+        chain: ChainId,
+        version: u8,
+    ) -> Self {
+        RailgunAddress {
+            master_public_key: master_public_key.clone(),
+            viewing_public_key: viewing_public_key.clone(),
+            chain,
+            version,
+        }
+    }
+}
+
+impl ToString for RailgunAddress {
+    fn to_string(&self) -> String {
+        let network_id = xor_network_id(&encode_chain_id(&self.chain));
+
+        let address_string = format!(
+            "{:02}{}{}{}",
+            ADDRESS_VERSION,
+            hex::encode(self.master_public_key),
+            network_id,
+            hex::encode(self.viewing_public_key),
+        );
+
+        let payload = hex::decode(address_string).unwrap();
+        let address_buffer = bech32::encode::<bech32::Bech32m>(PREFIX, &payload).unwrap();
+
+        if address_buffer.len() > ADDRESS_LENGTH_LIMIT {
+            panic!("Generated address exceeds length limit");
+        }
+
+        address_buffer
+    }
+}
+
+impl FromStr for RailgunAddress {
+    type Err = RailgunAddressError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (hrp, payload) = bech32::decode(s)?;
+        let address_hex = hex::encode(payload);
+
+        if hrp != PREFIX {
+            return Err(RailgunAddressError::InvalidPrefix(hrp.to_string()));
+        }
+
+        let version = u8::from_str_radix(&address_hex[0..2], 16)?;
+        let master_public_key = hex::decode(&address_hex[2..66])?;
+        let viewing_public_key = hex::decode(&address_hex[82..146])?;
+
+        let chain_id = decode_network_id(&xor_network_id(&address_hex[66..82]))?;
+
+        if version != ADDRESS_VERSION {
+            return Err(RailgunAddressError::InvalidVersion(version));
+        }
+
+        Ok(RailgunAddress {
+            master_public_key: master_public_key
+                .try_into()
+                .map_err(|_| RailgunAddressError::InvalidKey)?,
+            viewing_public_key: viewing_public_key
+                .try_into()
+                .map_err(|_| RailgunAddressError::InvalidKey)?,
+            chain: chain_id,
+            version,
+        })
+    }
+}
+
+fn encode_chain_id(chain: &ChainId) -> String {
+    match chain {
+        ChainId::Eip155(id) => {
+            let mut bytes = [0u8; 8];
+            bytes[0] = 0;
+            bytes[1..].copy_from_slice(&id.to_be_bytes()[1..]);
+            hex::encode(bytes)
+        }
+    }
+}
+
+fn decode_network_id(encoded: &str) -> Result<ChainId, RailgunAddressError> {
+    let encoded = hex::decode(encoded).map_err(RailgunAddressError::ParseHexError)?;
+    match encoded[0] {
+        0 => {
+            let mut id_bytes = [0u8; 8];
+            id_bytes.copy_from_slice(&encoded[..8]);
+            id_bytes[0] = 0;
+            let id = u64::from_be_bytes(id_bytes);
+            Ok(ChainId::Eip155(id))
+        }
+        _ => Err(RailgunAddressError::InvalidChainId),
+    }
+}
+
+fn xor_network_id(network_id_hex: &str) -> String {
+    let network_bytes = hex::decode(network_id_hex).expect("invalid hex in network ID");
+    let railgun = b"railgun";
+    let mut result = Vec::with_capacity(network_bytes.len());
+    for (i, byte) in network_bytes.iter().enumerate() {
+        let xor_byte = if i < railgun.len() { railgun[i] } else { 0 };
+        result.push(byte ^ xor_byte);
+    }
+    hex::encode(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_railgun_address_to_from_string() {
+        let master_public_key: [u8; 32] = [1u8; 32];
+        let viewing_public_key: [u8; 32] = [2u8; 32];
+        let chain = ChainId::Eip155(1);
+        let version = 1;
+
+        let expected_address_string = "0zk1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszunpd9kxwatwqypqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqy3t4umn";
+
+        let railgun_address =
+            RailgunAddress::new(&master_public_key, &viewing_public_key, chain, version);
+
+        let address_string = railgun_address.to_string();
+        let parsed_address = RailgunAddress::from_str(&address_string).unwrap();
+
+        assert_eq!(railgun_address, parsed_address);
+        assert_eq!(address_string, expected_address_string);
+    }
+}
