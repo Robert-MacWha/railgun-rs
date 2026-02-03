@@ -1,12 +1,18 @@
-use std::collections::BTreeMap;
-
 use alloy::primitives::utils::keccak256_cached;
 use ark_bn254::Fr;
-use ark_ff::{AdditiveGroup, PrimeField};
+use ark_ff::PrimeField;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::{info, info_span};
 
-use crate::crypto::poseidon::poseidon_hash;
+use crate::crypto::{keys::fr_to_bytes_be, poseidon::poseidon_hash};
 
+/// A sparse Merkle tree implementation using Poseidon hash function.
+///
+/// TODO: Consider using a type state pattern to enforce rebuilding after inserts
+/// Would be a little more complex, but means we could drop `&mut self` on read-only
+/// operations like `root` and `generate_proof`
+#[derive(Debug, Clone)]
 pub struct MerkleTree {
     // TODO: Consider moving this elsewhere? It's stored here in the railgun SDK,
     // but not sure why
@@ -15,10 +21,19 @@ pub struct MerkleTree {
     number: u64,
     depth: usize,
     zeros: Vec<Fr>,
-    tree: Vec<BTreeMap<usize, Fr>>,
-    max_leaf_index: Option<usize>,
+    tree: Vec<Vec<Fr>>,
 
     rebuild_needed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerkleTreeState {
+    pub nullifiers: Vec<[u8; 32]>,
+
+    pub number: u64,
+    pub depth: usize,
+    pub leaves: Vec<[u8; 32]>,
+    pub root: [u8; 32],
 }
 
 pub struct MerkleProof {
@@ -36,6 +51,9 @@ pub enum MerkleTreeError {
 
 const TREE_DEPTH: usize = 16;
 
+// TODO: Add benchmarks for me
+// TODO: Consider dirty optimizations for sparse trees. Slower while syncing,
+// faster for incremental updates.
 impl MerkleTree {
     pub fn new(tree_number: u64) -> Self {
         Self::new_with_depth(tree_number, TREE_DEPTH)
@@ -43,7 +61,7 @@ impl MerkleTree {
 
     pub fn new_with_depth(tree_number: u64, depth: usize) -> Self {
         let zeros = zero_value_levels(depth);
-        let mut tree: Vec<BTreeMap<usize, Fr>> = (0..=depth).map(|_| BTreeMap::new()).collect();
+        let mut tree: Vec<Vec<Fr>> = (0..=depth).map(|_| Vec::new()).collect();
 
         let root = hash_left_right(zeros[depth - 1], zeros[depth - 1]);
         tree[depth].insert(0, root);
@@ -54,8 +72,52 @@ impl MerkleTree {
             depth,
             zeros,
             tree,
-            max_leaf_index: None,
             rebuild_needed: false,
+        }
+    }
+
+    /// Creates a Merkle tree from a saved state. Re-builds the sparse tree
+    /// from the leaves automatically.
+    pub fn new_from_state(state: MerkleTreeState) -> Self {
+        let mut tree = MerkleTree::new_with_depth(state.number, state.depth);
+        let leaves: Vec<Fr> = state
+            .leaves
+            .iter()
+            .map(|leaf_bytes| Fr::from_be_bytes_mod_order(leaf_bytes))
+            .collect();
+        tree.insert_leaves(&leaves, 0);
+        tree.rebuild_sparse_tree();
+        tree.nullifiers = state.nullifiers;
+
+        if tree.root() != Fr::from_be_bytes_mod_order(&state.root) {
+            panic!("Rebuilt root does not match state root");
+        }
+
+        tree
+    }
+
+    pub fn root(&mut self) -> Fr {
+        self.rebuild_sparse_tree();
+        self.tree[self.depth][0]
+    }
+
+    pub fn state(&self) -> MerkleTreeState {
+        self.clone().into_state()
+    }
+
+    pub fn into_state(mut self) -> MerkleTreeState {
+        let root = &self.root();
+        let leaves: Vec<[u8; 32]> = self.tree[0]
+            .iter()
+            .map(|leaf| fr_to_bytes_be(leaf))
+            .collect();
+
+        MerkleTreeState {
+            nullifiers: self.nullifiers,
+            number: self.number,
+            depth: self.depth,
+            leaves,
+            root: fr_to_bytes_be(root),
         }
     }
 
@@ -64,24 +126,16 @@ impl MerkleTree {
             return;
         }
 
-        for (i, &leaf) in leaves.iter().enumerate() {
-            let leaf_index = start_position + i;
-            self.tree[0].insert(leaf_index, leaf);
+        self.rebuild_needed = true;
+
+        let end_position = start_position + leaves.len();
+        if self.tree[0].len() < end_position {
+            self.tree[0].resize(end_position, self.zeros[0]);
         }
 
-        let last = start_position + leaves.len() - 1;
-        self.max_leaf_index = Some(match self.max_leaf_index {
-            Some(max) => max.max(last),
-            None => last,
-        });
-
-        self.rebuild_needed = true;
-    }
-
-    pub fn root(&mut self) -> Fr {
-        self.rebuild_sparse_tree();
-
-        self.tree[self.depth][&0]
+        for (i, &leaf) in leaves.iter().enumerate() {
+            self.tree[0][start_position + i] = leaf;
+        }
     }
 
     pub fn generate_proof(&mut self, element: Fr) -> Result<MerkleProof, MerkleTreeError> {
@@ -89,8 +143,7 @@ impl MerkleTree {
 
         let initial_index = self.tree[0]
             .iter()
-            .find(|(_, val)| **val == element)
-            .map(|(&idx, _)| idx)
+            .position(|val| *val == element)
             .ok_or(MerkleTreeError::ElementNotFound)?;
 
         let mut elements = Vec::with_capacity(self.depth);
@@ -101,7 +154,7 @@ impl MerkleTree {
             let siblings_index = if is_left_child { index + 1 } else { index - 1 };
 
             let sibling = self.tree[level]
-                .get(&siblings_index)
+                .get(siblings_index)
                 .copied()
                 .unwrap_or(self.zeros[level]);
 
@@ -144,48 +197,41 @@ impl MerkleTree {
             return;
         }
 
+        let span = info_span!("Rebuild Sparse Tree").entered();
+        info!("Rebuilding sparse Merkle tree number {}", self.number);
+
         self.rebuild_needed = false;
-
-        let Some(max_idx) = self.max_leaf_index else {
-            for level in 1..=self.depth {
-                self.tree[level].clear();
-            }
-            let root = hash_left_right(self.zeros[self.depth - 1], self.zeros[self.depth - 1]);
-            self.tree[self.depth].insert(0, root);
-            return;
-        };
-
-        let mut width = max_idx + 1;
+        let mut width = self.tree[0].len();
 
         for level in 0..self.depth {
-            self.tree[level + 1].clear();
+            let next_level_width = (width + 1) / 2;
+            self.tree[level + 1].resize(next_level_width, self.zeros[level + 1]);
 
-            for pos in (0..width).step_by(2) {
-                let left = self.tree[level]
-                    .get(&pos)
-                    .copied()
-                    .unwrap_or(self.zeros[level]);
-                let right = self.tree[level]
-                    .get(&(pos + 1))
-                    .copied()
-                    .unwrap_or(self.zeros[level]);
+            for i in 0..next_level_width {
+                let left = self.tree[level][i * 2];
+                let right = if i * 2 + 1 < width {
+                    self.tree[level][i * 2 + 1]
+                } else {
+                    self.zeros[level]
+                };
 
-                let parent = hash_left_right(left, right);
-                self.tree[level + 1].insert(pos / 2, parent);
+                self.tree[level + 1][i] = hash_left_right(left, right);
             }
-
-            width = (width + 1) / 2;
+            width = next_level_width;
         }
+
+        info!("Rebuilt Merkle tree root: {:?}", self.tree[self.depth][0]);
+        span.exit();
     }
 }
 
 fn zero_value_levels(depth: usize) -> Vec<Fr> {
-    let mut levels = Vec::with_capacity(depth);
-    levels.push(zero_value());
+    let mut levels = Vec::with_capacity(depth + 1);
+    let mut current = zero_value();
 
-    for level in 1..depth {
-        let prev = levels[level - 1];
-        levels.push(hash_left_right(prev, prev));
+    for _ in 0..=depth {
+        levels.push(current);
+        current = hash_left_right(current, current);
     }
 
     levels
@@ -234,5 +280,17 @@ mod tests {
             let proof = tree.generate_proof(leaf).unwrap();
             assert!(MerkleTree::validate_proof(&proof));
         }
+    }
+
+    #[test]
+    fn test_state() {
+        let mut tree = MerkleTree::new(0);
+        let leaves: Vec<Fr> = (0..10).map(|i| Fr::from(i as u64 + 1)).collect();
+        tree.insert_leaves(&leaves, 0);
+
+        let state = tree.state();
+        let mut rebuilt_tree = MerkleTree::new_from_state(state);
+
+        assert_eq!(tree.root(), rebuilt_tree.root());
     }
 }

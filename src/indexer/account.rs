@@ -23,7 +23,9 @@ pub struct IndexerAccount {
 
     /// The latest block number that has been processed for this account
     synced_block: u64,
-    notebooks: BTreeMap<u64, BTreeMap<u64, Note>>,
+
+    /// The notes held by this account, organized by tree number and note position
+    notes: BTreeMap<u64, BTreeMap<u64, Note>>,
 }
 
 impl IndexerAccount {
@@ -33,7 +35,7 @@ impl IndexerAccount {
             viewing_key,
             spending_key,
             synced_block: 0,
-            notebooks: BTreeMap::new(),
+            notes: BTreeMap::new(),
         }
     }
 
@@ -41,11 +43,16 @@ impl IndexerAccount {
         self.address
     }
 
+    pub fn notebooks(&self) -> &BTreeMap<u64, BTreeMap<u64, Note>> {
+        &self.notes
+    }
+
+    /// Calculates the balance of the account by summing up the values of all its notes.
     pub fn balance(&self) -> HashMap<AssetId, u128> {
         let mut balances: HashMap<AssetId, u128> = HashMap::new();
 
-        for (_tree_number, notebook) in self.notebooks.iter() {
-            for (_note_position, note) in notebook.iter() {
+        for (_tree_number, tree_notes) in self.notes.iter() {
+            for (_note_position, note) in tree_notes.iter() {
                 match note.token {
                     AssetId::Erc20(address) => {
                         balances
@@ -104,7 +111,7 @@ impl IndexerAccount {
                 (tree_number, start_position + index)
             };
 
-            self.notebooks
+            self.notes
                 .entry(tree_number)
                 .or_default()
                 .insert(note_position, note);
@@ -139,7 +146,7 @@ impl IndexerAccount {
                 (tree_number, start_position + index)
             };
 
-            self.notebooks
+            self.notes
                 .entry(tree_number)
                 .or_default()
                 .insert(note_position, note);

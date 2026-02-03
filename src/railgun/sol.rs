@@ -98,6 +98,11 @@ sol! {
         event Unshield(address to, TokenData token, uint256 amount, uint256 fee);
         event Nullified(uint16 treeNumber, bytes32[] nullifier);
 
+        // Public variables
+        // Whether the contract has already seen a particular Merkle tree root
+        // treeNumber -> root -> seen
+        mapping(uint256 => mapping(bytes32 => bool)) public rootHistory;
+
         // Functions
         function shield(ShieldRequest[] calldata _shieldRequests) external;
         function transact(Transaction[] calldata _transactions) external;

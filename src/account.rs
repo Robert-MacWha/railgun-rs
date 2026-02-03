@@ -18,7 +18,7 @@ use crate::note::shield::create_shield_transaction;
 use crate::railgun::address::RailgunAddress;
 use crate::tx_data::TxData;
 
-pub struct RailgunAccount<P: Provider> {
+pub struct RailgunAccount<P: Provider + Clone> {
     address: RailgunAddress,
     chain: ChainConfig,
 
@@ -32,7 +32,7 @@ pub struct RailgunAccount<P: Provider> {
 const SPENDING_DERIVATION_PATH: &str = "m/44'/1984'/0'/0'/";
 const VIEWING_DERIVATION_PATH: &str = "m/420'/1984'/0'/0'/";
 
-impl<P: Provider> RailgunAccount<P> {
+impl<P: Provider + Clone> RailgunAccount<P> {
     /// Creates a new Railgun Account and adds it to the indexer
     pub fn new(
         spending_private_key: [u8; 32],

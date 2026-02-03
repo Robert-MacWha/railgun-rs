@@ -7,6 +7,7 @@ use thiserror::Error;
 
 pub mod note;
 pub mod shield;
+mod transact;
 
 #[derive(Debug, Error)]
 pub enum SharedKeyError {

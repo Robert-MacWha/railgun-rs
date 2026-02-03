@@ -19,7 +19,7 @@ use alloy::{
     network::Ethereum,
     primitives::{Address, U256, address},
     providers::{Provider, ProviderBuilder},
-    rpc::types::{TransactionInput, TransactionRequest},
+    rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
 use ark_bn254::Fr;
@@ -51,50 +51,61 @@ async fn main() {
         .await
         .unwrap();
 
-    let latest = provider.get_block_number().await.unwrap() - 10;
-    let indexer = Indexer::new(provider.clone(), MAINNET_CONFIG, latest);
+    let latest = 24378760;
+    let indexer = Indexer::new(provider.clone(), MAINNET_CONFIG);
     let indexer = Arc::new(Mutex::new(indexer));
     let account = RailgunAccount::new(spending_private_key, viewing_private_key, indexer.clone());
     info!("Loaded Account: {}", account.address());
 
-    let asset = AssetId::Erc20(USDC_ADDRESS);
-    let amount = 100 * 10u128.pow(6); // 100 USDC
-
-    // ERC20 transfer approval
-    let erc20_instance = erc20::ERC20::new(USDC_ADDRESS, provider.clone());
-    erc20_instance
-        .approve(MAINNET_CONFIG.railgun_smart_wallet, U256::from(amount * 2))
-        .send()
-        .await
+    indexer
+        .lock()
         .unwrap()
-        .get_receipt()
+        .sync_from_subsquid(Some(latest))
         .await
         .unwrap();
-    info!("Approved ERC20 transfer");
-
-    // Shield
-    let shield = account.shield(asset, amount).unwrap();
-    info!("Created Shield Tx");
-
-    let tx = TransactionRequest::default()
-        .to(shield.to)
-        .value(shield.value)
-        .input(shield.data.into());
-    provider
-        .send_transaction(tx)
-        .await
-        .unwrap()
-        .get_receipt()
-        .await
-        .unwrap();
-    info!("Shielded");
-
-    // Sync
-    indexer.lock().unwrap().sync().await.unwrap();
     info!("Synced Indexer");
 
-    let balance = indexer.lock().unwrap().balance(account.address());
-    info!("Account Balance: {:?}", balance);
+    indexer.lock().unwrap().validate().await.unwrap();
+    info!("Validated Merkle Trees");
+
+    // let asset = AssetId::Erc20(USDC_ADDRESS);
+    // let amount = 100 * 10u128.pow(6); // 100 USDC
+
+    // // ERC20 transfer approval
+    // let erc20_instance = erc20::ERC20::new(USDC_ADDRESS, provider.clone());
+    // erc20_instance
+    //     .approve(MAINNET_CONFIG.railgun_smart_wallet, U256::from(amount * 2))
+    //     .send()
+    //     .await
+    //     .unwrap()
+    //     .get_receipt()
+    //     .await
+    //     .unwrap();
+    // info!("Approved ERC20 transfer");
+
+    // // Shield
+    // let shield = account.shield(asset, amount).unwrap();
+    // info!("Created Shield Tx");
+
+    // let tx = TransactionRequest::default()
+    //     .to(shield.to)
+    //     .value(shield.value)
+    //     .input(shield.data.into());
+    // provider
+    //     .send_transaction(tx)
+    //     .await
+    //     .unwrap()
+    //     .get_receipt()
+    //     .await
+    //     .unwrap();
+    // info!("Shielded");
+
+    // // Sync
+    // indexer.lock().unwrap().sync().await.unwrap();
+    // info!("Synced Indexer");
+
+    // let balance = indexer.lock().unwrap().balance(account.address());
+    // info!("Account Balance: {:?}", balance);
 }
 
 /// Convert a hex string (with or without 0x prefix) to Fr
