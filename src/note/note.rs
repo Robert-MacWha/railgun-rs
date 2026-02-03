@@ -96,6 +96,7 @@ impl Note {
         ))
     }
 
+    /// Decrypts a shield note into a Note
     pub fn decrypt_shield_request(
         req: ShieldRequest,
         viewing_key: &[u8; 32],
@@ -107,28 +108,8 @@ impl Note {
             req.ciphertext.encryptedBundle[2].into(),
         ];
 
-        let note = Note::decrypt_shield(
-            &req.ciphertext.shieldKey.into(),
-            &encrypted_bundle,
-            req.preimage.token.clone().into(),
-            req.preimage.value.saturating_to(),
-            viewing_key,
-            spending_key,
-        )?;
-
-        Ok(note)
-    }
-
-    /// Decrypt a shield note into a Note
-    pub fn decrypt_shield(
-        shield_key: &[u8; 32],
-        encrypted_bundle: &[[u8; 32]; 3],
-        asset: AssetId,
-        value: u128,
-        viewing_key: &[u8; 32],
-        spending_key: &[u8; 32],
-    ) -> Result<Note, NoteError> {
-        let shared_key = shared_symetric_key(viewing_key, shield_key)?;
+        let shield_key: [u8; 32] = req.ciphertext.shieldKey.into();
+        let shared_key = shared_symetric_key(viewing_key, &shield_key)?;
 
         let ciphertext = Ciphertext {
             iv: encrypted_bundle[0][..16].try_into().unwrap(),
@@ -142,8 +123,8 @@ impl Note {
             spending_key,
             viewing_key,
             &random,
-            value,
-            asset,
+            req.preimage.value.saturating_to(),
+            req.preimage.token.clone().into(),
             "",
         ))
     }
@@ -232,6 +213,8 @@ fn get_transact_notes(
 
         // Spend
         let remaining_value = value - value_spent;
+
+        todo!()
     }
 }
 

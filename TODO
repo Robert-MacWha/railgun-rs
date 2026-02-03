@@ -1,0 +1,5 @@
+- Implement unshielding
+- Create test for unshielding
+- Create integration test that uses anvil for shield, balance check, unshield
+- Implement Transfer
+- Refactor and tidy up
