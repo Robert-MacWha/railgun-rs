@@ -20,8 +20,8 @@ use crate::{
 
 /// ShieldNote represents a note to be shielded into the railgun system.
 ///
-/// TODO: Make this functional, no need for it to be a struct
-/// since we'll always serialize to ShieldRequest
+/// TODO: Refactor me + `create_shield_transaction` into a ShieldBuilder struct
+/// that can accumulate multiple notes and create the transaction.
 pub struct ShieldNote {
     master_public_key: [u8; 32],
     random_seed: [u8; 16],
@@ -152,7 +152,6 @@ fn poseidon(inputs: &[Fr]) -> Result<Fr, PoseidonError> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::Address;
-    use ark_ff::{BigInteger, PrimeField};
     use ark_std::rand::random;
     use ed25519_dalek::SigningKey;
 
