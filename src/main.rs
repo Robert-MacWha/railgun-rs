@@ -4,7 +4,6 @@ use std::{
 };
 
 mod account;
-mod aes;
 mod caip;
 mod chain_config;
 mod crypto;

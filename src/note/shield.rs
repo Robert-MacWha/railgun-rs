@@ -7,9 +7,9 @@ use ed25519_dalek::SigningKey;
 use light_poseidon::{Poseidon, PoseidonError, PoseidonHasher};
 
 use crate::{
-    aes::{encrypt_ctr, encrypt_gcm},
     caip::AssetId,
     chain_config::ChainConfig,
+    crypto::aes::{encrypt_ctr, encrypt_gcm},
     note::{ark_to_solidity_bytes, shared_symetric_key},
     railgun::{
         address::RailgunAddress,

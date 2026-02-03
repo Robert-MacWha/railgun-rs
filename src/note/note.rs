@@ -7,8 +7,8 @@ use ark_std::rand::random;
 use thiserror::Error;
 
 use crate::{
-    aes::{AesError, Ciphertext, decrypt_gcm},
     caip::AssetId,
+    crypto::aes::{AesError, Ciphertext, decrypt_gcm},
     crypto::poseidon::poseidon_hash,
     note::{SharedKeyError, shared_symetric_key},
     railgun::{

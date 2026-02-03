@@ -156,7 +156,7 @@ pub fn decrypt_ctr(ciphertext: &CiphertextCtr, key: &[u8; 32]) -> Vec<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::aes::Ciphertext;
+    use super::*;
 
     #[test]
     fn gcm() {
@@ -213,7 +213,7 @@ mod tests {
             .collect();
 
         let expected = Ciphertext {
-            iv: hex::decode(iv).unwrap().try_into().unwrap(),
+            iv,
             tag: hex::decode(expected_tag).unwrap().try_into().unwrap(),
             data: expected_data,
         };
