@@ -157,8 +157,8 @@ mod tests {
     use ed25519_dalek::SigningKey;
 
     use crate::{
-        account::{compute_master_public_key, get_public_spending_key, get_public_viewing_key},
         caip::AssetId,
+        crypto::keys::{derive_master_public_key, derive_viewing_public_key, fr_to_bytes_be},
         note::{note::Note, shield::ShieldNote},
     };
 
@@ -202,14 +202,10 @@ mod tests {
     fn test_shield_encrypt_decrypt() {
         let spending_private_key: [u8; 32] = random();
         let viewing_private_key: [u8; 32] = random();
-        let master_pub_key = compute_master_public_key(&spending_private_key, &viewing_private_key);
-        let master_pub_key: [u8; 32] = master_pub_key
-            .into_bigint()
-            .to_bytes_be()
-            .try_into()
-            .unwrap();
+        let master_pub_key = derive_master_public_key(&spending_private_key, &viewing_private_key);
+        let master_pub_key: [u8; 32] = fr_to_bytes_be(&master_pub_key);
 
-        let viewing_key: [u8; 32] = get_public_viewing_key(&viewing_private_key);
+        let viewing_key: [u8; 32] = derive_viewing_public_key(&viewing_private_key);
         let random_seed: [u8; 16] = random();
         let value: u128 = 1_000_000;
         let token: AssetId = AssetId::Erc20(Address::from([0u8; 20]));

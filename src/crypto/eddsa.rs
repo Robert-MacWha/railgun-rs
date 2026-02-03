@@ -1,10 +1,14 @@
+//! EdDSA-related functions. Replicates the circomlibjs eddsa.prv2pub function
+//! for BabyJubJub curve.
+//!
+//! TODO: Refactor to remove babyjubjub_rs dependency. It's not audited
+//! or maintained. I just can't get ark to work with babyjubjub, nor access
+//! the private member of `babyjubjub_rs::Fr` for a conversion.
+
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use babyjubjub_rs::PrivateKey;
 
-// TODO: Refactor to remove babyjubjub_rs dependency. It's not audited
-// or maintained. I just can't get ark to work with babyjubjub, nor access
-// the private member of `babyjubjub_rs::Fr` for a conversion.
 pub fn prv2pub(prv: &[u8; 32]) -> (Fr, Fr) {
     let sk = PrivateKey::import(prv.to_vec()).unwrap();
     let pk = sk.public();

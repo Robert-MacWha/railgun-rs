@@ -1,3 +1,5 @@
+//! AES encryption and decryption using GCM and CTR modes.
+
 use aes::{
     Aes256,
     cipher::{KeyIvInit, StreamCipher},
