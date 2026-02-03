@@ -1,16 +1,15 @@
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
+use alloy::primitives::ChainId;
 use bech32::Hrp;
 use thiserror::Error;
 
-use crate::caip::ChainId;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RailgunAddress {
     pub master_public_key: [u8; 32],
     pub viewing_public_key: [u8; 32],
     pub chain: ChainId,
-    pub version: u8,
+    // pub version: u8,
 }
 
 #[derive(Debug, Error)]
@@ -40,19 +39,17 @@ impl RailgunAddress {
         master_public_key: &[u8; 32],
         viewing_public_key: &[u8; 32],
         chain: ChainId,
-        version: u8,
     ) -> Self {
         RailgunAddress {
-            master_public_key: master_public_key.clone(),
-            viewing_public_key: viewing_public_key.clone(),
+            master_public_key: *master_public_key,
+            viewing_public_key: *viewing_public_key,
             chain,
-            version,
         }
     }
 }
 
-impl ToString for RailgunAddress {
-    fn to_string(&self) -> String {
+impl Display for RailgunAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let network_id = xor_network_id(&encode_chain_id(&self.chain));
 
         let address_string = format!(
@@ -70,7 +67,7 @@ impl ToString for RailgunAddress {
             panic!("Generated address exceeds length limit");
         }
 
-        address_buffer
+        write!(f, "{}", address_buffer)
     }
 }
 
@@ -103,20 +100,15 @@ impl FromStr for RailgunAddress {
                 .try_into()
                 .map_err(|_| RailgunAddressError::InvalidKey)?,
             chain: chain_id,
-            version,
         })
     }
 }
 
 fn encode_chain_id(chain: &ChainId) -> String {
-    match chain {
-        ChainId::Eip155(id) => {
-            let mut bytes = [0u8; 8];
-            bytes[0] = 0;
-            bytes[1..].copy_from_slice(&id.to_be_bytes()[1..]);
-            hex::encode(bytes)
-        }
-    }
+    let mut bytes = [0u8; 8];
+    bytes[0] = 0;
+    bytes[1..].copy_from_slice(&chain.to_be_bytes()[1..]);
+    hex::encode(bytes)
 }
 
 fn decode_network_id(encoded: &str) -> Result<ChainId, RailgunAddressError> {
@@ -127,7 +119,7 @@ fn decode_network_id(encoded: &str) -> Result<ChainId, RailgunAddressError> {
             id_bytes.copy_from_slice(&encoded[..8]);
             id_bytes[0] = 0;
             let id = u64::from_be_bytes(id_bytes);
-            Ok(ChainId::Eip155(id))
+            Ok(id.into())
         }
         _ => Err(RailgunAddressError::InvalidChainId),
     }
@@ -152,13 +144,11 @@ mod tests {
     fn test_railgun_address_to_from_string() {
         let master_public_key: [u8; 32] = [1u8; 32];
         let viewing_public_key: [u8; 32] = [2u8; 32];
-        let chain = ChainId::Eip155(1);
-        let version = 1;
+        let chain = 1;
 
         let expected_address_string = "0zk1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszunpd9kxwatwqypqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqy3t4umn";
 
-        let railgun_address =
-            RailgunAddress::new(&master_public_key, &viewing_public_key, chain, version);
+        let railgun_address = RailgunAddress::new(&master_public_key, &viewing_public_key, chain);
 
         let address_string = railgun_address.to_string();
         let parsed_address = RailgunAddress::from_str(&address_string).unwrap();

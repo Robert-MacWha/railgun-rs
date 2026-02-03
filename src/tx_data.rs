@@ -1,8 +1,8 @@
-use alloy::primitives::Address;
-use num_bigint::BigInt;
+use alloy::primitives::{Address, U256};
 
+#[derive(Debug, Clone)]
 pub struct TxData {
     pub to: Address,
     pub data: Vec<u8>,
-    pub value: BigInt,
+    pub value: U256,
 }

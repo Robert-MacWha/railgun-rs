@@ -1,28 +1,33 @@
-use alloy::primitives::{Address, Uint};
+use alloy::primitives::{U256, Uint};
 use alloy_sol_types::SolCall;
 use ark_bn254::Fr;
-use ark_ff::{BigInt, PrimeField};
-use ark_serialize::CanonicalSerialize;
+use ark_ff::PrimeField;
 use ark_std::rand;
-use curve25519_dalek::{Scalar, edwards::CompressedEdwardsY};
 use ed25519_dalek::SigningKey;
 use light_poseidon::{Poseidon, PoseidonError, PoseidonHasher};
-use sha2::{Digest, Sha256, Sha512};
 
 use crate::{
     aes::{encrypt_ctr, encrypt_gcm},
-    caip::{AssetId, ChainId},
-    railgun::{CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, ShieldRequest},
-    railgun_address::RailgunAddress,
+    caip::AssetId,
+    chain_config::ChainConfig,
+    note::{ark_to_solidity_bytes, shared_symetric_key},
+    railgun::{
+        address::RailgunAddress,
+        sol::{CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, ShieldRequest},
+    },
     tx_data::TxData,
 };
 
+/// ShieldNote represents a note to be shielded into the railgun system.
+///
+/// TODO: Make this functional, no need for it to be a struct
+/// since we'll always serialize to ShieldRequest
 pub struct ShieldNote {
     master_public_key: [u8; 32],
     random_seed: [u8; 16],
-    value: u128,
-    token: AssetId,
-    token_hash: Fr,
+    amount: u128,
+    asset: AssetId,
+    asset_hash: Fr,
     note_public_key: Fr,
 }
 
@@ -32,9 +37,19 @@ pub struct ShieldRecipient {
     amount: u128,
 }
 
+impl ShieldRecipient {
+    pub fn new(asset: AssetId, recipient: RailgunAddress, amount: u128) -> Self {
+        ShieldRecipient {
+            asset,
+            recipient,
+            amount,
+        }
+    }
+}
+
 pub fn create_shield_transaction(
     shield_private_key: &[u8; 32],
-    chain: ChainId,
+    chain: ChainConfig,
     recipients: &[ShieldRecipient],
 ) -> Result<TxData, PoseidonError> {
     let random: [u8; 16] = rand::random();
@@ -45,7 +60,7 @@ pub fn create_shield_transaction(
             &recipient.recipient.master_public_key,
             &random,
             recipient.amount,
-            recipient.asset,
+            recipient.asset.clone(),
         );
         let serialized =
             note.serialize(shield_private_key, &recipient.recipient.viewing_public_key)?;
@@ -59,9 +74,9 @@ pub fn create_shield_transaction(
 
     // TODO: Get address from chain config
     Ok(TxData {
-        to: Address::ZERO,
+        to: chain.railgun_smart_wallet,
         data: calldata,
-        value: num_bigint::BigInt::ZERO,
+        value: U256::ZERO,
     })
 }
 
@@ -69,20 +84,20 @@ impl ShieldNote {
     pub fn new(
         master_public_key: &[u8; 32],
         random_seed: &[u8; 16],
-        value: u128,
-        token: AssetId,
+        amount: u128,
+        asset: AssetId,
     ) -> Self {
         let fr_master_public_key = Fr::from_be_bytes_mod_order(master_public_key);
         let fr_random_seed = Fr::from_be_bytes_mod_order(random_seed);
 
-        let token_hash = token.hash();
+        let asset_hash = asset.hash();
         let note_public_key = poseidon(&[fr_master_public_key, fr_random_seed]).unwrap();
         ShieldNote {
             master_public_key: master_public_key.clone(),
             random_seed: random_seed.clone(),
-            value,
-            token,
-            token_hash,
+            amount,
+            asset,
+            asset_hash,
             note_public_key,
         }
     }
@@ -92,8 +107,7 @@ impl ShieldNote {
         shield_private_key: &[u8; 32],
         receiver_viewing_key: &[u8; 32],
     ) -> Result<ShieldRequest, PoseidonError> {
-        let shared_key = shared_symetric_key(shield_private_key, receiver_viewing_key)
-            .expect("Failed to compute shared key");
+        let shared_key = shared_symetric_key(shield_private_key, receiver_viewing_key).unwrap();
 
         let encrypted_random = encrypt_gcm(&[self.random_seed.as_slice()], &shared_key).unwrap();
         let encrypted_receiver = encrypt_ctr(&[receiver_viewing_key], shield_private_key);
@@ -103,6 +117,7 @@ impl ShieldNote {
 
         let npk = ark_to_solidity_bytes(self.note_public_key);
 
+        //? Bit-pack the encrypted data into the ShieldCiphertext bundles
         let mut bundle_0 = [0u8; 32];
         bundle_0[..16].copy_from_slice(&encrypted_random.iv);
         bundle_0[16..].copy_from_slice(&encrypted_random.tag);
@@ -119,8 +134,8 @@ impl ShieldNote {
         return Ok(ShieldRequest {
             preimage: CommitmentPreimage {
                 npk: npk.into(),
-                token: self.token.into(),
-                value: Uint::from(self.value),
+                token: self.asset.clone().into(),
+                value: Uint::from(self.amount),
             },
             ciphertext: ShieldCiphertext {
                 encryptedBundle: [bundle_0.into(), bundle_1.into(), bundle_2.into()],
@@ -134,42 +149,18 @@ fn poseidon(inputs: &[Fr]) -> Result<Fr, PoseidonError> {
     Poseidon::<Fr>::new_circom(inputs.len())?.hash(inputs)
 }
 
-fn shared_symetric_key(
-    private_key_a: &[u8; 32],
-    blinded_public_key_b: &[u8; 32],
-) -> Option<[u8; 32]> {
-    let scalar = private_scalar_from_private_key(private_key_a);
-
-    let public_point = CompressedEdwardsY(*blinded_public_key_b).decompress()?;
-    let shared_point = public_point * scalar;
-    let digest = Sha256::digest(shared_point.compress().to_bytes());
-    return Some(digest.into());
-}
-
-fn private_scalar_from_private_key(private_key: &[u8; 32]) -> Scalar {
-    let hash = Sha512::digest(private_key);
-    let mut head = [0u8; 32];
-    head.copy_from_slice(&hash[..32]);
-
-    // Clamp as per ED25519
-    head[0] &= 248;
-    head[31] &= 63;
-    head[31] |= 64;
-
-    Scalar::from_bytes_mod_order(head)
-}
-
-pub fn ark_to_solidity_bytes(fr: Fr) -> [u8; 32] {
-    let bigint = fr.into_bigint();
-    let mut bytes = [0u8; 32];
-    bigint.serialize_compressed(&mut bytes[..]).unwrap();
-    bytes.reverse();
-    bytes
-}
-
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::Address;
+    use ark_ff::{BigInteger, PrimeField};
+    use ark_std::rand::random;
     use ed25519_dalek::SigningKey;
+
+    use crate::{
+        account::{compute_master_public_key, get_public_spending_key, get_public_viewing_key},
+        caip::AssetId,
+        note::{note::Note, shield::ShieldNote},
+    };
 
     #[test]
     fn test_shared_key() {
@@ -205,6 +196,38 @@ mod tests {
             super::shared_symetric_key(&private_key_a, &public_key_b).expect("Failed A->B");
 
         assert_eq!(shared_key_ab, expected_shared_key);
+    }
+
+    #[test]
+    fn test_shield_encrypt_decrypt() {
+        let spending_private_key: [u8; 32] = random();
+        let viewing_private_key: [u8; 32] = random();
+        let master_pub_key = compute_master_public_key(&spending_private_key, &viewing_private_key);
+        let master_pub_key: [u8; 32] = master_pub_key
+            .into_bigint()
+            .to_bytes_be()
+            .try_into()
+            .unwrap();
+
+        let viewing_key: [u8; 32] = get_public_viewing_key(&viewing_private_key);
+        let random_seed: [u8; 16] = random();
+        let value: u128 = 1_000_000;
+        let token: AssetId = AssetId::Erc20(Address::from([0u8; 20]));
+
+        let shield_note = ShieldNote::new(&master_pub_key, &random_seed, value, token.clone());
+        let req = shield_note
+            .serialize(&spending_private_key, &viewing_key)
+            .expect("Failed to serialize shield note");
+
+        // Decrypt the note
+        let decrypted =
+            Note::decrypt_shield_request(req, &viewing_private_key, &spending_private_key)
+                .expect("Failed to decrypt shield note");
+
+        assert_eq!(decrypted.value, value);
+        assert_eq!(decrypted.token, token);
+        assert_eq!(decrypted.random_seed, random_seed);
+        assert_eq!(decrypted.memo, "");
     }
 
     #[test]
