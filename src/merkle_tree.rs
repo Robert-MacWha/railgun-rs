@@ -32,8 +32,7 @@ pub struct MerkleTreeState {
 
     pub number: u64,
     pub depth: usize,
-    pub leaves: Vec<[u8; 32]>,
-    pub root: [u8; 32],
+    pub tree: Vec<Vec<[u8; 32]>>,
 }
 
 pub struct MerkleProof {
@@ -51,7 +50,7 @@ pub enum MerkleTreeError {
 
 const TREE_DEPTH: usize = 16;
 
-// TODO: Add benchmarks for me
+// TODO: Add benchmarks
 // TODO: Consider dirty optimizations for sparse trees. Slower while syncing,
 // faster for incremental updates.
 impl MerkleTree {
@@ -80,18 +79,17 @@ impl MerkleTree {
     /// from the leaves automatically.
     pub fn new_from_state(state: MerkleTreeState) -> Self {
         let mut tree = MerkleTree::new_with_depth(state.number, state.depth);
-        let leaves: Vec<Fr> = state
-            .leaves
+        tree.tree = state
+            .tree
             .iter()
-            .map(|leaf_bytes| Fr::from_be_bytes_mod_order(leaf_bytes))
+            .map(|level| {
+                level
+                    .iter()
+                    .map(|bytes| Fr::from_be_bytes_mod_order(bytes))
+                    .collect()
+            })
             .collect();
-        tree.insert_leaves(&leaves, 0);
-        tree.rebuild_sparse_tree();
         tree.nullifiers = state.nullifiers;
-
-        if tree.root() != Fr::from_be_bytes_mod_order(&state.root) {
-            panic!("Rebuilt root does not match state root");
-        }
 
         tree
     }
@@ -106,18 +104,19 @@ impl MerkleTree {
     }
 
     pub fn into_state(mut self) -> MerkleTreeState {
-        let root = &self.root();
-        let leaves: Vec<[u8; 32]> = self.tree[0]
+        self.rebuild_sparse_tree();
+
+        let tree: Vec<Vec<[u8; 32]>> = self
+            .tree
             .iter()
-            .map(|leaf| fr_to_bytes_be(leaf))
+            .map(|level| level.iter().map(|fr| fr_to_bytes_be(fr)).collect())
             .collect();
 
         MerkleTreeState {
-            nullifiers: self.nullifiers,
+            nullifiers: self.nullifiers.clone(),
             number: self.number,
             depth: self.depth,
-            leaves,
-            root: fr_to_bytes_be(root),
+            tree,
         }
     }
 

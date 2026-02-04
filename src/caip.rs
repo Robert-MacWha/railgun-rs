@@ -2,13 +2,22 @@ use alloy::primitives::{Address, U256, Uint};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 
-use crate::railgun::sol::{TokenData, TokenType};
+use crate::{
+    abis::railgun::{TokenData, TokenType},
+    railgun::address::RailgunAddress,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssetId {
     Erc20(Address),
     Erc721(Address, U256),
     Erc1155(Address, U256),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AccountId {
+    Eip155(Address),
+    Railgun(RailgunAddress),
 }
 
 impl AssetId {

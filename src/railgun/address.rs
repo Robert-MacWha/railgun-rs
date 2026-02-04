@@ -4,11 +4,11 @@ use alloy::primitives::ChainId;
 use bech32::Hrp;
 use thiserror::Error;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RailgunAddress {
-    pub master_public_key: [u8; 32],
-    pub viewing_public_key: [u8; 32],
-    pub chain: ChainId,
+    master_public_key: [u8; 32],
+    viewing_public_key: [u8; 32],
+    chain: ChainId,
     // pub version: u8,
 }
 
@@ -45,6 +45,37 @@ impl RailgunAddress {
             viewing_public_key: *viewing_public_key,
             chain,
         }
+    }
+
+    pub fn from_private_keys(
+        spending_private_key: &[u8; 32],
+        viewing_private_key: &[u8; 32],
+        chain: ChainId,
+    ) -> Self {
+        let master_public_key = crate::crypto::keys::derive_master_public_key(
+            spending_private_key,
+            viewing_private_key,
+        );
+        let viewing_public_key =
+            crate::crypto::keys::derive_viewing_public_key(viewing_private_key);
+
+        RailgunAddress::new(
+            &crate::crypto::keys::fr_to_bytes_be(&master_public_key),
+            &viewing_public_key,
+            chain,
+        )
+    }
+
+    pub fn master_public_key(&self) -> &[u8; 32] {
+        &self.master_public_key
+    }
+
+    pub fn viewing_public_key(&self) -> &[u8; 32] {
+        &self.viewing_public_key
+    }
+
+    pub fn chain(&self) -> ChainId {
+        self.chain
     }
 }
 

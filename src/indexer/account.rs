@@ -3,13 +3,11 @@ use std::collections::{BTreeMap, HashMap};
 use tracing::info;
 
 use crate::{
+    abis::railgun::{RailgunSmartWallet, ShieldRequest},
     caip::AssetId,
     indexer::indexer::TOTAL_LEAVES,
     note::note::{Note, NoteError},
-    railgun::{
-        address::RailgunAddress,
-        sol::{RailgunSmartWallet, ShieldRequest},
-    },
+    railgun::address::RailgunAddress,
 };
 
 /// IndexerAccount represents a Railgun account being tracked by the indexer.
@@ -18,14 +16,16 @@ use crate::{
 /// storing them in the notebook for reference.
 pub struct IndexerAccount {
     address: RailgunAddress,
+    /// Private viewing key
     viewing_key: [u8; 32],
+    /// Private spending key
     spending_key: [u8; 32],
 
     /// The latest block number that has been processed for this account
     synced_block: u64,
 
     /// The notes held by this account, organized by tree number and note position
-    notes: BTreeMap<u64, BTreeMap<u64, Note>>,
+    notes: BTreeMap<u32, BTreeMap<u32, Note>>,
 }
 
 impl IndexerAccount {
@@ -43,7 +43,7 @@ impl IndexerAccount {
         self.address
     }
 
-    pub fn notebooks(&self) -> &BTreeMap<u64, BTreeMap<u64, Note>> {
+    pub fn notebooks(&self) -> &BTreeMap<u32, BTreeMap<u32, Note>> {
         &self.notes
     }
 
@@ -73,8 +73,8 @@ impl IndexerAccount {
         event: &RailgunSmartWallet::Shield,
         block_number: u64,
     ) -> Result<(), NoteError> {
-        let tree_number: u64 = event.treeNumber.saturating_to();
-        let start_position: u64 = event.startPosition.saturating_to();
+        let tree_number: u32 = event.treeNumber.saturating_to();
+        let start_position: u32 = event.startPosition.saturating_to();
 
         info!(
             "Handling Shield Event: tree_number={}, start_position={}, commitments={}",
@@ -103,8 +103,8 @@ impl IndexerAccount {
                 "Decrypted Shield Note: index={}, value={}, asset={:?}",
                 index, note.value, note.token
             );
-            let is_crossing_tree = start_position + index as u64 >= TOTAL_LEAVES;
-            let index = index as u64;
+            let is_crossing_tree = start_position + index as u32 >= TOTAL_LEAVES;
+            let index = index as u32;
             let (tree_number, note_position) = if is_crossing_tree {
                 (tree_number + 1, start_position + index - TOTAL_LEAVES)
             } else {
@@ -126,8 +126,8 @@ impl IndexerAccount {
         event: &RailgunSmartWallet::Transact,
         block_number: u64,
     ) -> Result<(), NoteError> {
-        let tree_number: u64 = event.treeNumber.saturating_to();
-        let start_position: u64 = event.startPosition.saturating_to();
+        let tree_number: u32 = event.treeNumber.saturating_to();
+        let start_position: u32 = event.startPosition.saturating_to();
 
         for (index, ciphertext) in event.ciphertext.iter().enumerate() {
             let note = Note::decrypt(&ciphertext, &self.viewing_key, &self.spending_key);
@@ -138,8 +138,8 @@ impl IndexerAccount {
                 Ok(n) => n,
             };
 
-            let is_crossing_tree = start_position + index as u64 >= TOTAL_LEAVES;
-            let index = index as u64;
+            let is_crossing_tree = start_position + index as u32 >= TOTAL_LEAVES;
+            let index = index as u32;
             let (tree_number, note_position) = if is_crossing_tree {
                 (tree_number + 1, start_position + index - TOTAL_LEAVES)
             } else {

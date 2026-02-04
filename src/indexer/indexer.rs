@@ -5,7 +5,7 @@ use std::{
 
 use alloy::{
     primitives::{ChainId, U256},
-    providers::Provider,
+    providers::{DynProvider, Provider},
     rpc::types::{Filter, Log},
 };
 use alloy_sol_types::SolEvent;
@@ -16,17 +16,18 @@ use thiserror::Error;
 use tracing::{info, info_span};
 
 use crate::{
+    abis::railgun::RailgunSmartWallet,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
     crypto::{keys::fr_to_bytes_be, poseidon::poseidon_hash},
     indexer::{account::IndexerAccount, subsquid_client::SubsquidClient},
     merkle_tree::{MerkleTree, MerkleTreeState},
-    note::note::NoteError,
-    railgun::{address::RailgunAddress, sol::RailgunSmartWallet},
+    note::note::{Note, NoteError},
+    railgun::address::RailgunAddress,
 };
 
-pub struct Indexer<P: Provider + Clone> {
-    provider: P,
+pub struct Indexer {
+    provider: DynProvider,
     chain: ChainConfig,
     /// The latest block number that has been synced
     synced_block: u64,
@@ -64,10 +65,10 @@ pub enum ValidationError {
 }
 
 const BATCH_SIZE: u64 = 1000;
-pub const TOTAL_LEAVES: u64 = 2u64.pow(16);
+pub const TOTAL_LEAVES: u32 = 2u32.pow(16);
 
-impl<P: Provider + Clone> Indexer<P> {
-    pub fn new(provider: P, chain: ChainConfig) -> Self {
+impl Indexer {
+    pub fn new(provider: DynProvider, chain: ChainConfig) -> Self {
         Indexer {
             provider,
             chain,
@@ -77,7 +78,7 @@ impl<P: Provider + Clone> Indexer<P> {
         }
     }
 
-    pub fn new_with_state(provider: P, state: IndexerState) -> Option<Self> {
+    pub fn new_with_state(provider: DynProvider, state: IndexerState) -> Option<Self> {
         let chain = get_chain_config(1)?;
         let trees = state
             .trees
@@ -106,6 +107,16 @@ impl<P: Provider + Clone> Indexer<P> {
         self.synced_block
     }
 
+    pub fn notes(&self, address: RailgunAddress) -> BTreeMap<u32, BTreeMap<u32, Note>> {
+        for account in self.accounts.iter() {
+            if account.address() == address {
+                return account.notebooks().clone();
+            }
+        }
+
+        BTreeMap::new()
+    }
+
     pub fn balance(&self, address: RailgunAddress) -> HashMap<AssetId, u128> {
         for account in self.accounts.iter() {
             if account.address() == address {
@@ -124,19 +135,13 @@ impl<P: Provider + Clone> Indexer<P> {
         }
     }
 
-    pub fn into_state(self) -> IndexerState {
-        IndexerState {
-            chain_id: self.chain.id,
-            synced_block: self.synced_block,
-            trees: self
-                .trees
-                .into_iter()
-                .map(|(k, v)| (k, v.into_state()))
-                .collect(),
-        }
-    }
-
-    /// Syncs the indexer with the blockchain
+    /// Sync the indexer with the head of the chain
+    ///
+    /// Syncs by fetching logs in batches and processing them to update the Merkle
+    /// Trees and accounts. The provider must be an archival node to fetch historical
+    /// logs.
+    ///
+    /// TODO: Add error handling for provider log rate batch size limits
     pub async fn sync(&mut self) -> Result<(), SyncError> {
         let start_block = self.synced_block + 1;
         let end_block = self.provider.get_block_number().await.unwrap();
@@ -173,11 +178,15 @@ impl<P: Provider + Clone> Indexer<P> {
     /// If to_block is None, syncs up to the latest block
     ///
     /// TODO: Make this a generic method so it's only present when subsquid_endpoint is set
-    ///
     /// TODO: Have this sync full notes so we can track balances
     pub async fn sync_from_subsquid(&mut self, to_block: Option<u64>) -> Result<(), SyncError> {
         let Some(endpoint) = self.chain.subsquid_endpoint else {
             return Err(SyncError::MissingSubsquidEndpoint);
+        };
+
+        let to_block = match to_block {
+            Some(b) => b,
+            None => self.provider.get_block_number().await.unwrap(),
         };
 
         info!(
@@ -187,7 +196,7 @@ impl<P: Provider + Clone> Indexer<P> {
         let span = info_span!("Fetch Commitments",).entered();
         let client = SubsquidClient::new(endpoint);
         let commitments = client
-            .fetch_all_commitments(self.synced_block, to_block)
+            .fetch_all_commitments(self.synced_block, Some(to_block))
             .await?;
         span.exit();
 
@@ -232,19 +241,18 @@ impl<P: Provider + Clone> Indexer<P> {
         }
         span.exit();
 
+        self.synced_block = to_block;
+
         Ok(())
     }
 
+    /// Validates that all Merkle Tree roots are seen on-chain. If any are not,
+    /// returns a ValidationError.
     pub async fn validate(&mut self) -> Result<(), ValidationError> {
         let contract =
             RailgunSmartWallet::new(self.chain.railgun_smart_wallet, self.provider.clone());
 
         for (i, tree) in self.trees.iter_mut() {
-            if *i != 2 {
-                info!("Skipping validation for tree {}", i);
-                continue;
-            }
-
             let root = fr_to_bytes_be(&tree.root());
             let seen = contract
                 .rootHistory(U256::from(*i), root.into())
@@ -258,7 +266,7 @@ impl<P: Provider + Clone> Indexer<P> {
                 });
             }
 
-            info!("Validated tree {} with root {:?}", i, root);
+            info!("Validated tree {}", i);
         }
 
         Ok(())

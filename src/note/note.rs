@@ -1,26 +1,30 @@
-use std::collections::BTreeMap;
-
-use alloy::primitives::Address;
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ark_std::rand::random;
 use thiserror::Error;
+use tracing::info;
 
 use crate::{
+    abis::railgun::{CommitmentCiphertext, ShieldRequest, TokenData, TokenDataError},
     caip::AssetId,
-    crypto::aes::{AesError, Ciphertext, decrypt_gcm},
-    crypto::poseidon::poseidon_hash,
-    note::{SharedKeyError, shared_symetric_key},
-    railgun::{
-        address::RailgunAddress,
-        sol::{CommitmentCiphertext, ShieldRequest, TokenData, TokenDataError},
+    crypto::{
+        aes::{AesError, Ciphertext, decrypt_gcm, encrypt_ctr, encrypt_gcm},
+        concat_arrays, concat_arrays_3,
+        ed25519::{BlindKeyError, SharedKeyError, blind_keys, derive_shared_symmetric_key},
+        keys::{derive_viewing_public_key, fr_to_bytes_be},
+        poseidon::poseidon_hash,
+        railgun_base_37,
     },
+    railgun::address::RailgunAddress,
 };
 
-#[derive(Clone, Debug)]
+/// Note represents a Railgun from the chain.
+/// TODO: Consider adding leaf_index / tree_position to Note struct,
+/// so it knows its own index in the tree
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Note {
-    pub spending_key: [u8; 32],
-    pub viewing_key: [u8; 32],
+    pub spending_private_key: [u8; 32],
+    pub viewing_private_key: [u8; 32],
     pub random_seed: [u8; 16],
     pub value: u128,
     pub token: AssetId,
@@ -37,18 +41,30 @@ pub enum NoteError {
     TokenData(#[from] TokenDataError),
 }
 
+#[derive(Debug, Error)]
+pub enum EncryptError {
+    #[error("Railgun base37 encoding error: {0}")]
+    RailgunBase37(#[from] railgun_base_37::EncodingError),
+    #[error("Blinding error: {0}")]
+    BlindKey(#[from] BlindKeyError),
+    #[error("Shared key error: {0}")]
+    SharedKey(#[from] SharedKeyError),
+    #[error("AES encryption error: {0}")]
+    Aes(#[from] AesError),
+}
+
 impl Note {
     pub fn new(
-        spending_key: &[u8; 32],
-        viewing_key: &[u8; 32],
+        spending_private_key: &[u8; 32],
+        viewing_private_key: &[u8; 32],
         random_seed: &[u8; 16],
         value: u128,
         token: AssetId,
         memo: &str,
     ) -> Self {
         Note {
-            spending_key: *spending_key,
-            viewing_key: *viewing_key,
+            spending_private_key: *spending_private_key,
+            viewing_private_key: *viewing_private_key,
             random_seed: *random_seed,
             value,
             token,
@@ -59,15 +75,18 @@ impl Note {
     /// Decrypt a note
     pub fn decrypt(
         encrypted: &CommitmentCiphertext,
-        viewing_key: &[u8; 32],
-        spending_key: &[u8; 32],
+        viewing_private_key: &[u8; 32],
+        spending_private_key: &[u8; 32],
     ) -> Result<Note, NoteError> {
-        let shared_key =
-            shared_symetric_key(viewing_key, &encrypted.blindedSenderViewingKey.into())?;
+        let shared_key = derive_shared_symmetric_key(
+            viewing_private_key,
+            &encrypted.blindedSenderViewingKey.into(),
+        )?;
 
         let data: Vec<Vec<u8>> = vec![
             encrypted.ciphertext[1].to_vec(),
             encrypted.ciphertext[2].to_vec(),
+            encrypted.ciphertext[3].to_vec(),
             encrypted.memo.to_vec(),
         ];
 
@@ -78,17 +97,19 @@ impl Note {
         };
         let bundle = decrypt_gcm(&ciphertext, &shared_key)?;
 
-        let random: [u8; 16] = bundle[1][16..32].try_into().unwrap();
-        let value: u128 = u128::from_be_bytes(bundle[1][0..16].try_into().unwrap());
+        let random: [u8; 16] = bundle[1][0..16].try_into().unwrap();
+        let value: u128 = u128::from_be_bytes(bundle[1][16..32].try_into().unwrap());
         let token_data = TokenData::from_hash(&bundle[2])?;
         let asset_id = AssetId::from(token_data);
-        // TODO: Figure this out - I think it's always false?  Not sure what's
-        // happening
-        let memo = if bundle.len() > 3 { todo!() } else { "" };
+        let memo = if bundle.len() > 3 {
+            std::str::from_utf8(&bundle[3]).unwrap_or("")
+        } else {
+            ""
+        };
 
         Ok(Note::new(
-            spending_key,
-            viewing_key,
+            spending_private_key,
+            viewing_private_key,
             &random,
             value,
             asset_id,
@@ -99,8 +120,8 @@ impl Note {
     /// Decrypts a shield note into a Note
     pub fn decrypt_shield_request(
         req: ShieldRequest,
-        viewing_key: &[u8; 32],
-        spending_key: &[u8; 32],
+        viewing_private_key: &[u8; 32],
+        spending_private_key: &[u8; 32],
     ) -> Result<Note, NoteError> {
         let encrypted_bundle: [[u8; 32]; 3] = [
             req.ciphertext.encryptedBundle[0].into(),
@@ -109,7 +130,7 @@ impl Note {
         ];
 
         let shield_key: [u8; 32] = req.ciphertext.shieldKey.into();
-        let shared_key = shared_symetric_key(viewing_key, &shield_key)?;
+        let shared_key = derive_shared_symmetric_key(viewing_private_key, &shield_key)?;
 
         let ciphertext = Ciphertext {
             iv: encrypted_bundle[0][..16].try_into().unwrap(),
@@ -120,104 +141,148 @@ impl Note {
         let random: [u8; 16] = decrypted[0][0..16].try_into().unwrap();
 
         Ok(Note::new(
-            spending_key,
-            viewing_key,
+            spending_private_key,
+            viewing_private_key,
             &random,
             req.preimage.value.saturating_to(),
             req.preimage.token.clone().into(),
             "",
         ))
     }
-}
 
-impl Note {
-    pub fn nullifier(&self, leaf_index: u64) -> [u8; 32] {
+    pub fn nullifier(&self, leaf_index: u32) -> [u8; 32] {
         let hash: Fr = poseidon_hash(&[self.nullifying_key(), Fr::from(leaf_index)]);
         hash.into_bigint().to_bytes_be().try_into().unwrap()
     }
 
-    /// Encrypt the note's commitment ciphertext. If `blind` is true, uses a random
-    /// sender viewing key. Otherwise uses a constant 0-key so the data can be
-    /// decrypted.
-    pub fn encrypt(&self, sender_viewing_key: [u8; 32], blind: bool) -> Vec<u8> {
-        todo!()
-    }
-
     fn nullifying_key(&self) -> Fr {
-        poseidon_hash(&[Fr::from_be_bytes_mod_order(&self.viewing_key)])
+        poseidon_hash(&[Fr::from_be_bytes_mod_order(&self.viewing_private_key)])
     }
 }
 
-enum Receiver {
-    RailgunAddress(RailgunAddress),
-    EthAddress(Address),
-}
-
-fn get_transact_notes(
-    spending_key: &[u8; 32],
-    viewing_key: &[u8; 32],
-    token: AssetId,
+pub fn encrypt_note(
+    receiver: &RailgunAddress,
+    shared_random: &[u8; 16],
     value: u128,
-    receiver: Receiver,
-) {
-    let unspent_notes = get_unspent_notes(token.clone());
-    let is_unshield = match receiver {
-        Receiver::RailgunAddress(_) => false,
-        Receiver::EthAddress(_) => true,
-    };
+    asset: &AssetId,
+    memo: &str,
+    sender_viewing_private_key: &[u8; 32],
+    blind: bool,
+) -> Result<CommitmentCiphertext, EncryptError> {
+    let output_type = 0;
+    let application_identifier = railgun_base_37::encode("railgun rs")?;
+    let viewing_pub_key = derive_viewing_public_key(sender_viewing_private_key);
+    let sender_random: [u8; 15] = if blind { random() } else { [0u8; 15] };
 
-    let mut notes_in: BTreeMap<u32, Vec<Note>> = BTreeMap::new();
-    let mut notes_out: BTreeMap<u32, Vec<Note>> = BTreeMap::new();
-    let mut nullifiers: BTreeMap<u32, Vec<[u8; 32]>> = BTreeMap::new();
-    let mut total_value: u128 = 0;
-    let mut value_spent: u128 = 0;
+    let (blinded_sender_pub_key, blinded_receiver_pub_key) = blind_keys(
+        &viewing_pub_key,
+        receiver.viewing_public_key(),
+        &concat_arrays(&shared_random, &[0u8; 16]),
+        &concat_arrays(&sender_random, &[0u8; 17]),
+    )?;
 
-    for (tree_number, notes) in unspent_notes.iter() {
-        let mut tree_value: u128 = 0;
-        let mut tree_notes_in: Vec<Note> = Vec::new();
-        let mut tree_notes_out: Vec<Note> = Vec::new();
-        let mut tree_nullifiers: Vec<[u8; 32]> = Vec::new();
+    let shared_key =
+        derive_shared_symmetric_key(sender_viewing_private_key, &blinded_receiver_pub_key)?;
 
-        for note in notes {
-            total_value += note.value;
-            tree_value += note.value;
-            tree_notes_in.push(note.clone());
+    let gcm = encrypt_gcm(
+        &[
+            receiver.master_public_key(),
+            &concat_arrays::<16, 16, 32>(&shared_random, &value.to_be_bytes()),
+            &fr_to_bytes_be(&asset.hash()),
+            memo.as_bytes(),
+        ],
+        &shared_key,
+    )?;
 
-            // TODO: Get note index
-            let note_index = 0;
-            let nullifier = note.nullifier(note_index);
-            tree_nullifiers.push(nullifier);
+    let ctr = encrypt_ctr(
+        &[&concat_arrays_3::<1, 15, 16, 32>(
+            &[output_type],
+            &sender_random,
+            &application_identifier,
+        )],
+        &viewing_pub_key,
+    );
 
-            if total_value >= value {
-                break;
-            }
-        }
+    let bundle_1: [u8; 32] = gcm.data[0].clone().try_into().unwrap();
+    let bundle_2: [u8; 32] = gcm.data[1].clone().try_into().unwrap();
+    let bundle_3: [u8; 32] = gcm.data[2].clone().try_into().unwrap();
 
-        if tree_value == 0 {
-            continue;
-        }
-
-        //? If a note's being partially spent, need to create a change note
-        if total_value > value {
-            let change_value = total_value - value;
-            let change_note = Note::new(
-                spending_key,
-                viewing_key,
-                &random(),
-                change_value,
-                token.clone(),
-                "",
-            );
-            tree_notes_out.push(change_note);
-        }
-
-        // Spend
-        let remaining_value = value - value_spent;
-
-        todo!()
-    }
+    return Ok(CommitmentCiphertext {
+        // iv (16) | tag (16)
+        // master_public_key (32)
+        // random (16) | value (16)
+        // token_hash (32)
+        ciphertext: [
+            concat_arrays(&gcm.iv, &gcm.tag).into(),
+            bundle_1.into(),
+            bundle_2.into(),
+            bundle_3.into(),
+        ],
+        blindedSenderViewingKey: blinded_sender_pub_key.into(),
+        blindedReceiverViewingKey: blinded_receiver_pub_key.into(),
+        // ctr_iv (16) | encrypted_sender_bundle (any)
+        annotationData: [ctr.iv.as_slice(), &ctr.data[0]].concat().into(),
+        memo: gcm.data[3].clone().into(),
+    });
 }
 
-fn get_unspent_notes(token: AssetId) -> BTreeMap<u32, Vec<Note>> {
-    todo!()
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::address;
+
+    use super::*;
+
+    #[test]
+    fn test_encrypt_decrypt_note() {
+        tracing_subscriber::fmt().init();
+
+        let chain_id = 1;
+
+        // Sender keys
+        let sender_viewing_private_key = [2u8; 32];
+
+        // Receiver keys
+        let receiver_spending_private_key = [3u8; 32];
+        let receiver_viewing_private_key = [4u8; 32];
+        let receiver = RailgunAddress::from_private_keys(
+            &receiver_spending_private_key,
+            &receiver_viewing_private_key,
+            chain_id,
+        );
+
+        let shared_random = [5u8; 16];
+        let value = 1000u128;
+        let asset = AssetId::Erc20(address!("0x1234567890123456789012345678901234567890"));
+        let memo = "test memo";
+
+        let encrypted = encrypt_note(
+            &receiver,
+            &shared_random,
+            value,
+            &asset,
+            memo,
+            &sender_viewing_private_key,
+            false,
+        )
+        .unwrap();
+
+        // Receiver decrypts with their own keys
+        let decrypted = Note::decrypt(
+            &encrypted,
+            &receiver_viewing_private_key,
+            &receiver_spending_private_key,
+        )
+        .unwrap();
+
+        let expected = Note::new(
+            &receiver_spending_private_key,
+            &receiver_viewing_private_key,
+            &shared_random,
+            value,
+            asset,
+            memo,
+        );
+
+        assert_eq!(expected, decrypted);
+    }
 }

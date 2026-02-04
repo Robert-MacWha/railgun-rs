@@ -7,18 +7,20 @@ use ed25519_dalek::SigningKey;
 use light_poseidon::{Poseidon, PoseidonError, PoseidonHasher};
 
 use crate::{
+    abis::railgun::{CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, ShieldRequest},
     caip::AssetId,
     chain_config::ChainConfig,
-    crypto::aes::{encrypt_ctr, encrypt_gcm},
-    note::{ark_to_solidity_bytes, shared_symetric_key},
-    railgun::{
-        address::RailgunAddress,
-        sol::{CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, ShieldRequest},
+    crypto::{
+        aes::{encrypt_ctr, encrypt_gcm},
+        concat_arrays,
+        ed25519::derive_shared_symmetric_key,
     },
+    note::ark_to_solidity_bytes,
+    railgun::address::RailgunAddress,
     tx_data::TxData,
 };
 
-/// ShieldNote represents a note to be shielded into the railgun system.
+/// ShieldNote represents a note to be shielded into railgun.
 ///
 /// TODO: Refactor me + `create_shield_transaction` into a ShieldBuilder struct
 /// that can accumulate multiple notes and create the transaction.
@@ -57,13 +59,13 @@ pub fn create_shield_transaction(
     let mut shield_inputs = Vec::with_capacity(recipients.len());
     for recipient in recipients {
         let note = ShieldNote::new(
-            &recipient.recipient.master_public_key,
+            recipient.recipient.master_public_key(),
             &random,
             recipient.amount,
             recipient.asset.clone(),
         );
         let serialized =
-            note.serialize(shield_private_key, &recipient.recipient.viewing_public_key)?;
+            note.serialize(shield_private_key, recipient.recipient.viewing_public_key())?;
         shield_inputs.push(serialized);
     }
 
@@ -107,29 +109,19 @@ impl ShieldNote {
         shield_private_key: &[u8; 32],
         receiver_viewing_key: &[u8; 32],
     ) -> Result<ShieldRequest, PoseidonError> {
-        let shared_key = shared_symetric_key(shield_private_key, receiver_viewing_key).unwrap();
-
-        let encrypted_random = encrypt_gcm(&[self.random_seed.as_slice()], &shared_key).unwrap();
-        let encrypted_receiver = encrypt_ctr(&[receiver_viewing_key], shield_private_key);
+        let shared_key =
+            derive_shared_symmetric_key(shield_private_key, receiver_viewing_key).unwrap();
 
         let signing_key = SigningKey::from_bytes(shield_private_key);
         let shield_key = signing_key.verifying_key().to_bytes();
 
         let npk = ark_to_solidity_bytes(self.note_public_key);
 
-        //? Bit-pack the encrypted data into the ShieldCiphertext bundles
-        let mut bundle_0 = [0u8; 32];
-        bundle_0[..16].copy_from_slice(&encrypted_random.iv);
-        bundle_0[16..].copy_from_slice(&encrypted_random.tag);
+        let gcm = encrypt_gcm(&[self.random_seed.as_slice()], &shared_key).unwrap();
+        let ctr = encrypt_ctr(&[receiver_viewing_key], shield_private_key);
 
-        let mut bundle_1 = [0u8; 32];
-        let gcm_flat: Vec<u8> = encrypted_random.data.into_iter().flatten().collect();
-        bundle_1[..16].copy_from_slice(&gcm_flat[..16]);
-        bundle_1[16..].copy_from_slice(&encrypted_receiver.iv);
-
-        let mut bundle_2 = [0u8; 32];
-        let ctr_flat: Vec<u8> = encrypted_receiver.data.into_iter().flatten().collect();
-        bundle_2.copy_from_slice(&ctr_flat[..32]);
+        let gcm_random: [u8; 16] = gcm.data[0].clone().try_into().unwrap();
+        let ctr_key: [u8; 32] = ctr.data[0].clone().try_into().unwrap();
 
         return Ok(ShieldRequest {
             preimage: CommitmentPreimage {
@@ -138,7 +130,14 @@ impl ShieldNote {
                 value: Uint::from(self.amount),
             },
             ciphertext: ShieldCiphertext {
-                encryptedBundle: [bundle_0.into(), bundle_1.into(), bundle_2.into()],
+                // iv (16) | tag (16)
+                // random (16) | ctr iv (16)
+                // receiver_viewing_key (32)
+                encryptedBundle: [
+                    concat_arrays(&gcm.iv, &gcm.tag).into(),
+                    concat_arrays(&gcm_random, &ctr.iv).into(),
+                    ctr_key.into(),
+                ],
                 shieldKey: shield_key.into(),
             },
         });
@@ -162,24 +161,6 @@ mod tests {
     };
 
     #[test]
-    fn test_shared_key() {
-        let signing_key_a = SigningKey::from_bytes(&[1u8; 32]);
-        let private_key_a = signing_key_a.to_bytes();
-        let public_key_a = signing_key_a.verifying_key().to_bytes();
-
-        let signing_key_b = SigningKey::from_bytes(&[2u8; 32]);
-        let private_key_b = signing_key_b.to_bytes();
-        let public_key_b = signing_key_b.verifying_key().to_bytes();
-
-        let shared_key_ab =
-            super::shared_symetric_key(&private_key_a, &public_key_b).expect("Failed A->B");
-        let shared_key_ba =
-            super::shared_symetric_key(&private_key_b, &public_key_a).expect("Failed B->A");
-
-        assert_eq!(shared_key_ab, shared_key_ba);
-    }
-
-    #[test]
     fn test_shared_key_railgun() {
         // Values taken from Railgun tests to ensure compatibility
         let private_key_a = "0303030303030303030303030303030303030303030303030303030303030303";
@@ -192,7 +173,7 @@ mod tests {
             hex::decode(expected_shared).unwrap().try_into().unwrap();
 
         let shared_key_ab =
-            super::shared_symetric_key(&private_key_a, &public_key_b).expect("Failed A->B");
+            super::derive_shared_symmetric_key(&private_key_a, &public_key_b).expect("Failed A->B");
 
         assert_eq!(shared_key_ab, expected_shared_key);
     }
