@@ -121,6 +121,7 @@ sol! {
         uint256 tokenSubID;
     }
 
+    #[derive(Debug)]
     struct CommitmentCiphertext {
         bytes32[4] ciphertext; // Ciphertext order: IV & tag (16 bytes each), encodedMPK (senderMPK XOR receiverMPK), random & amount (16 bytes each), token
         bytes32 blindedSenderViewingKey;
@@ -134,12 +135,14 @@ sol! {
         bytes32 shieldKey; // Public key to generate shared key from
     }
 
+    #[derive(Debug)]
     enum UnshieldType {
         NONE,
         NORMAL,
         REDIRECT
     }
 
+    #[derive(Debug)]
     struct BoundParams {
         uint16 treeNumber;
         uint72 minGasPrice; // Only for type 0 transactions

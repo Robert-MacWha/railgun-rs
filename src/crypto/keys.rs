@@ -129,6 +129,13 @@ macro_rules! impl_byte_key {
                 &self.0
             }
         }
+        impl rand::distr::Distribution<$name> for rand::distr::StandardUniform {
+            fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
+                let mut bytes: [u8; 32] = rng.random();
+                bytes[0] &= 0x1F; // Mask for BN254 range
+                $name(bytes)
+            }
+        }
         impl FieldKey for $name {}
         impl BigIntKey for $name {}
         impl HexKey for $name {}

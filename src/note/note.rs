@@ -1,6 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use ark_std::rand::random;
+use rand::random;
 use thiserror::Error;
 
 use crate::{
@@ -16,7 +16,6 @@ use crate::{
         poseidon::poseidon_hash,
         railgun_base_37,
     },
-    fr_to_hex,
     railgun::address::RailgunAddress,
 };
 
@@ -276,6 +275,23 @@ pub fn encrypt_note(
 }
 
 #[cfg(test)]
+impl Note {
+    /// Creates a test note with fixed parameters
+    pub fn new_test_note(spending_key: SpendingKey, viewing_key: ViewingKey) -> Self {
+        Note::new(
+            spending_key,
+            viewing_key,
+            &[3u8; 16],
+            100u128,
+            AssetId::Erc20(alloy::primitives::address!(
+                "0x1234567890123456789012345678901234567890"
+            )),
+            "test memo",
+        )
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use alloy::primitives::address;
     use tracing_test::traced_test;
@@ -412,13 +428,9 @@ mod tests {
     }
 
     fn test_note() -> Note {
-        Note::new(
+        Note::new_test_note(
             SpendingKey::from_bytes([1u8; 32]),
             ViewingKey::from_bytes([2u8; 32]),
-            &[3u8; 16],
-            100u128,
-            AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
-            "test memo",
         )
     }
 }

@@ -4369,6 +4369,7 @@ dependencies = [
  "light-poseidon",
  "num-bigint 0.4.6",
  "poseidon-rs 0.0.10",
+ "rand 0.9.2",
  "rayon",
  "reqwest 0.13.1",
  "serde",

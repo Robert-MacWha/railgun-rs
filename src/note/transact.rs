@@ -4,14 +4,13 @@ use alloy::{consensus::error, primitives::Address};
 use ark_bn254::{Bn254, Fr};
 use ark_circom::{CircomBuilder, CircomConfig, read_zkey};
 use ark_groth16::ProvingKey;
-use ark_std::rand::random;
+use rand::random;
 use thiserror::Error;
 use tracing::error;
 
 use crate::{
     abis::railgun::CommitmentCiphertext,
     caip::{AccountId, AssetId},
-    circuit::format_circuit_inputs,
     crypto::{
         aes::{AesError, encrypt_ctr, encrypt_gcm},
         concat_arrays, concat_arrays_3,

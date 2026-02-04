@@ -2,8 +2,8 @@ use alloy::primitives::{U256, Uint};
 use alloy_sol_types::SolCall;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use ark_std::rand::{self, random};
-use light_poseidon::{Poseidon, PoseidonError, PoseidonHasher};
+use light_poseidon::PoseidonError;
+use rand::random;
 
 use crate::{
     abis::railgun::{CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, ShieldRequest},
@@ -52,7 +52,7 @@ pub fn create_shield_transaction(
     chain: ChainConfig,
     recipients: &[ShieldRecipient],
 ) -> Result<TxData, PoseidonError> {
-    let random_seed: [u8; 16] = rand::random();
+    let random_seed: [u8; 16] = random();
 
     let mut shield_inputs = Vec::with_capacity(recipients.len());
     for recipient in recipients {
@@ -62,7 +62,7 @@ pub fn create_shield_transaction(
             recipient.amount,
             recipient.asset.clone(),
         );
-        let shield_private_key = ViewingKey::from_bytes(random());
+        let shield_private_key: ViewingKey = random();
         let serialized =
             note.serialize(shield_private_key, recipient.recipient.viewing_pubkey())?;
         shield_inputs.push(serialized);
@@ -144,7 +144,7 @@ impl ShieldNote {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::Address;
-    use ark_std::rand::random;
+    use rand::random;
     use tracing_test::traced_test;
 
     use crate::{
@@ -156,8 +156,8 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_shield_encrypt_decrypt() {
-        let spending_key = SpendingKey::from_bytes(random());
-        let viewing_key = ViewingKey::from_bytes(random());
+        let spending_key: SpendingKey = random();
+        let viewing_key: ViewingKey = random();
         let master_key =
             MasterPublicKey::new(spending_key.public_key(), viewing_key.nullifying_key());
 
@@ -167,7 +167,7 @@ mod tests {
 
         let shield_note = ShieldNote::new(master_key, &random_seed, value, token.clone());
         let req = shield_note
-            .serialize(ViewingKey::from_bytes(random()), viewing_key.public_key())
+            .serialize(random(), viewing_key.public_key())
             .expect("Failed to serialize shield note");
 
         // Decrypt the note
@@ -185,7 +185,7 @@ mod tests {
     fn test_shield() {
         let receiver_viewing_key = ViewingKey::from_bytes([2u8; 32]);
 
-        let master_key = MasterPublicKey::from_bytes(random());
+        let master_key: MasterPublicKey = random();
         let random_seed = [2u8; 16];
 
         let note = super::ShieldNote::new(
@@ -196,10 +196,7 @@ mod tests {
         );
 
         let _request = note
-            .serialize(
-                ViewingKey::from_bytes(random()),
-                receiver_viewing_key.public_key(),
-            )
+            .serialize(random(), receiver_viewing_key.public_key())
             .expect("Failed to serialize shield note");
     }
 }
