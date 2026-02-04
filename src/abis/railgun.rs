@@ -8,13 +8,15 @@ use alloy::primitives::{Address, U256, utils::keccak256_cached};
 use alloy_sol_types::sol;
 use thiserror::Error;
 
+use crate::crypto::hash_to_scalar;
+
 #[derive(Debug, Error)]
 pub enum TokenDataError {
     #[error("Invalid token data hash length")]
     InvalidHashLength,
 }
 
-const SNARK_SCALAR_FIELD: &str =
+pub const SNARK_SCALAR_FIELD: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495617";
 
 impl TokenData {
@@ -66,13 +68,10 @@ impl TokenData {
         data.extend_from_slice(&self.tokenSubID.to_be_bytes::<32>());
 
         // Hash and mod by SNARK_SCALAR_FIELD
-        let hash = keccak256_cached(&data);
-        let hash_bigint = U256::from_be_bytes::<32>(hash.as_slice().try_into().unwrap());
-        let snark_field = U256::from_str(SNARK_SCALAR_FIELD).unwrap();
-        let result = hash_bigint % snark_field;
+        let hash = hash_to_scalar(&data);
 
         let mut bytes = [0u8; 32];
-        let result_bytes = result.to_be_bytes::<32>();
+        let result_bytes = hash.to_be_bytes::<32>();
         bytes[32 - result_bytes.len()..].copy_from_slice(&result_bytes);
         bytes.to_vec()
     }

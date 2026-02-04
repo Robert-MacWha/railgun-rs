@@ -1,5 +1,7 @@
+use std::str::FromStr;
+
 use ark_bn254::Fr;
-use ark_ff::{BigInteger, PrimeField};
+use ark_ff::PrimeField;
 use ark_std::rand::random;
 use thiserror::Error;
 use tracing::info;
@@ -11,7 +13,11 @@ use crate::{
         aes::{AesError, Ciphertext, decrypt_gcm, encrypt_ctr, encrypt_gcm},
         concat_arrays, concat_arrays_3,
         ed25519::{BlindKeyError, SharedKeyError, blind_keys, derive_shared_symmetric_key},
-        keys::{derive_viewing_public_key, fr_to_bytes_be},
+        eddsa::sign_poseidon,
+        keys::{
+            derive_master_public_key, derive_spending_public_key, derive_viewing_public_key,
+            fr_to_bytes_be,
+        },
         poseidon::poseidon_hash,
         railgun_base_37,
     },
@@ -150,12 +156,65 @@ impl Note {
         ))
     }
 
-    pub fn nullifier(&self, leaf_index: u32) -> [u8; 32] {
-        let hash: Fr = poseidon_hash(&[self.nullifying_key(), Fr::from(leaf_index)]);
-        hash.into_bigint().to_bytes_be().try_into().unwrap()
+    /// Returns the note's hash
+    ///
+    /// Hash of (note_public_key, token_id, value)
+    pub fn hash(&self) -> Fr {
+        poseidon_hash(&[
+            self.note_public_key(),
+            self.token.hash(),
+            Fr::from(self.value),
+        ])
     }
 
-    fn nullifying_key(&self) -> Fr {
+    pub fn sign_circuit_inputs(
+        &self,
+        merkle_root: Fr,
+        bound_params_hash: Fr,
+        nullifiers: &Vec<Fr>,
+        commitments_out: &Vec<Fr>,
+    ) -> [Fr; 3] {
+        let mut inputs = vec![merkle_root, bound_params_hash];
+        inputs.extend_from_slice(&nullifiers);
+        inputs.extend_from_slice(&commitments_out);
+
+        self.sign(&inputs)
+    }
+
+    pub fn sign(&self, inputs: &[Fr]) -> [Fr; 3] {
+        let sig_hash = poseidon_hash(inputs);
+        let key = self.spending_private_key;
+
+        let signature = sign_poseidon(&key, sig_hash);
+        [signature.r8_x, signature.r8_y, signature.s]
+    }
+
+    /// Returns the note's spending public key
+    pub fn spending_public_key(&self) -> (Fr, Fr) {
+        derive_spending_public_key(&self.spending_private_key)
+    }
+
+    /// Returns the note's nullifier for a given leaf index
+    ///
+    /// Hash of (nullifying_key, leaf_index)
+    pub fn nullifier(&self, leaf_index: u32) -> Fr {
+        poseidon_hash(&[self.nullifying_key(), Fr::from(leaf_index)])
+    }
+
+    /// Returns the note's public key
+    ///
+    /// Hash of (master_public_key, random_seed)
+    pub fn note_public_key(&self) -> Fr {
+        poseidon_hash(&[
+            derive_master_public_key(&self.spending_private_key, &self.viewing_private_key),
+            Fr::from_be_bytes_mod_order(&self.random_seed),
+        ])
+    }
+
+    /// Returns the note's nullifying key
+    ///
+    /// Hash of (viewing_private_key)
+    pub fn nullifying_key(&self) -> Fr {
         poseidon_hash(&[Fr::from_be_bytes_mod_order(&self.viewing_private_key)])
     }
 }
@@ -233,6 +292,104 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_note_hash() {
+        let note = test_note();
+        let hash = note.hash();
+
+        // Expected sourced from reference railgun implementation
+        let expected = Fr::from_str(
+            "11519995677648624598224620826368212616615397312222297387322262212615352296617",
+        )
+        .unwrap();
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    fn test_note_sign() {
+        let note = test_note();
+        let msg = vec![Fr::from(1u8), Fr::from(2u8), Fr::from(3u8)];
+
+        let signature = note.sign(&msg);
+
+        // Expected sourced from reference railgun implementation
+        let expected = [
+            Fr::from_str(
+                "2182069732634860642012014862010736226142632222228237128222222222222222222",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "2182069732634860642012014862010736226142632222228237128222222222222222222",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "2182069732634860642012014862010736226142632222228237128222222222222222222",
+            )
+            .unwrap(),
+        ];
+
+        assert_eq!(signature, expected);
+    }
+
+    #[test]
+    fn test_note_spending_public_key() {
+        let note = test_note();
+        let pub_key = note.spending_public_key();
+
+        // Expected sourced from reference railgun implementation
+        let expected = (
+            Fr::from_str(
+                "2182069732634860642012014862010736226142632222228237128222222222222222222",
+            )
+            .unwrap(),
+            Fr::from_str(
+                "2182069732634860642012014862010736226142632222228237128222222222222222222",
+            )
+            .unwrap(),
+        );
+        assert_eq!(pub_key, expected);
+    }
+
+    #[test]
+    fn test_note_nullifier() {
+        let note = test_note();
+        let leaf_index = 0u32;
+        let nullifier = note.nullifier(leaf_index);
+
+        // Expected sourced from reference railgun implementation
+        let expected = Fr::from_str(
+            "2182069732634860642012014862010736226142632222228237128222222222222222222",
+        )
+        .unwrap();
+        assert_eq!(nullifier, expected);
+    }
+
+    #[test]
+    fn test_note_public_key() {
+        let note = test_note();
+        let pub_key = note.note_public_key();
+
+        // Expected sourced from reference railgun implementation
+        let expected = Fr::from_str(
+            "2182069732634860642012014862010736226142632222228237128222222222222222222",
+        )
+        .unwrap();
+        assert_eq!(pub_key, expected);
+    }
+
+    #[test]
+    fn test_note_nullifying_key() {
+        let note = test_note();
+        let nullifying_key = note.nullifying_key();
+
+        // Expected sourced from reference railgun implementation
+        let expected = Fr::from_str(
+            "2182069732634860642012014862010736226142632222228237128222222222222222222",
+        )
+        .unwrap();
+        assert_eq!(nullifying_key, expected);
+    }
+
+    #[test]
     fn test_encrypt_decrypt_note() {
         tracing_subscriber::fmt().init();
 
@@ -284,5 +441,16 @@ mod tests {
         );
 
         assert_eq!(expected, decrypted);
+    }
+
+    fn test_note() -> Note {
+        Note::new(
+            &[1u8; 32],
+            &[2u8; 32],
+            &[3u8; 16],
+            100u128,
+            AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
+            "test memo",
+        )
     }
 }

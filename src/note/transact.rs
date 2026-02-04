@@ -11,6 +11,7 @@ use tracing::error;
 use crate::{
     abis::railgun::CommitmentCiphertext,
     caip::{AccountId, AssetId},
+    circuit::format_circuit_inputs,
     crypto::{
         aes::{AesError, encrypt_ctr, encrypt_gcm},
         concat_arrays, concat_arrays_3,
@@ -76,10 +77,12 @@ pub fn create_transaction(
         let notes_out = notes_out.get(&tree_number).cloned().unwrap_or_default();
         let (builder, proving_key) = load_artifacts(notes_in.len(), notes_out.len());
 
-        let commitment_ciphertext: Vec<_> = notes_out
+        let commitment_ciphertext: Vec<CommitmentCiphertext> = notes_out
             .iter()
             .filter_map(|n| n.encrypt(sender_viewing_private_key, false))
             .collect::<Result<Vec<_>, _>>()?;
+
+        // let inputs = format_circuit_inputs(notes_in, notes_out, commitment_ciphertext);
     }
 
     todo!()
@@ -203,7 +206,7 @@ fn get_transact_notes(
 ) -> (
     BTreeMap<u32, Vec<Note>>,
     BTreeMap<u32, Vec<TransactNote>>,
-    BTreeMap<u32, Vec<[u8; 32]>>,
+    BTreeMap<u32, Vec<Fr>>,
 ) {
     let is_unshield = match receiver {
         AccountId::Railgun(_) => false,
@@ -212,7 +215,7 @@ fn get_transact_notes(
 
     let mut notes_in: BTreeMap<u32, Vec<Note>> = BTreeMap::new();
     let mut notes_out: BTreeMap<u32, Vec<TransactNote>> = BTreeMap::new();
-    let mut nullifiers: BTreeMap<u32, Vec<[u8; 32]>> = BTreeMap::new();
+    let mut nullifiers: BTreeMap<u32, Vec<Fr>> = BTreeMap::new();
     let mut total_value: u128 = 0;
 
     for (tree_number, notes) in notes.iter() {

@@ -7,6 +7,7 @@ mod abis;
 mod account;
 mod caip;
 mod chain_config;
+mod circuit;
 mod crypto;
 mod indexer;
 mod merkle_tree;

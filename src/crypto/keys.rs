@@ -1,6 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
 use ed25519_dalek::SigningKey;
+use num_bigint::BigInt;
 
 use crate::crypto::eddsa::prv2pub;
 use crate::crypto::poseidon::poseidon_hash;
@@ -20,6 +21,16 @@ pub fn fr_to_bytes_be(value: &Fr) -> [u8; 32] {
     value.into_bigint().to_bytes_be().try_into().unwrap()
 }
 
+/// Helper to convert Fr to BigInt
+pub fn fr_to_bigint(fr: &Fr) -> BigInt {
+    BigInt::from_bytes_be(num_bigint::Sign::Plus, &fr_to_bytes_be(&fr))
+}
+
+pub fn bigint_to_fr(bi: &BigInt) -> Fr {
+    let (_sign, bytes) = bi.to_bytes_be();
+    Fr::from_be_bytes_mod_order(&bytes)
+}
+
 /// Derive the viewing public key using ed25519
 pub fn derive_viewing_public_key(private_key: &[u8; 32]) -> [u8; 32] {
     let signing_key = SigningKey::from_bytes(private_key);
@@ -28,7 +39,7 @@ pub fn derive_viewing_public_key(private_key: &[u8; 32]) -> [u8; 32] {
 }
 
 /// Derive the spending public key using ed25519 babyjubjub
-fn derive_spending_public_key(private_key: &[u8; 32]) -> (Fr, Fr) {
+pub fn derive_spending_public_key(private_key: &[u8; 32]) -> (Fr, Fr) {
     let pubkey = prv2pub(private_key);
     (pubkey.0, pubkey.1)
 }

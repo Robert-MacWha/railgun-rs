@@ -10,7 +10,6 @@ use aes_gcm::{
 };
 use ark_std::rand::thread_rng;
 use num_bigint::RandBigInt;
-use tracing::info;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Ciphertext {

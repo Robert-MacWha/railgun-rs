@@ -1,4 +1,4 @@
-use curve25519_dalek::{EdwardsPoint, Scalar, edwards::CompressedEdwardsY};
+use curve25519_dalek::{Scalar, edwards::CompressedEdwardsY};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 

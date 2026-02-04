@@ -18,7 +18,7 @@ pub struct MerkleTree {
     // but not sure why
     pub nullifiers: Vec<[u8; 32]>,
 
-    number: u64,
+    number: u16,
     depth: usize,
     zeros: Vec<Fr>,
     tree: Vec<Vec<Fr>>,
@@ -30,7 +30,7 @@ pub struct MerkleTree {
 pub struct MerkleTreeState {
     pub nullifiers: Vec<[u8; 32]>,
 
-    pub number: u64,
+    pub number: u16,
     pub depth: usize,
     pub tree: Vec<Vec<[u8; 32]>>,
 }
@@ -38,7 +38,7 @@ pub struct MerkleTreeState {
 pub struct MerkleProof {
     pub element: Fr,
     pub elements: Vec<Fr>,
-    pub indices: usize,
+    pub indices: u32,
     pub root: Fr,
 }
 
@@ -54,11 +54,11 @@ const TREE_DEPTH: usize = 16;
 // TODO: Consider dirty optimizations for sparse trees. Slower while syncing,
 // faster for incremental updates.
 impl MerkleTree {
-    pub fn new(tree_number: u64) -> Self {
+    pub fn new(tree_number: u16) -> Self {
         Self::new_with_depth(tree_number, TREE_DEPTH)
     }
 
-    pub fn new_with_depth(tree_number: u64, depth: usize) -> Self {
+    pub fn new_with_depth(tree_number: u16, depth: usize) -> Self {
         let zeros = zero_value_levels(depth);
         let mut tree: Vec<Vec<Fr>> = (0..=depth).map(|_| Vec::new()).collect();
 
@@ -92,6 +92,10 @@ impl MerkleTree {
         tree.nullifiers = state.nullifiers;
 
         tree
+    }
+
+    pub fn number(&self) -> u16 {
+        self.number
     }
 
     pub fn root(&mut self) -> Fr {
@@ -164,7 +168,7 @@ impl MerkleTree {
         Ok(MerkleProof {
             element,
             elements,
-            indices: initial_index,
+            indices: initial_index as u32,
             root: self.root(),
         })
     }
