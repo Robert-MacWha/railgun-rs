@@ -4,10 +4,12 @@ use alloy::primitives::ChainId;
 use bech32::Hrp;
 use thiserror::Error;
 
+use crate::crypto::keys::{HexKey, MasterPublicKey, SpendingKey, ViewingKey, ViewingPublicKey};
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RailgunAddress {
-    master_public_key: [u8; 32],
-    viewing_public_key: [u8; 32],
+    master_key: MasterPublicKey,
+    viewing_pubkey: ViewingPublicKey,
     chain: ChainId,
     // pub version: u8,
 }
@@ -36,42 +38,34 @@ const ADDRESS_VERSION: u8 = 1;
 
 impl RailgunAddress {
     pub fn new(
-        master_public_key: &[u8; 32],
-        viewing_public_key: &[u8; 32],
+        master_key: MasterPublicKey,
+        viewing_pubkey: ViewingPublicKey,
         chain: ChainId,
     ) -> Self {
         RailgunAddress {
-            master_public_key: *master_public_key,
-            viewing_public_key: *viewing_public_key,
+            master_key,
+            viewing_pubkey,
             chain,
         }
     }
 
     pub fn from_private_keys(
-        spending_private_key: &[u8; 32],
-        viewing_private_key: &[u8; 32],
+        spending_key: SpendingKey,
+        viewing_key: ViewingKey,
         chain: ChainId,
     ) -> Self {
-        let master_public_key = crate::crypto::keys::derive_master_public_key(
-            spending_private_key,
-            viewing_private_key,
-        );
-        let viewing_public_key =
-            crate::crypto::keys::derive_viewing_public_key(viewing_private_key);
+        let master_key =
+            MasterPublicKey::new(spending_key.public_key(), viewing_key.nullifying_key());
 
-        RailgunAddress::new(
-            &crate::crypto::keys::fr_to_bytes_be(&master_public_key),
-            &viewing_public_key,
-            chain,
-        )
+        RailgunAddress::new(master_key, viewing_key.public_key(), chain)
     }
 
-    pub fn master_public_key(&self) -> &[u8; 32] {
-        &self.master_public_key
+    pub fn master_key(&self) -> MasterPublicKey {
+        self.master_key
     }
 
-    pub fn viewing_public_key(&self) -> &[u8; 32] {
-        &self.viewing_public_key
+    pub fn viewing_pubkey(&self) -> ViewingPublicKey {
+        self.viewing_pubkey
     }
 
     pub fn chain(&self) -> ChainId {
@@ -86,9 +80,9 @@ impl Display for RailgunAddress {
         let address_string = format!(
             "{:02}{}{}{}",
             ADDRESS_VERSION,
-            hex::encode(self.master_public_key),
+            self.master_key.to_hex(),
             network_id,
-            hex::encode(self.viewing_public_key),
+            self.viewing_pubkey.to_hex(),
         );
 
         let payload = hex::decode(address_string).unwrap();
@@ -114,8 +108,8 @@ impl FromStr for RailgunAddress {
         }
 
         let version = u8::from_str_radix(&address_hex[0..2], 16)?;
-        let master_public_key = hex::decode(&address_hex[2..66])?;
-        let viewing_public_key = hex::decode(&address_hex[82..146])?;
+        let master_key = MasterPublicKey::from_hex(&address_hex[2..66])?;
+        let viewing_pubkey = ViewingPublicKey::from_hex(&address_hex[82..146])?;
 
         let chain_id = decode_network_id(&xor_network_id(&address_hex[66..82]))?;
 
@@ -124,12 +118,8 @@ impl FromStr for RailgunAddress {
         }
 
         Ok(RailgunAddress {
-            master_public_key: master_public_key
-                .try_into()
-                .map_err(|_| RailgunAddressError::InvalidKey)?,
-            viewing_public_key: viewing_public_key
-                .try_into()
-                .map_err(|_| RailgunAddressError::InvalidKey)?,
+            master_key,
+            viewing_pubkey,
             chain: chain_id,
         })
     }
@@ -169,17 +159,22 @@ fn xor_network_id(network_id_hex: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
+    use crate::crypto::keys::ByteKey;
+
     use super::*;
 
     #[test]
+    #[traced_test]
     fn test_railgun_address_to_from_string() {
-        let master_public_key: [u8; 32] = [1u8; 32];
-        let viewing_public_key: [u8; 32] = [2u8; 32];
+        let master_key = MasterPublicKey::from_bytes([1u8; 32]);
+        let viewing_pubkey = ViewingPublicKey::from_bytes([2u8; 32]);
         let chain = 1;
 
         let expected_address_string = "0zk1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszunpd9kxwatwqypqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqy3t4umn";
 
-        let railgun_address = RailgunAddress::new(&master_public_key, &viewing_public_key, chain);
+        let railgun_address = RailgunAddress::new(master_key, viewing_pubkey, chain);
 
         let address_string = railgun_address.to_string();
         let parsed_address = RailgunAddress::from_str(&address_string).unwrap();

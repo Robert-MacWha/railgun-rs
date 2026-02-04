@@ -19,7 +19,10 @@ use crate::{
     abis::railgun::RailgunSmartWallet,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    crypto::{keys::fr_to_bytes_be, poseidon::poseidon_hash},
+    crypto::{
+        keys::{fr_to_bigint, fr_to_u256},
+        poseidon::poseidon_hash,
+    },
     indexer::{account::IndexerAccount, subsquid_client::SubsquidClient},
     merkle_tree::{MerkleTree, MerkleTreeState},
     note::note::{Note, NoteError},
@@ -59,7 +62,7 @@ pub enum SyncError {
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error("Tree {tree_number} root {root:x?} not seen on-chain")]
-    NotSeen { tree_number: u16, root: [u8; 32] },
+    NotSeen { tree_number: u16, root: U256 },
     #[error("Contract error: {0}")]
     ContractError(#[from] alloy_contract::Error),
 }
@@ -253,7 +256,7 @@ impl Indexer {
             RailgunSmartWallet::new(self.chain.railgun_smart_wallet, self.provider.clone());
 
         for (i, tree) in self.trees.iter_mut() {
-            let root = fr_to_bytes_be(&tree.root());
+            let root = fr_to_u256(&tree.root());
             let seen = contract
                 .rootHistory(U256::from(*i), root.into())
                 .call()

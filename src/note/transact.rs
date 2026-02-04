@@ -15,8 +15,7 @@ use crate::{
     crypto::{
         aes::{AesError, encrypt_ctr, encrypt_gcm},
         concat_arrays, concat_arrays_3,
-        ed25519::{BlindKeyError, SharedKeyError, blind_keys, derive_shared_symmetric_key},
-        keys::{derive_viewing_public_key, fr_to_bytes_be},
+        keys::{SpendingKey, ViewingKey},
         railgun_base_37,
     },
     note::note::{EncryptError, Note, encrypt_note},
@@ -60,8 +59,8 @@ struct ChangeNote {
 pub fn create_transaction(
     notes: BTreeMap<u32, BTreeMap<u32, Note>>,
     sender: &RailgunAddress,
-    sender_viewing_private_key: &[u8; 32],
-    sender_spending_private_key: &[u8; 32],
+    sender_spending_key: SpendingKey,
+    sender_viewing_key: ViewingKey,
     asset: AssetId,
     value: u128,
     receiver: AccountId,
@@ -79,7 +78,7 @@ pub fn create_transaction(
 
         let commitment_ciphertext: Vec<CommitmentCiphertext> = notes_out
             .iter()
-            .filter_map(|n| n.encrypt(sender_viewing_private_key, false))
+            .filter_map(|n| n.encrypt(sender_viewing_key, false))
             .collect::<Result<Vec<_>, _>>()?;
 
         // let inputs = format_circuit_inputs(notes_in, notes_out, commitment_ciphertext);
@@ -141,13 +140,13 @@ impl TransactNote {
 
     pub fn encrypt(
         &self,
-        viewing_private_key: &[u8; 32],
+        viewing_key: ViewingKey,
         blind: bool,
     ) -> Option<Result<CommitmentCiphertext, EncryptError>> {
         match self {
             TransactNote::Unshield(_) => None, // Unshield notes are not encrypted
-            TransactNote::Transfer(note) => Some(note.encrypt(viewing_private_key, blind)),
-            TransactNote::Change(note) => Some(note.encrypt(viewing_private_key, blind)),
+            TransactNote::Transfer(note) => Some(note.encrypt(viewing_key, blind)),
+            TransactNote::Change(note) => Some(note.encrypt(viewing_key, blind)),
         }
     }
 }
@@ -158,7 +157,7 @@ impl TransferNote {
     /// If `blind` is true, the sender's address will be hidden to the receiver.
     pub fn encrypt(
         &self,
-        viewing_private_key: &[u8; 32],
+        viewing_key: ViewingKey,
         blind: bool,
     ) -> Result<CommitmentCiphertext, EncryptError> {
         encrypt_note(
@@ -167,7 +166,7 @@ impl TransferNote {
             self.value,
             &self.asset,
             &self.memo,
-            viewing_private_key,
+            viewing_key,
             blind,
         )
     }
@@ -176,7 +175,7 @@ impl TransferNote {
 impl ChangeNote {
     pub fn encrypt(
         &self,
-        viewing_private_key: &[u8; 32],
+        viewing_key: ViewingKey,
         blind: bool,
     ) -> Result<CommitmentCiphertext, EncryptError> {
         encrypt_note(
@@ -185,7 +184,7 @@ impl ChangeNote {
             self.value,
             &self.asset,
             &self.memo,
-            viewing_private_key,
+            viewing_key,
             blind,
         )
     }

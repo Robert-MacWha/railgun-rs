@@ -158,9 +158,12 @@ pub fn decrypt_ctr(ciphertext: &CiphertextCtr, key: &[u8; 32]) -> Vec<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
     use super::*;
 
     #[test]
+    #[traced_test]
     fn gcm() {
         let key = [1u8; 32];
 
@@ -175,6 +178,7 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn railgun_sdk() {
         // Test vectors from Railgun SDK AES-GCM implementation to verify compatibility
         let key = "248e995ff2d51fd056b35c5e1132600c78a7b3b56b56a417ca94e228fb4547d7";
@@ -224,6 +228,7 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn ctr() {
         let mut key: [u8; 32] = [0u8; 32];
         key[0] = 1;

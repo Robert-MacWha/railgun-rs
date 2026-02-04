@@ -1,5 +1,4 @@
 use alloy::primitives::{Address, ChainId, address};
-use serde::{Deserialize, Serialize};
 
 /// Eip155 Chain Configurations
 #[derive(Copy, Clone, Debug)]

@@ -2,9 +2,7 @@
 //!
 //! https://github.com/Railgun-Privacy/contract/blob/9ec09123eb140fdaaf3a5ff1f29d634c353630cd/contracts/logic/Globals.sol
 
-use std::str::FromStr;
-
-use alloy::primitives::{Address, U256, utils::keccak256_cached};
+use alloy::primitives::{Address, U256};
 use alloy_sol_types::sol;
 use thiserror::Error;
 
@@ -15,9 +13,6 @@ pub enum TokenDataError {
     #[error("Invalid token data hash length")]
     InvalidHashLength,
 }
-
-pub const SNARK_SCALAR_FIELD: &str =
-    "21888242871839275222246405745257275088548364400416034343698204186575808495617";
 
 impl TokenData {
     pub fn from_hash(hash: &[u8]) -> Result<Self, TokenDataError> {

@@ -5,6 +5,7 @@ use tracing::info;
 use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
     caip::AssetId,
+    crypto::keys::{SpendingKey, ViewingKey},
     indexer::indexer::TOTAL_LEAVES,
     note::note::{Note, NoteError},
     railgun::address::RailgunAddress,
@@ -16,10 +17,8 @@ use crate::{
 /// storing them in the notebook for reference.
 pub struct IndexerAccount {
     address: RailgunAddress,
-    /// Private viewing key
-    viewing_key: [u8; 32],
-    /// Private spending key
-    spending_key: [u8; 32],
+    spending_key: SpendingKey,
+    viewing_key: ViewingKey,
 
     /// The latest block number that has been processed for this account
     synced_block: u64,
@@ -29,11 +28,15 @@ pub struct IndexerAccount {
 }
 
 impl IndexerAccount {
-    pub fn new(address: RailgunAddress, viewing_key: [u8; 32], spending_key: [u8; 32]) -> Self {
+    pub fn new(
+        address: RailgunAddress,
+        spending_key: SpendingKey,
+        viewing_key: ViewingKey,
+    ) -> Self {
         IndexerAccount {
             address,
-            viewing_key,
             spending_key,
+            viewing_key,
             synced_block: 0,
             notes: BTreeMap::new(),
         }
@@ -88,7 +91,7 @@ impl IndexerAccount {
                 ciphertext: ciphertext.clone(),
             };
             let note =
-                Note::decrypt_shield_request(shield_request, &self.viewing_key, &self.spending_key);
+                Note::decrypt_shield_request(shield_request, self.spending_key, self.viewing_key);
 
             let note = match note {
                 Err(NoteError::Aes(e)) => {
@@ -130,7 +133,7 @@ impl IndexerAccount {
         let start_position: u32 = event.startPosition.saturating_to();
 
         for (index, ciphertext) in event.ciphertext.iter().enumerate() {
-            let note = Note::decrypt(&ciphertext, &self.viewing_key, &self.spending_key);
+            let note = Note::decrypt(&ciphertext, self.spending_key, self.viewing_key);
 
             let note = match note {
                 Err(NoteError::Aes(_)) => continue,

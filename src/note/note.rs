@@ -1,26 +1,22 @@
-use std::str::FromStr;
-
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use ark_std::rand::random;
 use thiserror::Error;
-use tracing::info;
 
 use crate::{
     abis::railgun::{CommitmentCiphertext, ShieldRequest, TokenData, TokenDataError},
     caip::AssetId,
     crypto::{
-        aes::{AesError, Ciphertext, decrypt_gcm, encrypt_ctr, encrypt_gcm},
+        aes::{AesError, Ciphertext, encrypt_ctr},
         concat_arrays, concat_arrays_3,
-        ed25519::{BlindKeyError, SharedKeyError, blind_keys, derive_shared_symmetric_key},
-        eddsa::sign_poseidon,
         keys::{
-            derive_master_public_key, derive_spending_public_key, derive_viewing_public_key,
-            fr_to_bytes_be,
+            BlindedKey, ByteKey, FieldKey, KeyError, MasterPublicKey, SpendingKey, U256Key,
+            ViewingKey, ViewingPublicKey, blind_viewing_keys, fr_to_bytes,
         },
         poseidon::poseidon_hash,
         railgun_base_37,
     },
+    fr_to_hex,
     railgun::address::RailgunAddress,
 };
 
@@ -29,8 +25,8 @@ use crate::{
 /// so it knows its own index in the tree
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Note {
-    pub spending_private_key: [u8; 32],
-    pub viewing_private_key: [u8; 32],
+    pub spending_key: SpendingKey,
+    pub viewing_key: ViewingKey,
     pub random_seed: [u8; 16],
     pub value: u128,
     pub token: AssetId,
@@ -41,36 +37,34 @@ pub struct Note {
 pub enum NoteError {
     #[error("AES error: {0}")]
     Aes(#[from] AesError),
-    #[error("SharedKey error: {0}")]
-    SharedKey(#[from] SharedKeyError),
     #[error("TokenData error: {0}")]
     TokenData(#[from] TokenDataError),
+    #[error("Key error: {0}")]
+    Key(#[from] KeyError),
 }
 
 #[derive(Debug, Error)]
 pub enum EncryptError {
     #[error("Railgun base37 encoding error: {0}")]
     RailgunBase37(#[from] railgun_base_37::EncodingError),
-    #[error("Blinding error: {0}")]
-    BlindKey(#[from] BlindKeyError),
-    #[error("Shared key error: {0}")]
-    SharedKey(#[from] SharedKeyError),
     #[error("AES encryption error: {0}")]
     Aes(#[from] AesError),
+    #[error("Key error: {0}")]
+    Key(#[from] KeyError),
 }
 
 impl Note {
     pub fn new(
-        spending_private_key: &[u8; 32],
-        viewing_private_key: &[u8; 32],
+        spending_key: SpendingKey,
+        viewing_key: ViewingKey,
         random_seed: &[u8; 16],
         value: u128,
         token: AssetId,
         memo: &str,
     ) -> Self {
         Note {
-            spending_private_key: *spending_private_key,
-            viewing_private_key: *viewing_private_key,
+            spending_key,
+            viewing_key,
             random_seed: *random_seed,
             value,
             token,
@@ -81,13 +75,11 @@ impl Note {
     /// Decrypt a note
     pub fn decrypt(
         encrypted: &CommitmentCiphertext,
-        viewing_private_key: &[u8; 32],
-        spending_private_key: &[u8; 32],
+        spending_key: SpendingKey,
+        viewing_key: ViewingKey,
     ) -> Result<Note, NoteError> {
-        let shared_key = derive_shared_symmetric_key(
-            viewing_private_key,
-            &encrypted.blindedSenderViewingKey.into(),
-        )?;
+        let blinded_sender = BlindedKey::from_bytes(encrypted.blindedSenderViewingKey.into());
+        let shared_key = viewing_key.derive_shared_key_blinded(blinded_sender)?;
 
         let data: Vec<Vec<u8>> = vec![
             encrypted.ciphertext[1].to_vec(),
@@ -101,7 +93,7 @@ impl Note {
             tag: encrypted.ciphertext[0][16..].try_into().unwrap(),
             data,
         };
-        let bundle = decrypt_gcm(&ciphertext, &shared_key)?;
+        let bundle = shared_key.decrypt_gcm(&ciphertext)?;
 
         let random: [u8; 16] = bundle[1][0..16].try_into().unwrap();
         let value: u128 = u128::from_be_bytes(bundle[1][16..32].try_into().unwrap());
@@ -114,8 +106,8 @@ impl Note {
         };
 
         Ok(Note::new(
-            spending_private_key,
-            viewing_private_key,
+            spending_key,
+            viewing_key,
             &random,
             value,
             asset_id,
@@ -126,8 +118,8 @@ impl Note {
     /// Decrypts a shield note into a Note
     pub fn decrypt_shield_request(
         req: ShieldRequest,
-        viewing_private_key: &[u8; 32],
-        spending_private_key: &[u8; 32],
+        spending_key: SpendingKey,
+        viewing_key: ViewingKey,
     ) -> Result<Note, NoteError> {
         let encrypted_bundle: [[u8; 32]; 3] = [
             req.ciphertext.encryptedBundle[0].into(),
@@ -135,20 +127,20 @@ impl Note {
             req.ciphertext.encryptedBundle[2].into(),
         ];
 
-        let shield_key: [u8; 32] = req.ciphertext.shieldKey.into();
-        let shared_key = derive_shared_symmetric_key(viewing_private_key, &shield_key)?;
+        let shield_key = ViewingPublicKey::from_bytes(req.ciphertext.shieldKey.into());
+        let shared_key = viewing_key.derive_shared_key(shield_key).unwrap();
 
         let ciphertext = Ciphertext {
             iv: encrypted_bundle[0][..16].try_into().unwrap(),
             tag: encrypted_bundle[0][16..].try_into().unwrap(),
             data: vec![encrypted_bundle[1][..16].to_vec()],
         };
-        let decrypted = decrypt_gcm(&ciphertext, &shared_key)?;
+        let decrypted = shared_key.decrypt_gcm(&ciphertext)?;
         let random: [u8; 16] = decrypted[0][0..16].try_into().unwrap();
 
         Ok(Note::new(
-            spending_private_key,
-            viewing_private_key,
+            spending_key,
+            viewing_key,
             &random,
             req.preimage.value.saturating_to(),
             req.preimage.token.clone().into(),
@@ -182,16 +174,15 @@ impl Note {
     }
 
     pub fn sign(&self, inputs: &[Fr]) -> [Fr; 3] {
-        let sig_hash = poseidon_hash(inputs);
-        let key = self.spending_private_key;
-
-        let signature = sign_poseidon(&key, sig_hash);
+        let sig_hash = poseidon_hash(&inputs);
+        let signature = self.spending_key.sign(sig_hash);
         [signature.r8_x, signature.r8_y, signature.s]
     }
 
     /// Returns the note's spending public key
     pub fn spending_public_key(&self) -> (Fr, Fr) {
-        derive_spending_public_key(&self.spending_private_key)
+        let pubkey = self.spending_key.public_key();
+        (pubkey.x_fr(), pubkey.y_fr())
     }
 
     /// Returns the note's nullifier for a given leaf index
@@ -205,8 +196,13 @@ impl Note {
     ///
     /// Hash of (master_public_key, random_seed)
     pub fn note_public_key(&self) -> Fr {
+        let master_key = MasterPublicKey::new(
+            self.spending_key.public_key(),
+            self.viewing_key.nullifying_key(),
+        );
+
         poseidon_hash(&[
-            derive_master_public_key(&self.spending_private_key, &self.viewing_private_key),
+            master_key.to_fr(),
             Fr::from_be_bytes_mod_order(&self.random_seed),
         ])
     }
@@ -215,7 +211,7 @@ impl Note {
     ///
     /// Hash of (viewing_private_key)
     pub fn nullifying_key(&self) -> Fr {
-        poseidon_hash(&[Fr::from_be_bytes_mod_order(&self.viewing_private_key)])
+        poseidon_hash(&[self.viewing_key.to_fr()])
     }
 }
 
@@ -225,33 +221,27 @@ pub fn encrypt_note(
     value: u128,
     asset: &AssetId,
     memo: &str,
-    sender_viewing_private_key: &[u8; 32],
+    viewing_key: ViewingKey,
     blind: bool,
 ) -> Result<CommitmentCiphertext, EncryptError> {
     let output_type = 0;
     let application_identifier = railgun_base_37::encode("railgun rs")?;
-    let viewing_pub_key = derive_viewing_public_key(sender_viewing_private_key);
     let sender_random: [u8; 15] = if blind { random() } else { [0u8; 15] };
 
-    let (blinded_sender_pub_key, blinded_receiver_pub_key) = blind_keys(
-        &viewing_pub_key,
-        receiver.viewing_public_key(),
+    let (blinded_sender, blinded_receiver) = blind_viewing_keys(
+        viewing_key.public_key(),
+        receiver.viewing_pubkey(),
         &concat_arrays(&shared_random, &[0u8; 16]),
         &concat_arrays(&sender_random, &[0u8; 17]),
     )?;
 
-    let shared_key =
-        derive_shared_symmetric_key(sender_viewing_private_key, &blinded_receiver_pub_key)?;
-
-    let gcm = encrypt_gcm(
-        &[
-            receiver.master_public_key(),
-            &concat_arrays::<16, 16, 32>(&shared_random, &value.to_be_bytes()),
-            &fr_to_bytes_be(&asset.hash()),
-            memo.as_bytes(),
-        ],
-        &shared_key,
-    )?;
+    let shared_key = viewing_key.derive_shared_key_blinded(blinded_receiver)?;
+    let gcm = shared_key.encrypt_gcm(&[
+        receiver.master_key().as_bytes(),
+        &concat_arrays::<16, 16, 32>(&shared_random, &value.to_be_bytes()),
+        &fr_to_bytes(&asset.hash()),
+        memo.as_bytes(),
+    ])?;
 
     let ctr = encrypt_ctr(
         &[&concat_arrays_3::<1, 15, 16, 32>(
@@ -259,7 +249,7 @@ pub fn encrypt_note(
             &sender_random,
             &application_identifier,
         )],
-        &viewing_pub_key,
+        viewing_key.public_key().as_bytes(),
     );
 
     let bundle_1: [u8; 32] = gcm.data[0].clone().try_into().unwrap();
@@ -277,8 +267,8 @@ pub fn encrypt_note(
             bundle_2.into(),
             bundle_3.into(),
         ],
-        blindedSenderViewingKey: blinded_sender_pub_key.into(),
-        blindedReceiverViewingKey: blinded_receiver_pub_key.into(),
+        blindedSenderViewingKey: blinded_sender.to_u256().into(),
+        blindedReceiverViewingKey: blinded_receiver.to_u256().into(),
         // ctr_iv (16) | encrypted_sender_bundle (any)
         annotationData: [ctr.iv.as_slice(), &ctr.data[0]].concat().into(),
         memo: gcm.data[3].clone().into(),
@@ -288,122 +278,104 @@ pub fn encrypt_note(
 #[cfg(test)]
 mod tests {
     use alloy::primitives::address;
+    use tracing_test::traced_test;
+
+    use crate::{crypto::keys::bytes_to_fr, hex_to_fr};
 
     use super::*;
 
+    // Test note cryptographic functions against known values. Know values
+    // were generated using the Railgun JS SDK.
+
     #[test]
+    #[traced_test]
     fn test_note_hash() {
         let note = test_note();
         let hash = note.hash();
 
-        // Expected sourced from reference railgun implementation
-        let expected = Fr::from_str(
-            "11519995677648624598224620826368212616615397312222297387322262212615352296617",
-        )
-        .unwrap();
+        let expected =
+            hex_to_fr("0x229b1db0c6706d18ff9ce36673185530465d4575d2572b2cfc277262289b18b9");
         assert_eq!(hash, expected);
     }
 
     #[test]
+    #[traced_test]
     fn test_note_sign() {
         let note = test_note();
-        let msg = vec![Fr::from(1u8), Fr::from(2u8), Fr::from(3u8)];
+        // let msg = vec![Fr::from(1u8), Fr::from(2u8), Fr::from(3u8)];
+        let msg = bytes_to_fr(&[4u8; 32]);
+        let signature = note.sign(&[msg]);
 
-        let signature = note.sign(&msg);
-
-        // Expected sourced from reference railgun implementation
         let expected = [
-            Fr::from_str(
-                "2182069732634860642012014862010736226142632222228237128222222222222222222",
-            )
-            .unwrap(),
-            Fr::from_str(
-                "2182069732634860642012014862010736226142632222228237128222222222222222222",
-            )
-            .unwrap(),
-            Fr::from_str(
-                "2182069732634860642012014862010736226142632222228237128222222222222222222",
-            )
-            .unwrap(),
+            hex_to_fr("0x0420e857bd171b340ce13449638af4b74945e568ef22186bf923a46753f572e4"),
+            hex_to_fr("0x0abfa9e53db7b1525b0b97094631a0ec110c92a1bd81c74d60e00fc6acb528ba"),
+            hex_to_fr("0x031341ceba9e1c9a76cabe5b4f9031915b9a8c61cdeb7e0a9ad1804a649a0fbe"),
         ];
 
         assert_eq!(signature, expected);
     }
 
     #[test]
+    #[traced_test]
     fn test_note_spending_public_key() {
         let note = test_note();
         let pub_key = note.spending_public_key();
 
-        // Expected sourced from reference railgun implementation
         let expected = (
-            Fr::from_str(
-                "2182069732634860642012014862010736226142632222228237128222222222222222222",
-            )
-            .unwrap(),
-            Fr::from_str(
-                "2182069732634860642012014862010736226142632222228237128222222222222222222",
-            )
-            .unwrap(),
+            hex_to_fr("0x234056d968baf183fe8d237d496d1c04188220cd33e8f8d14df9b84479736b20"),
+            hex_to_fr("0x2624393fad9b71c04b3b14d8ac45202dbb4eaff4c2d1350c9453fc08d18651fe"),
         );
         assert_eq!(pub_key, expected);
     }
 
     #[test]
+    #[traced_test]
     fn test_note_nullifier() {
         let note = test_note();
-        let leaf_index = 0u32;
+        let leaf_index = 5u32;
         let nullifier = note.nullifier(leaf_index);
 
-        // Expected sourced from reference railgun implementation
-        let expected = Fr::from_str(
-            "2182069732634860642012014862010736226142632222228237128222222222222222222",
-        )
-        .unwrap();
+        let expected =
+            hex_to_fr("0x103cba8722ef9b21b85abe6286ec80771c918ff3400ee9d9b0673b98d3193e26");
         assert_eq!(nullifier, expected);
     }
 
     #[test]
-    fn test_note_public_key() {
-        let note = test_note();
-        let pub_key = note.note_public_key();
-
-        // Expected sourced from reference railgun implementation
-        let expected = Fr::from_str(
-            "2182069732634860642012014862010736226142632222228237128222222222222222222",
-        )
-        .unwrap();
-        assert_eq!(pub_key, expected);
-    }
-
-    #[test]
+    #[traced_test]
     fn test_note_nullifying_key() {
         let note = test_note();
         let nullifying_key = note.nullifying_key();
 
-        // Expected sourced from reference railgun implementation
-        let expected = Fr::from_str(
-            "2182069732634860642012014862010736226142632222228237128222222222222222222",
-        )
-        .unwrap();
+        let expected =
+            hex_to_fr("0x186ab99ece60e112b37c660eaf7ca6dbcb04dc434e04aa5e106e94abc6c81936");
         assert_eq!(nullifying_key, expected);
     }
 
     #[test]
-    fn test_encrypt_decrypt_note() {
-        tracing_subscriber::fmt().init();
+    #[traced_test]
+    fn test_note_public_key() {
+        let note = test_note();
+        let pub_key = note.note_public_key();
 
+        let expected =
+            hex_to_fr("0x0d8534b283818d7e3c855e07d28d3d6a04c0a88b488516f45c04d71c8833177e");
+        assert_eq!(pub_key, expected);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_encrypt_decrypt_note() {
         let chain_id = 1;
 
         // Sender keys
-        let sender_viewing_private_key = [2u8; 32];
+        let sender_viewing_key = ViewingKey::from_bytes([2u8; 32]);
 
         // Receiver keys
-        let receiver_spending_private_key = [3u8; 32];
-        let receiver_viewing_private_key = [4u8; 32];
+        let receiver_spending_key = SpendingKey::from_bytes([3u8; 32]);
+        let receiver_viewing_key = ViewingKey::from_bytes([4u8; 32]);
         let receiver = RailgunAddress::from_private_keys(
-            &receiver_spending_private_key,
-            &receiver_viewing_private_key,
+            receiver_spending_key,
+            receiver_viewing_key,
             chain_id,
         );
 
@@ -418,22 +390,18 @@ mod tests {
             value,
             &asset,
             memo,
-            &sender_viewing_private_key,
+            sender_viewing_key,
             false,
         )
         .unwrap();
 
         // Receiver decrypts with their own keys
-        let decrypted = Note::decrypt(
-            &encrypted,
-            &receiver_viewing_private_key,
-            &receiver_spending_private_key,
-        )
-        .unwrap();
+        let decrypted =
+            Note::decrypt(&encrypted, receiver_spending_key, receiver_viewing_key).unwrap();
 
         let expected = Note::new(
-            &receiver_spending_private_key,
-            &receiver_viewing_private_key,
+            receiver_spending_key,
+            receiver_viewing_key,
             &shared_random,
             value,
             asset,
@@ -445,8 +413,8 @@ mod tests {
 
     fn test_note() -> Note {
         Note::new(
-            &[1u8; 32],
-            &[2u8; 32],
+            SpendingKey::from_bytes([1u8; 32]),
+            ViewingKey::from_bytes([2u8; 32]),
             &[3u8; 16],
             100u128,
             AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),

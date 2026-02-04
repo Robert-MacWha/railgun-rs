@@ -140,12 +140,16 @@ fn hash_bound_params(bounded_params: BoundParams) -> Fr {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
     #[test]
+    #[traced_test]
     fn test_hash_bound_params() {
         todo!()
     }
 
     #[test]
+    #[traced_test]
     fn test_format_circuit_inputs() {
         todo!()
     }

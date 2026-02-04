@@ -45,9 +45,12 @@ pub fn decode(bytes: &[u8; 16]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
     use super::*;
 
     #[test]
+    #[traced_test]
     fn encode_expected() {
         // Expected value sourced from Railgun SDK to ensure compatibility
         let text = "hello world";
@@ -57,6 +60,7 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn roundtrip() {
         let texts = ["", "hello", "railgun", "0x1234", "test 123"];
         for text in texts {
@@ -67,6 +71,7 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn invalid_char() {
         assert!(matches!(
             encode("HELLO"),

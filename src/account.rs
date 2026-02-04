@@ -8,6 +8,8 @@ use thiserror::Error;
 
 use crate::caip::AssetId;
 use crate::chain_config::ChainConfig;
+use crate::crypto::keys::SpendingKey;
+use crate::crypto::keys::ViewingKey;
 use crate::indexer::account::IndexerAccount;
 use crate::indexer::indexer::Indexer;
 use crate::note::shield::ShieldRecipient;
@@ -22,8 +24,8 @@ pub struct RailgunAccount {
 
     indexer: Arc<Mutex<Indexer>>,
 
-    viewing_private_key: [u8; 32],
-    spending_private_key: [u8; 32],
+    viewing_key: ViewingKey,
+    spending_key: SpendingKey,
 }
 
 const SPENDING_DERIVATION_PATH: &str = "m/44'/1984'/0'/0'/";
@@ -38,30 +40,26 @@ pub enum TransactError {
 impl RailgunAccount {
     /// Creates a new Railgun Account and adds it to the indexer
     pub fn new(
-        spending_private_key: [u8; 32],
-        viewing_private_key: [u8; 32],
+        spending_key: SpendingKey,
+        viewing_key: ViewingKey,
         indexer: Arc<Mutex<Indexer>>,
     ) -> Self {
         let chain = indexer.lock().unwrap().chain();
 
-        let address = RailgunAddress::from_private_keys(
-            &spending_private_key,
-            &viewing_private_key,
-            chain.id,
-        );
+        let address = RailgunAddress::from_private_keys(spending_key, viewing_key, chain.id);
 
         indexer.lock().unwrap().add_account(IndexerAccount::new(
             address,
-            viewing_private_key,
-            spending_private_key,
+            spending_key,
+            viewing_key,
         ));
 
         RailgunAccount {
             address,
             chain,
             indexer,
-            viewing_private_key,
-            spending_private_key,
+            spending_key,
+            viewing_key,
         }
     }
 
@@ -76,7 +74,7 @@ impl RailgunAccount {
     // TODO: Convert me into a ShieldBuilder factory to support multiple recipients / assets.
     pub fn shield(&self, asset: AssetId, amount: u128) -> Result<TxData, PoseidonError> {
         let recipient = ShieldRecipient::new(asset, self.address, amount);
-        let tx = create_shield_transaction(&self.spending_private_key, self.chain, &[recipient])?;
+        let tx = create_shield_transaction(self.chain, &[recipient])?;
         Ok(tx)
     }
 
@@ -92,8 +90,8 @@ impl RailgunAccount {
         let tx = create_transaction(
             notes,
             &self.address(),
-            &self.viewing_private_key,
-            &self.spending_private_key,
+            self.spending_key,
+            self.viewing_key,
             asset,
             amount,
             crate::caip::AccountId::Eip155(to_address),

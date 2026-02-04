@@ -31,6 +31,7 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, MAINNET_CONFIG},
+    crypto::keys::{ByteKey, SpendingKey, ViewingKey},
     indexer::indexer::Indexer,
 };
 
@@ -43,8 +44,8 @@ const INDEXER_STATE_PATH: &str = "indexer_state.json";
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let spending_private_key = [1u8; 32];
-    let viewing_private_key = [2u8; 32];
+    let spending_private_key = SpendingKey::from_bytes([1u8; 32]);
+    let viewing_private_key = ViewingKey::from_bytes([2u8; 32]);
 
     let latest = 24378760;
     let asset = AssetId::Erc20(USDC_ADDRESS);
@@ -66,14 +67,14 @@ async fn main() {
     let indexer = load_indexer_from_state(provider.clone()).await;
 
     let account = RailgunAccount::new(spending_private_key, viewing_private_key, indexer.clone());
-    // shield(provider.clone(), &account, asset, amount).await;
+    shield(provider.clone(), &account, asset, amount).await;
 
     indexer.lock().unwrap().sync().await.unwrap();
 
     let balance = account.balance();
     info!("Account Balance: {:?}", balance);
 
-    account.unshield(asset, amount / 2, address).unwrap();
+    // account.unshield(asset, amount / 2, address).unwrap();
 }
 
 /// Sync the indexer up to a specific block, saving the state.

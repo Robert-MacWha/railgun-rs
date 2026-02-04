@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{info, info_span};
 
-use crate::crypto::{keys::fr_to_bytes_be, poseidon::poseidon_hash};
+use crate::crypto::{keys::fr_to_bytes, poseidon::poseidon_hash};
 
 /// A sparse Merkle tree implementation using Poseidon hash function.
 ///
@@ -113,7 +113,7 @@ impl MerkleTree {
         let tree: Vec<Vec<[u8; 32]>> = self
             .tree
             .iter()
-            .map(|level| level.iter().map(|fr| fr_to_bytes_be(fr)).collect())
+            .map(|level| level.iter().map(|fr| fr_to_bytes(fr)).collect())
             .collect();
 
         MerkleTreeState {
@@ -251,11 +251,14 @@ fn hash_left_right(left: Fr, right: Fr) -> Fr {
 
 #[cfg(test)]
 mod tests {
+    use tracing_test::traced_test;
+
     use crate::hex_to_fr;
 
     use super::*;
 
     #[test]
+    #[traced_test]
     fn test_merkle_root() {
         // Expected root, sourced from Railgun SDK to verify correctness
         let mut tree = MerkleTree::new(0);
@@ -266,6 +269,7 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn test_merkle_tree_insert_and_proof() {
         // Expected root after inserting leaves 1 to 10
         // Sourced from Railgun SDK to verify correctness
@@ -286,6 +290,7 @@ mod tests {
     }
 
     #[test]
+    #[traced_test]
     fn test_state() {
         let mut tree = MerkleTree::new(0);
         let leaves: Vec<Fr> = (0..10).map(|i| Fr::from(i as u64 + 1)).collect();
