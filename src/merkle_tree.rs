@@ -113,7 +113,7 @@ impl MerkleTree {
         let tree: Vec<Vec<[u8; 32]>> = self
             .tree
             .iter()
-            .map(|level| level.iter().map(|fr| fr_to_bytes(fr)).collect())
+            .map(|level| level.iter().map(fr_to_bytes).collect())
             .collect();
 
         MerkleTreeState {
@@ -207,7 +207,7 @@ impl MerkleTree {
         let mut width = self.tree[0].len();
 
         for level in 0..self.depth {
-            let next_level_width = (width + 1) / 2;
+            let next_level_width = width.div_ceil(2);
             self.tree[level + 1].resize(next_level_width, self.zeros[level + 1]);
 
             for i in 0..next_level_width {

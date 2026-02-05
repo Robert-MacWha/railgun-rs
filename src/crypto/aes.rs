@@ -8,8 +8,6 @@ use aes_gcm::{
     AesGcm, KeyInit, Nonce,
     aead::{Aead, Payload, consts::U16},
 };
-use ark_std::rand::thread_rng;
-use num_bigint::RandBigInt;
 use rand::random;
 
 #[derive(Debug, PartialEq, Eq)]

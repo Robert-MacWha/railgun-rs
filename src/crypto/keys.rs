@@ -211,11 +211,11 @@ impl SpendingPublicKey {
     }
 
     pub fn x_hex(&self) -> String {
-        hex::encode(&self.x)
+        hex::encode(self.x)
     }
 
     pub fn y_hex(&self) -> String {
-        hex::encode(&self.y)
+        hex::encode(self.y)
     }
 }
 
@@ -260,7 +260,7 @@ impl ViewingKey {
     }
 
     fn to_curve25519_scalar(&self) -> Scalar {
-        let hash = Sha512::digest(&self.0);
+        let hash = Sha512::digest(self.0);
         let mut head = [0u8; 32];
         head.copy_from_slice(&hash[..32]);
 
@@ -338,7 +338,7 @@ pub fn blind_viewing_keys(
         final_random[i] = shared_random[i] ^ sender_random[i];
     }
 
-    let hash = Sha512::digest(&final_random);
+    let hash = Sha512::digest(final_random);
     let mut hash_bytes: [u8; 64] = hash.into();
     hash_bytes.reverse();
     let scalar = Scalar::from_bytes_mod_order_wide(&hash_bytes);
@@ -358,7 +358,7 @@ pub fn bytes_to_fr(bytes: &[u8; 32]) -> Fr {
 }
 
 pub fn fr_to_bigint(fr: &Fr) -> BigInt {
-    BigInt::from_bytes_be(num_bigint::Sign::Plus, &fr_to_bytes(&fr))
+    BigInt::from_bytes_be(num_bigint::Sign::Plus, &fr_to_bytes(fr))
 }
 
 pub fn fr_to_u256(fr: &Fr) -> U256 {

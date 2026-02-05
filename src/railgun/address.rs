@@ -26,8 +26,6 @@ pub enum RailgunAddressError {
     ParseHexError(#[from] hex::FromHexError),
     #[error("Invalid ChainId")]
     InvalidChainId,
-    #[error("Invalid Key")]
-    InvalidKey,
     #[error("Invalid Version: {0}")]
     InvalidVersion(u8),
 }
@@ -140,7 +138,7 @@ fn decode_network_id(encoded: &str) -> Result<ChainId, RailgunAddressError> {
             id_bytes.copy_from_slice(&encoded[..8]);
             id_bytes[0] = 0;
             let id = u64::from_be_bytes(id_bytes);
-            Ok(id.into())
+            Ok(id)
         }
         _ => Err(RailgunAddressError::InvalidChainId),
     }

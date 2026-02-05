@@ -150,7 +150,7 @@ impl CircuitInputs {
                 proof
                     .elements
                     .iter()
-                    .map(|fr| fr_to_bigint(fr))
+                    .map(fr_to_bigint)
                     .collect::<Vec<BigInt>>()
             })
             .collect();
@@ -226,22 +226,14 @@ fn hash_bound_params(bound_params: &BoundParams) -> Fr {
 
 #[cfg(test)]
 mod tests {
-    use alloy::{
-        hex::FromHex,
-        primitives::{Bytes, FixedBytes, address, aliases::U72},
-    };
-    use ark_bn254::Fr;
-    use rand::random;
+    use alloy::primitives::{Bytes, FixedBytes, address, aliases::U72};
+
     use tracing_test::traced_test;
 
     use crate::{
         abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
-        caip::AssetId,
-        circuit::inputs::{CircuitInputs, hash_bound_params},
-        crypto::keys::{ByteKey, SpendingKey, ViewingKey, bytes_to_fr},
+        circuit::inputs::hash_bound_params,
         hex_to_fr,
-        merkle_tree::MerkleTree,
-        note::{note::Note, transact::TransactNote},
     };
 
     #[test]

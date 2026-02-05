@@ -228,7 +228,7 @@ impl Indexer {
 
             groups
                 .entry(actual_tree)
-                .or_insert(Vec::new())
+                .or_default()
                 .push((actual_pos, hash));
         }
 

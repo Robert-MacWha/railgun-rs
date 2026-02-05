@@ -94,7 +94,7 @@ impl ShieldNote {
         let note_public_key = poseidon_hash(&[master_key.to_fr(), fr_random_seed]);
         ShieldNote {
             master_key,
-            random_seed: random_seed.clone(),
+            random_seed: *random_seed,
             value,
             asset,
             asset_hash,
@@ -120,7 +120,7 @@ impl ShieldNote {
         let gcm_random: [u8; 16] = gcm.data[0].clone().try_into().unwrap();
         let ctr_key: [u8; 32] = ctr.data[0].clone().try_into().unwrap();
 
-        return Ok(ShieldRequest {
+        Ok(ShieldRequest {
             preimage: CommitmentPreimage {
                 npk: npk.into(),
                 token: self.asset.clone().into(),
@@ -137,7 +137,7 @@ impl ShieldNote {
                 ],
                 shieldKey: shield_private_key.public_key().to_u256().into(),
             },
-        });
+        })
     }
 }
 

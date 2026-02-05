@@ -443,7 +443,7 @@ fn get_transact_notes(
     asset: AssetId,
     value: u128,
     receiver: AccountId,
-) -> (BTreeMap<u32, TreeTransaction>) {
+) -> BTreeMap<u32, TreeTransaction> {
     let is_unshield = match receiver {
         AccountId::Railgun(_) => false,
         AccountId::Eip155(_) => true,

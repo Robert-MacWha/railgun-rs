@@ -35,7 +35,7 @@ pub fn concat_arrays_3<const A: usize, const B: usize, const C: usize, const D: 
 }
 
 pub fn hash_to_scalar(data: &[u8]) -> U256 {
-    let hash = keccak256_cached(&data);
+    let hash = keccak256_cached(data);
     let hash_bigint = U256::from_be_bytes::<32>(hash.as_slice().try_into().unwrap());
     let snark_field = U256::from_str(SNARK_SCALAR_FIELD).unwrap();
     hash_bigint % snark_field

@@ -188,14 +188,14 @@ impl Note {
         commitments_out: &Vec<Fr>,
     ) -> [Fr; 3] {
         let mut inputs = vec![merkle_root, bound_params_hash];
-        inputs.extend_from_slice(&nullifiers);
-        inputs.extend_from_slice(&commitments_out);
+        inputs.extend_from_slice(nullifiers);
+        inputs.extend_from_slice(commitments_out);
 
         self.sign(&inputs)
     }
 
     pub fn sign(&self, inputs: &[Fr]) -> [Fr; 3] {
-        let sig_hash = poseidon_hash(&inputs);
+        let sig_hash = poseidon_hash(inputs);
         let signature = self.spending_key.sign(sig_hash);
         [signature.r8_x, signature.r8_y, signature.s]
     }
@@ -255,14 +255,14 @@ pub fn encrypt_note(
     let (blinded_sender, blinded_receiver) = blind_viewing_keys(
         viewing_key.public_key(),
         receiver.viewing_pubkey(),
-        &concat_arrays(&shared_random, &[0u8; 16]),
+        &concat_arrays(shared_random, &[0u8; 16]),
         &concat_arrays(&sender_random, &[0u8; 17]),
     )?;
 
     let shared_key = viewing_key.derive_shared_key_blinded(blinded_receiver)?;
     let gcm = shared_key.encrypt_gcm(&[
         receiver.master_key().as_bytes(),
-        &concat_arrays::<16, 16, 32>(&shared_random, &value.to_be_bytes()),
+        &concat_arrays::<16, 16, 32>(shared_random, &value.to_be_bytes()),
         &fr_to_bytes(&asset.hash()),
         memo.as_bytes(),
     ])?;
@@ -280,7 +280,7 @@ pub fn encrypt_note(
     let bundle_2: [u8; 32] = gcm.data[1].clone().try_into().unwrap();
     let bundle_3: [u8; 32] = gcm.data[2].clone().try_into().unwrap();
 
-    return Ok(CommitmentCiphertext {
+    Ok(CommitmentCiphertext {
         // iv (16) | tag (16)
         // master_public_key (32)
         // random (16) | value (16)
@@ -296,7 +296,7 @@ pub fn encrypt_note(
         // ctr_iv (16) | encrypted_sender_bundle (any)
         annotationData: [ctr.iv.as_slice(), &ctr.data[0]].concat().into(),
         memo: gcm.data[3].clone().into(),
-    });
+    })
 }
 
 #[cfg(test)]

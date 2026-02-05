@@ -133,7 +133,7 @@ impl IndexerAccount {
         let start_position: u32 = event.startPosition.saturating_to();
 
         for (index, ciphertext) in event.ciphertext.iter().enumerate() {
-            let note = Note::decrypt(&ciphertext, self.spending_key, self.viewing_key);
+            let note = Note::decrypt(ciphertext, self.spending_key, self.viewing_key);
 
             let note = match note {
                 Err(NoteError::Aes(_)) => continue,
