@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use alloy::primitives::{Address, ChainId, aliases::U72};
 use alloy_sol_types::SolValue;
 use ark_bn254::Fr;
@@ -8,15 +10,19 @@ use crate::{
     abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
     crypto::{hash_to_scalar, keys::fr_to_bigint},
     merkle_tree::MerkleTree,
-    note::note::Note,
+    note::{note::Note, transact::TransactNote},
 };
 
+// TODO: Consider replacing me with functional approach, since the struct
+// is just a data container.
+#[derive(Debug, Clone)]
 pub struct CircuitInputs {
     // Public Inputs
-    merkle_root: BigInt,
-    bound_params_hash: BigInt,
-    nullifiers: Vec<BigInt>,
-    commitments_out: Vec<BigInt>,
+    pub merkle_root: BigInt,
+    pub bound_params: BoundParams,
+    pub bound_params_hash: BigInt,
+    pub nullifiers: Vec<BigInt>,
+    pub commitments_out: Vec<BigInt>,
 
     // Private Inputs
     token: BigInt,
@@ -34,6 +40,7 @@ pub struct CircuitInputs {
 impl CircuitInputs {
     pub fn new(
         merkle_root: BigInt,
+        bound_params: BoundParams,
         bound_params_hash: BigInt,
         nullifiers: Vec<BigInt>,
         commitments_out: Vec<BigInt>,
@@ -50,6 +57,7 @@ impl CircuitInputs {
     ) -> Self {
         CircuitInputs {
             merkle_root,
+            bound_params,
             bound_params_hash,
             nullifiers,
             commitments_out,
@@ -66,6 +74,7 @@ impl CircuitInputs {
         }
     }
 
+    // TODO: Pass in pre-computed nullifiers
     pub fn format(
         merkle_tree: &mut MerkleTree,
         min_gas_price: u128,
@@ -74,7 +83,7 @@ impl CircuitInputs {
         adapt_contract: Address,
         adapt_input: &[u8; 32],
         notes_in: Vec<Note>,
-        notes_out: Vec<Note>,
+        notes_out: Vec<Box<dyn TransactNote>>,
         commitment_ciphertexts: Vec<CommitmentCiphertext>,
     ) -> Result<Self, ()> {
         if notes_in.is_empty() || notes_out.is_empty() {
@@ -84,15 +93,16 @@ impl CircuitInputs {
         let merkle_root = merkle_tree.root();
         let tree_number = merkle_tree.number();
 
-        let bound_params_hash = hash_bound_params(BoundParams {
-            treeNumber: tree_number,
+        let bound_params = BoundParams {
+            treeNumber: tree_number as u16,
             minGasPrice: U72::saturating_from(min_gas_price),
             unshield,
             chainID: chain_id,
             adaptContract: adapt_contract,
             adaptParams: adapt_input.into(),
             commitmentCiphertext: commitment_ciphertexts,
-        });
+        };
+        let bound_params_hash = hash_bound_params(&bound_params);
 
         let merkle_proofs: Vec<_> = notes_in
             .iter()
@@ -157,11 +167,12 @@ impl CircuitInputs {
             .collect();
         let value_out: Vec<BigInt> = notes_out
             .iter()
-            .map(|note| BigInt::from(note.value))
+            .map(|note| BigInt::from(note.value()))
             .collect();
 
         Ok(CircuitInputs::new(
             fr_to_bigint(&merkle_root),
+            bound_params,
             fr_to_bigint(&bound_params_hash),
             nullifiers.iter().map(fr_to_bigint).collect(),
             commitments_out.iter().map(fr_to_bigint).collect(),
@@ -177,10 +188,38 @@ impl CircuitInputs {
             value_out,
         ))
     }
+
+    /// Flattens the circuit inputs into a HashMap suitable for use as zk-SNARK inputs.
+    pub fn as_flat_map(&self) -> HashMap<String, Vec<BigInt>> {
+        let mut m = HashMap::new();
+
+        m.insert("merkleRoot".into(), vec![self.merkle_root.clone()]);
+        m.insert(
+            "boundParamsHash".into(),
+            vec![self.bound_params_hash.clone()],
+        );
+        m.insert("nullifiers".into(), self.nullifiers.clone());
+        m.insert("commitmentsOut".into(), self.commitments_out.clone());
+        m.insert("token".into(), vec![self.token.clone()]);
+        m.insert("publicKey".into(), self.public_key.to_vec());
+        m.insert("signature".into(), self.signature.to_vec());
+        m.insert("randomIn".into(), self.random_in.clone());
+        m.insert("valueIn".into(), self.value_in.clone());
+        m.insert(
+            "pathElements".into(),
+            self.path_elements.iter().flatten().cloned().collect(),
+        );
+        m.insert("leavesIndices".into(), self.leaves_indices.clone());
+        m.insert("nullifyingKey".into(), vec![self.nullifying_key.clone()]);
+        m.insert("npkOut".into(), self.npk_out.clone());
+        m.insert("valueOut".into(), self.value_out.clone());
+
+        m
+    }
 }
 
-fn hash_bound_params(bounded_params: BoundParams) -> Fr {
-    let encoded = bounded_params.abi_encode();
+fn hash_bound_params(bound_params: &BoundParams) -> Fr {
+    let encoded = bound_params.abi_encode();
     let hash = hash_to_scalar(&encoded);
     Fr::from_be_bytes_mod_order(&hash.to_be_bytes::<32>())
 }
@@ -197,11 +236,12 @@ mod tests {
 
     use crate::{
         abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
+        caip::AssetId,
         circuit::inputs::{CircuitInputs, hash_bound_params},
-        crypto::keys::{ByteKey, SpendingKey, ViewingKey},
+        crypto::keys::{ByteKey, SpendingKey, ViewingKey, bytes_to_fr},
         hex_to_fr,
         merkle_tree::MerkleTree,
-        note::note::Note,
+        note::{note::Note, transact::TransactNote},
     };
 
     #[test]
@@ -228,34 +268,64 @@ mod tests {
             }],
         };
 
-        let hash = hash_bound_params(bound_params);
+        let hash = hash_bound_params(&bound_params);
         let expected =
             hex_to_fr("0x0171c913baef93e5cf6f223442727c680a1a1844b9999032ac789638032822fb");
 
         assert_eq!(hash, expected);
     }
 
-    #[test]
-    #[traced_test]
-    fn test_format_circuit_inputs() {
-        let spending_key: SpendingKey = random();
-        let viewing_key: ViewingKey = random();
+    // #[test]
+    // #[traced_test]
+    // fn test_format_circuit_inputs() {
+    //     let spending_key: SpendingKey = SpendingKey::from_bytes([1u8; 32]);
+    //     let viewing_key: ViewingKey = ViewingKey::from_bytes([2u8; 32]);
 
-        // let note_in = Note::new_test_note(spending_key, viewing_key)
+    //     // Prepare a populated Merkle tree with the input note
+    //     let mut merkle_tree = MerkleTree::new(1);
+    //     let note_in = Note::new_test_note(spending_key, viewing_key);
+    //     let notes_in = vec![note_in.clone()];
+    //     let notes_out = vec![
+    //         TransactNote::new_change(
+    //             spending_key,
+    //             viewing_key,
+    //             90,
+    //             AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
+    //             [4u8; 16],
+    //             "change memo",
+    //         ),
+    //         TransactNote::new_unshield(
+    //             address!("0x1234567890123456789012345678901234567890"),
+    //             10,
+    //             AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
+    //         ),
+    //     ];
+    //     merkle_tree.insert_leaves(&[bytes_to_fr(&[0u8; 32])], 0);
+    //     merkle_tree.insert_leaves(&[bytes_to_fr(&[1u8; 32])], 1);
+    //     merkle_tree.insert_leaves(&[note_in.hash()], 2);
 
-        // let mut merkle_tree = &mut MerkleTree::new(1);
-        // merkle_tree.insert_leaves(&[Fr::from(1)], 100);
+    //     let commitment_ciphertexts: Vec<CommitmentCiphertext> = notes_out
+    //         .iter()
+    //         .filter_map(|n| n.encrypt(viewing_key, false))
+    //         .collect::<Result<Vec<_>, _>>()
+    //         .unwrap();
+    //     println!("Commitment Ciphertexts: {:#?}", commitment_ciphertexts);
 
-        // let inputs = CircuitInputs::format(
-        //     merkle_tree,
-        //     10u128,
-        //     UnshieldType::NONE,
-        //     1,
-        //     address!("0x1234567890123456789012345678901234567890"),
-        //     &[5u8; 32],
-        //     notes_in,
-        //     notes_out,
-        //     commitment_ciphertexts,
-        // );
-    }
+    //     let inputs = CircuitInputs::format(
+    //         &mut merkle_tree,
+    //         10u128,
+    //         UnshieldType::NONE,
+    //         1,
+    //         address!("0x1234567890123456789012345678901234567890"),
+    //         &[5u8; 32],
+    //         notes_in,
+    //         notes_out,
+    //         commitment_ciphertexts,
+    //     )
+    //     .unwrap();
+
+    //     println!("{:#?}", inputs);
+
+    //     todo!();
+    // }
 }

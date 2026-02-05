@@ -26,7 +26,7 @@ use crate::{
 pub struct ShieldNote {
     master_key: MasterPublicKey,
     random_seed: [u8; 16],
-    amount: u128,
+    value: u128,
     asset: AssetId,
     asset_hash: Fr,
     note_public_key: Fr,
@@ -35,15 +35,15 @@ pub struct ShieldNote {
 pub struct ShieldRecipient {
     asset: AssetId,
     recipient: RailgunAddress,
-    amount: u128,
+    value: u128,
 }
 
 impl ShieldRecipient {
-    pub fn new(asset: AssetId, recipient: RailgunAddress, amount: u128) -> Self {
+    pub fn new(asset: AssetId, recipient: RailgunAddress, value: u128) -> Self {
         ShieldRecipient {
             asset,
             recipient,
-            amount,
+            value,
         }
     }
 }
@@ -59,7 +59,7 @@ pub fn create_shield_transaction(
         let note = ShieldNote::new(
             recipient.recipient.master_key(),
             &random_seed,
-            recipient.amount,
+            recipient.value,
             recipient.asset.clone(),
         );
         let shield_private_key: ViewingKey = random();
@@ -85,7 +85,7 @@ impl ShieldNote {
     pub fn new(
         master_key: MasterPublicKey,
         random_seed: &[u8; 16],
-        amount: u128,
+        value: u128,
         asset: AssetId,
     ) -> Self {
         let fr_random_seed = Fr::from_be_bytes_mod_order(random_seed);
@@ -95,7 +95,7 @@ impl ShieldNote {
         ShieldNote {
             master_key,
             random_seed: random_seed.clone(),
-            amount,
+            value,
             asset,
             asset_hash,
             note_public_key,
@@ -124,7 +124,7 @@ impl ShieldNote {
             preimage: CommitmentPreimage {
                 npk: npk.into(),
                 token: self.asset.clone().into(),
-                value: Uint::from(self.amount),
+                value: Uint::from(self.value),
             },
             ciphertext: ShieldCiphertext {
                 // iv (16) | tag (16)

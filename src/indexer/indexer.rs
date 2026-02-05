@@ -19,10 +19,7 @@ use crate::{
     abis::railgun::RailgunSmartWallet,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    crypto::{
-        keys::{fr_to_bigint, fr_to_u256},
-        poseidon::poseidon_hash,
-    },
+    crypto::{keys::fr_to_u256, poseidon::poseidon_hash},
     indexer::{account::IndexerAccount, subsquid_client::SubsquidClient},
     merkle_tree::{MerkleTree, MerkleTreeState},
     note::note::{Note, NoteError},
@@ -34,7 +31,7 @@ pub struct Indexer {
     chain: ChainConfig,
     /// The latest block number that has been synced
     synced_block: u64,
-    trees: BTreeMap<u16, MerkleTree>,
+    trees: BTreeMap<u32, MerkleTree>,
 
     /// List of accounts being tracked by the indexer
     accounts: Vec<IndexerAccount>,
@@ -44,7 +41,7 @@ pub struct Indexer {
 pub struct IndexerState {
     pub chain_id: ChainId,
     pub synced_block: u64,
-    pub trees: BTreeMap<u16, MerkleTreeState>,
+    pub trees: BTreeMap<u32, MerkleTreeState>,
 }
 
 #[derive(Debug, Error)]
@@ -62,7 +59,7 @@ pub enum SyncError {
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error("Tree {tree_number} root {root:x?} not seen on-chain")]
-    NotSeen { tree_number: u16, root: U256 },
+    NotSeen { tree_number: u32, root: U256 },
     #[error("Contract error: {0}")]
     ContractError(#[from] alloy_contract::Error),
 }
@@ -108,6 +105,10 @@ impl Indexer {
 
     pub fn synced_block(&self) -> u64 {
         self.synced_block
+    }
+
+    pub fn merkle_trees(&mut self) -> &mut BTreeMap<u32, MerkleTree> {
+        &mut self.trees
     }
 
     pub fn notes(&self, address: RailgunAddress) -> BTreeMap<u32, BTreeMap<u32, Note>> {
@@ -208,7 +209,7 @@ impl Indexer {
         // TODO: Consider sorting commitments and inserting contiguous ranges together
         let span = info_span!("Insert Commitments").entered();
         info!("Grouping commits");
-        let mut groups: HashMap<u16, Vec<(usize, Fr)>> = HashMap::new();
+        let mut groups: HashMap<u32, Vec<(usize, Fr)>> = HashMap::new();
         for c in commitments {
             let hash = Fr::from_str(&c.hash).unwrap();
             let global_pos = c.tree_position as u64;
@@ -222,7 +223,7 @@ impl Indexer {
             //
             // By manually calculating the tree number & position based on the
             // 2^16 leaves per tree, we can work around this issue.
-            let actual_tree = (c.tree_number) + (global_pos / 65536) as u16;
+            let actual_tree = (c.tree_number) + (global_pos / 65536) as u32;
             let actual_pos = (global_pos % 65536) as usize;
 
             groups
@@ -306,7 +307,7 @@ impl Indexer {
         event: &RailgunSmartWallet::Shield,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let tree_number: u16 = event.treeNumber.saturating_to();
+        let tree_number: u32 = event.treeNumber.saturating_to();
 
         let leaves: Vec<Fr> = event
             .commitments
@@ -348,7 +349,7 @@ impl Indexer {
         event: &RailgunSmartWallet::Transact,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let tree_number: u16 = event.treeNumber.saturating_to();
+        let tree_number: u32 = event.treeNumber.saturating_to();
 
         let leaves: Vec<Fr> = event
             .hash
@@ -376,7 +377,7 @@ impl Indexer {
     }
 
     fn handle_nullified(&mut self, event: &RailgunSmartWallet::Nullified) {
-        let tree_number = event.treeNumber as u16;
+        let tree_number = event.treeNumber as u32;
 
         let mut nullifiers: Vec<[u8; 32]> = event.nullifier.iter().map(|&n| n.into()).collect();
 

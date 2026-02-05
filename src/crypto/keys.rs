@@ -366,6 +366,11 @@ pub fn fr_to_u256(fr: &Fr) -> U256 {
     U256::from_be_bytes::<32>(bytes)
 }
 
+pub fn fq_to_u256(fq: &ark_bn254::Fq) -> U256 {
+    let bytes = fq.into_bigint().to_bytes_be();
+    U256::from_be_bytes::<32>(bytes.try_into().unwrap())
+}
+
 pub fn bigint_to_fr(bi: &BigInt) -> Fr {
     let (_sign, bytes) = bi.to_bytes_be();
     Fr::from_be_bytes_mod_order(&bytes)

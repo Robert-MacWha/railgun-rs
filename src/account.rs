@@ -6,6 +6,7 @@ use alloy::primitives::Address;
 use light_poseidon::PoseidonError;
 use thiserror::Error;
 
+use crate::caip::AccountId;
 use crate::caip::AssetId;
 use crate::chain_config::ChainConfig;
 use crate::crypto::keys::SpendingKey;
@@ -72,8 +73,8 @@ impl RailgunAccount {
     }
 
     // TODO: Convert me into a ShieldBuilder factory to support multiple recipients / assets.
-    pub fn shield(&self, asset: AssetId, amount: u128) -> Result<TxData, PoseidonError> {
-        let recipient = ShieldRecipient::new(asset, self.address, amount);
+    pub fn shield(&self, asset: AssetId, value: u128) -> Result<TxData, PoseidonError> {
+        let recipient = ShieldRecipient::new(asset, self.address, value);
         let tx = create_shield_transaction(self.chain, &[recipient])?;
         Ok(tx)
     }
@@ -82,19 +83,25 @@ impl RailgunAccount {
     pub fn unshield(
         &self,
         asset: AssetId,
-        amount: u128,
+        value: u128,
         to_address: Address,
     ) -> Result<TxData, TransactError> {
         // TODO: Filter out used notes
-        let notes = self.indexer.lock().unwrap().notes(self.address);
+        let mut indexer = self.indexer.lock().unwrap();
+        let notes = indexer.notes(self.address);
+        let merkle_trees = indexer.merkle_trees();
         let tx = create_transaction(
-            notes,
-            &self.address(),
+            merkle_trees,
+            0,
+            self.chain,
+            Address::ZERO,
+            &[0u8; 32],
             self.spending_key,
             self.viewing_key,
+            notes,
             asset,
-            amount,
-            crate::caip::AccountId::Eip155(to_address),
+            value,
+            AccountId::Eip155(to_address),
         )
         .unwrap();
         Ok(tx)

@@ -147,6 +147,28 @@ impl Note {
         ))
     }
 
+    /// Encrypts the note into a CommitmentCiphertext. Uses this note's spending
+    /// and viewing keys as the receiver's information.
+    ///
+    ///  See `encrypt_note` for more details.
+    pub fn encrypt(
+        &self,
+        sender_viewing_key: ViewingKey,
+        blind: bool,
+    ) -> Result<CommitmentCiphertext, EncryptError> {
+        //? Encryption doesn't depend on the chain ID, so it can be arbitrary
+        let receiver = RailgunAddress::from_private_keys(self.spending_key, self.viewing_key, 1);
+        encrypt_note(
+            &receiver,
+            &self.random_seed,
+            self.value,
+            &self.token,
+            &self.memo,
+            sender_viewing_key,
+            blind,
+        )
+    }
+
     /// Returns the note's hash
     ///
     /// Hash of (note_public_key, token_id, value)
@@ -214,6 +236,9 @@ impl Note {
     }
 }
 
+/// Encrypts a note into a CommitmentCiphertext
+///
+/// TODO: Add details on blind
 pub fn encrypt_note(
     receiver: &RailgunAddress,
     shared_random: &[u8; 16],

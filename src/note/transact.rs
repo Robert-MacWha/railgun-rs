@@ -1,33 +1,63 @@
 use std::{collections::BTreeMap, fs};
 
-use alloy::{consensus::error, primitives::Address};
+use alloy::primitives::{Address, ChainId, FixedBytes, U256, aliases::U120};
+use alloy_sol_types::SolCall;
 use ark_bn254::{Bn254, Fr};
-use ark_circom::{CircomBuilder, CircomConfig, read_zkey};
-use ark_groth16::ProvingKey;
+use ark_circom::{CircomBuilder, CircomConfig, CircomReduction, read_zkey};
+use ark_ec::AffineRepr;
+use ark_ff::PrimeField;
+use ark_groth16::{Groth16, ProvingKey, prepare_verifying_key};
+use num_bigint::BigInt;
 use rand::random;
-use thiserror::Error;
-use tracing::error;
+use tracing::info;
 
 use crate::{
-    abis::railgun::CommitmentCiphertext,
-    caip::{AccountId, AssetId},
-    crypto::{
-        aes::{AesError, encrypt_ctr, encrypt_gcm},
-        concat_arrays, concat_arrays_3,
-        keys::{SpendingKey, ViewingKey},
-        railgun_base_37,
+    abis::railgun::{
+        CommitmentCiphertext, CommitmentPreimage, G1Point, G2Point,
+        RailgunSmartWallet::transactCall, SnarkProof, Transaction, UnshieldType,
     },
+    caip::{AccountId, AssetId},
+    chain_config::ChainConfig,
+    circuit::inputs::CircuitInputs,
+    crypto::{
+        keys::{FieldKey, SpendingKey, ViewingKey, bigint_to_fr, fq_to_u256, fr_to_u256},
+        poseidon::poseidon_hash,
+    },
+    merkle_tree::MerkleTree,
     note::note::{EncryptError, Note, encrypt_note},
     railgun::address::RailgunAddress,
     tx_data::TxData,
 };
 
-/// TransactNote represents a note used in a shielded transaction.
+pub trait TransactNote {
+    fn hash(&self) -> Fr;
+    fn note_public_key(&self) -> Fr;
+    fn value(&self) -> u128;
+}
+
+trait EncryptableNote {
+    fn encrypt(
+        &self,
+        viewing_key: ViewingKey,
+        blind: bool,
+    ) -> Result<CommitmentCiphertext, EncryptError>;
+}
+
+/// TreeTransaction represents a full transaction on a single Merkle tree.
+///
+/// Supports many input notes, many transfer notes, a single unshield note,
+/// and a single change note.
+///
+/// Note: The railgun contracts currently only support a single unshield operation
+/// per transaction. This is because there's only one unshield preimage in the
+/// transaction data.
 #[derive(Debug, Clone)]
-pub enum TransactNote {
-    Unshield(UnshieldNote),
-    Transfer(TransferNote),
-    Change(ChangeNote),
+struct TreeTransaction {
+    /// (note_in, nullifier)
+    notes_in: Vec<(Note, Fr)>,
+    transfers_out: Vec<TransferNote>,
+    unshield: Option<UnshieldNote>,
+    change: Option<Note>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,44 +76,164 @@ struct TransferNote {
     memo: String,
 }
 
-#[derive(Debug, Clone)]
-struct ChangeNote {
-    receiver: RailgunAddress,
-    asset: AssetId,
-    value: u128,
-    random: [u8; 16],
-    memo: String,
-}
-
 pub fn create_transaction(
-    notes: BTreeMap<u32, BTreeMap<u32, Note>>,
-    sender: &RailgunAddress,
+    merkle_trees: &mut BTreeMap<u32, MerkleTree>,
+    min_gas_price: u128,
+    chain: ChainConfig,
+    adapt_contract: Address,
+    adapt_input: &[u8; 32],
     sender_spending_key: SpendingKey,
     sender_viewing_key: ViewingKey,
+    notes: BTreeMap<u32, BTreeMap<u32, Note>>,
     asset: AssetId,
     value: u128,
     receiver: AccountId,
 ) -> Result<TxData, EncryptError> {
-    let (notes_in, notes_out, nullifiers) =
-        get_transact_notes(notes, sender, asset, value, receiver);
+    // TODO: Figure out under what conditions this should be `UnshieldType::REDIRECT`
+    let unshield = match receiver {
+        AccountId::Railgun(_) => UnshieldType::NONE,
+        AccountId::Eip155(_) => UnshieldType::NORMAL,
+    };
 
-    println!("Notes In: {:?}", notes_in);
-    println!("Notes Out: {:?}", notes_out);
-    println!("Nullifiers: {:?}", nullifiers);
+    info!("Selecting notes for transaction...");
+    let tree_txns = get_transact_notes(
+        notes,
+        sender_spending_key,
+        sender_viewing_key,
+        asset.clone(),
+        value,
+        receiver,
+    );
 
-    for (tree_number, notes_in) in notes_in {
-        let notes_out = notes_out.get(&tree_number).cloned().unwrap_or_default();
-        let (builder, proving_key) = load_artifacts(notes_in.len(), notes_out.len());
+    let mut transactions = Vec::new();
+    for (tree_number, tree_tx) in tree_txns {
+        info!("Processing tree {}", tree_number);
+        let merkle_tree = merkle_trees.get_mut(&tree_number).unwrap();
 
-        let commitment_ciphertext: Vec<CommitmentCiphertext> = notes_out
+        // Load circuit artifacts
+        let notes_in: Vec<Note> = tree_tx.notes_in().clone();
+        let notes_out = tree_tx.notes_out();
+        let (mut builder, params) = load_artifacts(notes_in.len(), notes_out.len());
+
+        // Construct circuit inputs
+        let commitment_ciphertexts: Vec<CommitmentCiphertext> = tree_tx
+            .encryptable_notes_out()
             .iter()
-            .filter_map(|n| n.encrypt(sender_viewing_key, false))
+            .map(|n| n.encrypt(sender_viewing_key, false))
             .collect::<Result<Vec<_>, _>>()?;
+        let inputs = CircuitInputs::format(
+            merkle_tree,
+            min_gas_price,
+            unshield,
+            chain.id,
+            adapt_contract,
+            adapt_input,
+            notes_in,
+            notes_out,
+            commitment_ciphertexts,
+        )
+        .unwrap();
 
-        // let inputs = format_circuit_inputs(notes_in, notes_out, commitment_ciphertext);
+        // Build the circuit
+        info!("Building circuit for tree {}", tree_number);
+
+        for (name, values) in inputs.as_flat_map() {
+            for value in values {
+                builder.push_input(&name, value);
+            }
+        }
+
+        let circom = builder.build().unwrap();
+        let public_inputs = circom.get_public_inputs().unwrap();
+
+        info!("Generating proof for tree {}", tree_number);
+
+        let mut rng = ark_std::rand::thread_rng();
+        let proof = Groth16::<Bn254, CircomReduction>::create_random_proof_with_reduction(
+            circom, &params, &mut rng,
+        )
+        .unwrap();
+
+        info!("Verifying proof for tree {}", tree_number);
+
+        let pvk = prepare_verifying_key(&params.vk);
+        let verified =
+            Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
+        assert!(verified, "Proof verification failed");
+        info!("Proof verified successfully for tree {}", tree_number);
+
+        let transaction = Transaction {
+            proof: SnarkProof {
+                a: G1Point {
+                    x: fq_to_u256(&proof.a.x().unwrap()),
+                    y: fq_to_u256(&proof.a.y().unwrap()),
+                },
+                b: G2Point {
+                    x: [
+                        fq_to_u256(&proof.b.x().unwrap().c1),
+                        fq_to_u256(&proof.b.x().unwrap().c0),
+                    ],
+                    y: [
+                        fq_to_u256(&proof.b.y().unwrap().c1),
+                        fq_to_u256(&proof.b.y().unwrap().c0),
+                    ],
+                },
+                c: G1Point {
+                    x: fq_to_u256(&proof.c.x().unwrap()),
+                    y: fq_to_u256(&proof.c.y().unwrap()),
+                },
+            },
+            merkleRoot: bigint_to_bytes(&inputs.merkle_root),
+            nullifiers: inputs.nullifiers.iter().map(bigint_to_bytes).collect(),
+            commitments: inputs.commitments_out.iter().map(bigint_to_bytes).collect(),
+            boundParams: inputs.bound_params,
+            unshieldPreimage: match tree_tx.unshield {
+                Some(unshield) => {
+                    info!(
+                        "Unshield npk: {:?}",
+                        fr_to_u256(&unshield.note_public_key())
+                    );
+                    info!(
+                        "Unshield token_id: {:?}",
+                        fr_to_u256(&unshield.asset.hash())
+                    );
+                    info!("Unshield value: {:?}", unshield.value);
+                    info!("Unshield hash: {:?}", fr_to_u256(&unshield.hash()));
+                    info!("Last commitment_out: {:?}", &inputs.commitments_out.last());
+                    CommitmentPreimage {
+                        npk: fr_to_u256(&unshield.note_public_key()).into(),
+                        token: unshield.asset.into(),
+                        value: U120::saturating_from(unshield.value),
+                    }
+                }
+                //? If there's no unshield note, the preimage is ignored by the
+                //? contract so we can just return a zeroed preimage. Just using
+                //? `asset` for convenience.
+                None => CommitmentPreimage {
+                    npk: FixedBytes::ZERO,
+                    token: asset.clone().into(),
+                    value: U120::saturating_from(0),
+                },
+            },
+        };
+
+        transactions.push(transaction);
     }
 
-    todo!()
+    let call = transactCall {
+        _transactions: transactions,
+    };
+    let calldata = call.abi_encode();
+
+    Ok(TxData {
+        to: chain.railgun_smart_wallet,
+        data: calldata,
+        value: U256::ZERO,
+    })
+}
+
+fn bigint_to_bytes(value: &BigInt) -> FixedBytes<32> {
+    fr_to_u256(&bigint_to_fr(value)).into()
 }
 
 fn load_artifacts(notes_in: usize, notes_out: usize) -> (CircomBuilder<Fr>, ProvingKey<Bn254>) {
@@ -104,57 +254,118 @@ fn load_artifacts(notes_in: usize, notes_out: usize) -> (CircomBuilder<Fr>, Prov
     (builder, params)
 }
 
-impl TransactNote {
-    pub fn new_unshield(receiver: Address, value: u128, asset: AssetId) -> Self {
-        TransactNote::Unshield(UnshieldNote {
+impl TreeTransaction {
+    pub fn new(
+        notes_in: Vec<(Note, Fr)>,
+        transfers_out: Vec<TransferNote>,
+        unshield: Option<UnshieldNote>,
+        change: Option<Note>,
+    ) -> Self {
+        TreeTransaction {
+            notes_in,
+            transfers_out,
+            unshield,
+            change,
+        }
+    }
+
+    pub fn notes_in(&self) -> Vec<Note> {
+        self.notes_in.iter().map(|(note, _)| note.clone()).collect()
+    }
+
+    pub fn nullifiers(&self) -> Vec<Fr> {
+        self.notes_in
+            .iter()
+            .map(|(_, nullifier)| *nullifier)
+            .collect()
+    }
+
+    pub fn notes_out(&self) -> Vec<Box<dyn TransactNote>> {
+        let mut notes: Vec<Box<dyn TransactNote>> = Vec::new();
+
+        if let Some(change) = &self.change {
+            notes.push(Box::new(change.clone()));
+        }
+
+        for transfer in &self.transfers_out {
+            notes.push(Box::new(transfer.clone()));
+        }
+
+        if let Some(unshield) = &self.unshield {
+            notes.push(Box::new(unshield.clone()));
+        }
+
+        notes
+    }
+
+    pub fn encryptable_notes_out(&self) -> Vec<Box<dyn EncryptableNote>> {
+        let mut notes: Vec<Box<dyn EncryptableNote>> = Vec::new();
+
+        for transfer in &self.transfers_out {
+            notes.push(Box::new(transfer.clone()));
+        }
+
+        if let Some(change) = &self.change {
+            notes.push(Box::new(change.clone()));
+        }
+
+        notes
+    }
+}
+
+impl UnshieldNote {
+    pub fn new(receiver: Address, asset: AssetId, value: u128) -> Self {
+        UnshieldNote {
             receiver,
             asset,
             value,
-        })
-    }
-
-    pub fn new_transfer(receiver: RailgunAddress, value: u128, asset: AssetId, memo: &str) -> Self {
-        let random: [u8; 16] = random();
-
-        TransactNote::Transfer(TransferNote {
-            receiver,
-            asset,
-            value,
-            random,
-            memo: memo.to_string(),
-        })
-    }
-
-    pub fn new_change(receiver: RailgunAddress, value: u128, asset: AssetId, memo: &str) -> Self {
-        let random: [u8; 16] = random();
-
-        TransactNote::Change(ChangeNote {
-            receiver,
-            asset,
-            value,
-            random,
-            memo: memo.to_string(),
-        })
-    }
-
-    pub fn encrypt(
-        &self,
-        viewing_key: ViewingKey,
-        blind: bool,
-    ) -> Option<Result<CommitmentCiphertext, EncryptError>> {
-        match self {
-            TransactNote::Unshield(_) => None, // Unshield notes are not encrypted
-            TransactNote::Transfer(note) => Some(note.encrypt(viewing_key, blind)),
-            TransactNote::Change(note) => Some(note.encrypt(viewing_key, blind)),
         }
     }
 }
 
+impl TransactNote for UnshieldNote {
+    fn hash(&self) -> Fr {
+        poseidon_hash(&[
+            self.note_public_key(),
+            self.asset.hash(),
+            Fr::from(self.value),
+        ])
+    }
+
+    fn note_public_key(&self) -> Fr {
+        let mut bytes = [0u8; 32];
+        bytes[12..32].copy_from_slice(self.receiver.as_slice());
+        Fr::from_be_bytes_mod_order(&bytes)
+    }
+
+    fn value(&self) -> u128 {
+        self.value
+    }
+}
+
 impl TransferNote {
+    pub fn new(
+        receiver: RailgunAddress,
+        asset: AssetId,
+        value: u128,
+        random: [u8; 16],
+        memo: &str,
+    ) -> Self {
+        TransferNote {
+            receiver,
+            asset,
+            value,
+            random,
+            memo: memo.to_string(),
+        }
+    }
+}
+
+impl EncryptableNote for TransferNote {
     /// Encrypts the note into a CommitmentCiphertext
     ///
     /// If `blind` is true, the sender's address will be hidden to the receiver.
-    pub fn encrypt(
+    fn encrypt(
         &self,
         viewing_key: ViewingKey,
         blind: bool,
@@ -171,21 +382,51 @@ impl TransferNote {
     }
 }
 
-impl ChangeNote {
-    pub fn encrypt(
+impl TransactNote for TransferNote {
+    fn hash(&self) -> Fr {
+        poseidon_hash(&[
+            self.note_public_key(),
+            self.asset.hash(),
+            Fr::from(self.value),
+        ])
+    }
+
+    fn note_public_key(&self) -> Fr {
+        poseidon_hash(&[
+            self.receiver.master_key().to_fr(),
+            Fr::from_be_bytes_mod_order(&self.random),
+        ])
+    }
+
+    fn value(&self) -> u128 {
+        self.value
+    }
+}
+
+impl EncryptableNote for Note {
+    /// Encrypts the note into a CommitmentCiphertext
+    ///
+    /// If `blind` is true, the sender's address will be hidden to the receiver.
+    fn encrypt(
         &self,
         viewing_key: ViewingKey,
         blind: bool,
     ) -> Result<CommitmentCiphertext, EncryptError> {
-        encrypt_note(
-            &self.receiver,
-            &self.random,
-            self.value,
-            &self.asset,
-            &self.memo,
-            viewing_key,
-            blind,
-        )
+        self.encrypt(viewing_key, blind)
+    }
+}
+
+impl TransactNote for Note {
+    fn hash(&self) -> Fr {
+        self.hash()
+    }
+
+    fn note_public_key(&self) -> Fr {
+        self.note_public_key()
+    }
+
+    fn value(&self) -> u128 {
+        self.value
     }
 }
 
@@ -197,26 +438,32 @@ impl ChangeNote {
 /// TODO: Add internal checks to ensure notes are this account's notes
 fn get_transact_notes(
     notes: BTreeMap<u32, BTreeMap<u32, Note>>,
-    sender: &RailgunAddress,
+    sender_spending_key: SpendingKey,
+    sender_viewing_key: ViewingKey,
     asset: AssetId,
     value: u128,
     receiver: AccountId,
-) -> (
-    BTreeMap<u32, Vec<Note>>,
-    BTreeMap<u32, Vec<TransactNote>>,
-    BTreeMap<u32, Vec<Fr>>,
-) {
+) -> (BTreeMap<u32, TreeTransaction>) {
     let is_unshield = match receiver {
         AccountId::Railgun(_) => false,
         AccountId::Eip155(_) => true,
     };
 
-    let mut notes_in: BTreeMap<u32, Vec<Note>> = BTreeMap::new();
-    let mut notes_out: BTreeMap<u32, Vec<TransactNote>> = BTreeMap::new();
-    let mut nullifiers: BTreeMap<u32, Vec<Fr>> = BTreeMap::new();
+    let mut tree_transactions = BTreeMap::new();
     let mut total_value: u128 = 0;
 
     for (tree_number, notes) in notes.iter() {
+        let mut notes_in = Vec::new();
+        let mut nullifiers = Vec::new();
+
+        //? Technically I believe we could have multiple transfer notes per
+        //? transaction per tree. However, for API simplicity I'm asserting
+        //? that each `transaction` will only transfer to a single recipient.
+        //? This can be revisited later and would result in more gas-efficient
+        //? operations when privately transferring to multiple recipients.
+        let mut transfer_note = Vec::new();
+        let mut unshield_note = None;
+        let mut change_note = None;
         let mut tree_value: u128 = 0;
 
         for (tree_position, note) in notes {
@@ -225,10 +472,10 @@ fn get_transact_notes(
             }
 
             tree_value += note.value;
-            notes_in.entry(*tree_number).or_default().push(note.clone());
+            notes_in.push(note.clone());
 
             let nullifier = note.nullifier(*tree_position);
-            nullifiers.entry(*tree_number).or_default().push(nullifier);
+            nullifiers.push(nullifier);
 
             if total_value + tree_value >= value {
                 break;
@@ -248,29 +495,135 @@ fn get_transact_notes(
         if remainder > 0 {
             //? If the tree's notes cover the remaining needed value,
             //? create a change note for the remainder
-            let change_note =
-                TransactNote::new_change(sender.clone(), remainder, asset.clone(), "");
-            notes_out.entry(*tree_number).or_default().push(change_note);
+            change_note = Some(Note::new(
+                sender_spending_key,
+                sender_viewing_key,
+                &random(),
+                remainder,
+                asset.clone(),
+                "",
+            ));
         }
 
         //? Create the output note based on the used value
-        let output_note = if is_unshield {
+        if is_unshield {
             let receiver = match receiver {
                 AccountId::Eip155(addr) => addr,
                 _ => unreachable!(),
             };
-            TransactNote::new_unshield(receiver, used, asset.clone())
+            unshield_note = Some(UnshieldNote::new(receiver, asset.clone(), used));
         } else {
             let receiver = match receiver {
                 AccountId::Railgun(addr) => addr,
                 _ => unreachable!(),
             };
-            TransactNote::new_transfer(receiver, used, asset.clone(), "")
+            transfer_note.push(TransferNote::new(
+                receiver,
+                asset.clone(),
+                used,
+                random(),
+                "",
+            ));
         };
 
         total_value += used;
-        notes_out.entry(*tree_number).or_default().push(output_note);
+
+        tree_transactions.insert(
+            *tree_number,
+            TreeTransaction {
+                notes_in: notes_in
+                    .into_iter()
+                    .zip(nullifiers.iter().cloned())
+                    .collect(),
+                transfers_out: transfer_note,
+                unshield: unshield_note,
+                change: change_note,
+            },
+        );
     }
 
-    (notes_in, notes_out, nullifiers)
+    tree_transactions
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::address;
+    use tracing_test::traced_test;
+
+    use crate::{
+        caip::AssetId,
+        crypto::keys::{ByteKey, SpendingKey, ViewingKey},
+        hex_to_fr,
+        note::transact::{TransactNote, TransferNote, UnshieldNote},
+        railgun::address::RailgunAddress,
+    };
+
+    #[test]
+    #[traced_test]
+    fn test_unshield_note_hash() {
+        let note = UnshieldNote::new(
+            address!("0x1234567890123456789012345678901234567890"),
+            AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
+            10,
+        );
+        let hash = note.hash();
+
+        let expected =
+            hex_to_fr("0x12f0c138dd2766eedd92365ec2e1824fc37515d35eea3d2cc8ff1e991007663c");
+        assert_eq!(hash, expected);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_transfer_note_hash() {
+        let note = TransferNote::new(
+            RailgunAddress::from_private_keys(
+                SpendingKey::from_bytes([1u8; 32]),
+                ViewingKey::from_bytes([2u8; 32]),
+                1,
+            ),
+            AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
+            90,
+            [2u8; 16],
+            "memo",
+        );
+        let hash = note.hash();
+
+        let expected =
+            hex_to_fr("0x0238d33eb654c483bb7beb8dc44f2d364ee415414af794adf3cc40018d1412c1");
+        assert_eq!(hash, expected);
+    }
+
+    /// Railgun requires that, if a transaction includes an unshield operation,
+    /// it must be the last commitment in the transaction.
+    #[test]
+    #[traced_test]
+    fn test_last_commitment_is_unshield() {
+        let unshield_note = UnshieldNote::new(
+            address!("0x1234567890123456789012345678901234567890"),
+            AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
+            10,
+        );
+        let transfer_note = TransferNote::new(
+            RailgunAddress::from_private_keys(
+                SpendingKey::from_bytes([1u8; 32]),
+                ViewingKey::from_bytes([2u8; 32]),
+                1,
+            ),
+            AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
+            90,
+            [2u8; 16],
+            "memo",
+        );
+
+        let tree_tx = super::TreeTransaction::new(
+            vec![],
+            vec![transfer_note],
+            Some(unshield_note.clone()),
+            None,
+        );
+
+        let notes_out = tree_tx.notes_out();
+        assert_eq!(notes_out.last().unwrap().hash(), unshield_note.hash());
+    }
 }

@@ -10,6 +10,7 @@ use aes_gcm::{
 };
 use ark_std::rand::thread_rng;
 use num_bigint::RandBigInt;
+use rand::random;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Ciphertext {
@@ -38,13 +39,7 @@ type Aes256GcmU16 = AesGcm<Aes256, U16>;
 type Aes256Ctr = ctr::Ctr128BE<aes::Aes256>;
 
 pub fn encrypt_gcm(plaintext: &[&[u8]], key: &[u8; 32]) -> Result<Ciphertext, AesError> {
-    //? Safe to unwrap as length is fixed
-    let iv: [u8; 16] = thread_rng()
-        .gen_biguint(128)
-        .to_bytes_be()
-        .try_into()
-        .unwrap();
-
+    let iv: [u8; 16] = random();
     encrypt_gcm_with_iv(plaintext, key, &iv)
 }
 
@@ -125,12 +120,7 @@ pub fn decrypt_gcm(ciphertext: &Ciphertext, key: &[u8; 32]) -> Result<Vec<Vec<u8
 }
 
 pub fn encrypt_ctr(plaintext: &[&[u8]], key: &[u8; 32]) -> CiphertextCtr {
-    let iv: [u8; 16] = thread_rng()
-        .gen_biguint(128)
-        .to_bytes_be()
-        .try_into()
-        .unwrap();
-
+    let iv: [u8; 16] = random();
     let mut cipher = Aes256Ctr::new(key.into(), &iv.into());
     let mut data = Vec::with_capacity(plaintext.len());
 

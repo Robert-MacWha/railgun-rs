@@ -18,7 +18,7 @@ pub struct MerkleTree {
     // but not sure why
     pub nullifiers: Vec<[u8; 32]>,
 
-    number: u16,
+    number: u32,
     depth: usize,
     zeros: Vec<Fr>,
     tree: Vec<Vec<Fr>>,
@@ -30,7 +30,7 @@ pub struct MerkleTree {
 pub struct MerkleTreeState {
     pub nullifiers: Vec<[u8; 32]>,
 
-    pub number: u16,
+    pub number: u32,
     pub depth: usize,
     pub tree: Vec<Vec<[u8; 32]>>,
 }
@@ -54,11 +54,11 @@ const TREE_DEPTH: usize = 16;
 // TODO: Consider dirty optimizations for sparse trees. Slower while syncing,
 // faster for incremental updates.
 impl MerkleTree {
-    pub fn new(tree_number: u16) -> Self {
+    pub fn new(tree_number: u32) -> Self {
         Self::new_with_depth(tree_number, TREE_DEPTH)
     }
 
-    pub fn new_with_depth(tree_number: u16, depth: usize) -> Self {
+    pub fn new_with_depth(tree_number: u32, depth: usize) -> Self {
         let zeros = zero_value_levels(depth);
         let mut tree: Vec<Vec<Fr>> = (0..=depth).map(|_| Vec::new()).collect();
 
@@ -94,7 +94,7 @@ impl MerkleTree {
         tree
     }
 
-    pub fn number(&self) -> u16 {
+    pub fn number(&self) -> u32 {
         self.number
     }
 

@@ -67,14 +67,32 @@ async fn main() {
     let indexer = load_indexer_from_state(provider.clone()).await;
 
     let account = RailgunAccount::new(spending_private_key, viewing_private_key, indexer.clone());
-    shield(provider.clone(), &account, asset, amount).await;
+    // shield(provider.clone(), &account, asset, amount).await;
 
     indexer.lock().unwrap().sync().await.unwrap();
-
     let balance = account.balance();
     info!("Account Balance: {:?}", balance);
 
-    // account.unshield(asset, amount / 2, address).unwrap();
+    info!("Unshielding {} of asset {:?}", amount / 3, asset);
+    let unshield_tx = account
+        .unshield(asset.clone(), amount / 3, address)
+        .unwrap();
+    let tx = TransactionRequest::default()
+        .to(unshield_tx.to)
+        .value(unshield_tx.value)
+        .input(unshield_tx.data.into());
+    provider
+        .send_transaction(tx)
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    info!("Unshielded {} of asset {:?}", amount / 3, asset);
+
+    indexer.lock().unwrap().sync().await.unwrap();
+    let balance = account.balance();
+    info!("Account Balance: {:?}", balance);
 }
 
 /// Sync the indexer up to a specific block, saving the state.

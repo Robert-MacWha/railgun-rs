@@ -28,8 +28,8 @@ struct CommitmentsData {
 #[serde(rename_all = "camelCase")]
 pub struct Commitment {
     pub hash: String,
-    pub tree_number: u16,
-    pub tree_position: i32,
+    pub tree_number: u32,
+    pub tree_position: u32,
     pub block_number: String,
     pub commitment_type: String,
     pub transaction_hash: String,
