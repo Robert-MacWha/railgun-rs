@@ -172,7 +172,7 @@ mod tests {
     fn railgun_sdk() {
         // Test vectors from Railgun SDK AES-GCM implementation to verify compatibility
         let key = "248e995ff2d51fd056b35c5e1132600c78a7b3b56b56a417ca94e228fb4547d7";
-        let plaintext = vec![
+        let plaintext = [
             "554ba3927df1db8b86759f411b4461360a68604ea9197b142f640fe5ea23ece2",
             "55846f6fab65e22b7ae046e76038f030baa735778ef2a9408c7b0a729c1191e5",
             "54ad8402e454e481d0bc3942751ebdfb62f7c6852e52cf6cf877c00bb34affc7",
@@ -185,7 +185,7 @@ mod tests {
         //? IV is randomly generated in normal use, but fixed here for test vector
         let iv = "2dd65a0ed18aa4dcbcb9d2655a424f0e";
         let expected_tag = "23a259788bc6e3b4c3c4e07711a7dc47";
-        let expected_data = vec![
+        let expected_data = [
             "da377c6a8a976a5f887f3c8c5d54d576c24efcce4486d12fb06fc407fadf83e1",
             "e2864adfdedb42bd7b8ee7b1eee2d999d90563c86d6b80764bc6dc2b5fe2f1f9",
             "ee6c89ffd97df19c8a6984ec3922f3910d28e0533cb6ceb759cfe4d59bf03a60",

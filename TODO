@@ -1,5 +1,14 @@
-- Implement unshielding
-- Create test for unshielding
+- [x] Implement unshielding
+- Fix event tracker so it works with unshielding
 - Create integration test that uses anvil for shield, balance check, unshield
-- Implement Transfer
+- Implement transfer
+- Implement builder pattern for shields / transactions
 - Refactor and tidy up
+- Optimize performance
+  - Benchmark current performance + components
+  - Try to use `https://github.com/philsippl/circom-witness-rs` for witness generation.  Seems to be ~30x faster for native, and probably faster for wasm too since we avoid wasmer overhead.
+    - Potentially smaller bin because of deduplication. However it also means bundling more code in the main binary instead of in .wasm files that can be loaded from remote on demand. So need to measure and see.
+- Implement PPOI
+- Implement broadcasters
+- Implement native token support for shield / unshield
+- Implement NFT support for shield / unshield / transfer

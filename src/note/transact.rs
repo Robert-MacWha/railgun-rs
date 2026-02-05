@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs};
 
-use alloy::primitives::{Address, ChainId, FixedBytes, U256, aliases::U120};
+use alloy::primitives::{Address, FixedBytes, U256, aliases::U120};
 use alloy_sol_types::SolCall;
 use ark_bn254::{Bn254, Fr};
 use ark_circom::{CircomBuilder, CircomConfig, CircomReduction, read_zkey};
