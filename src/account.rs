@@ -88,7 +88,10 @@ impl RailgunAccount {
     ) -> Result<TxData, TransactError> {
         // TODO: Filter out used notes
         let mut indexer = self.indexer.lock().unwrap();
-        let notes = indexer.notes(self.address);
+        let mut notebook = indexer
+            .notebook(self.address)
+            .ok_or(TransactError::InsufficientFunds(asset))?;
+
         let merkle_trees = indexer.merkle_trees();
         let tx = create_transaction(
             merkle_trees,
@@ -98,7 +101,7 @@ impl RailgunAccount {
             &[0u8; 32],
             self.spending_key,
             self.viewing_key,
-            notes,
+            &mut notebook,
             asset,
             value,
             AccountId::Eip155(to_address),

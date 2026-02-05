@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use tracing::info;
 
@@ -6,7 +6,7 @@ use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
     caip::AssetId,
     crypto::keys::{SpendingKey, ViewingKey},
-    indexer::indexer::TOTAL_LEAVES,
+    indexer::{indexer::TOTAL_LEAVES, notebook::Notebook},
     note::note::{Note, NoteError},
     railgun::address::RailgunAddress,
 };
@@ -22,9 +22,7 @@ pub struct IndexerAccount {
 
     /// The latest block number that has been processed for this account
     synced_block: u64,
-
-    /// The notes held by this account, organized by tree number and note position
-    notes: BTreeMap<u32, BTreeMap<u32, Note>>,
+    notebook: Notebook,
 }
 
 impl IndexerAccount {
@@ -38,7 +36,7 @@ impl IndexerAccount {
             spending_key,
             viewing_key,
             synced_block: 0,
-            notes: BTreeMap::new(),
+            notebook: Notebook::new(),
         }
     }
 
@@ -46,16 +44,16 @@ impl IndexerAccount {
         self.address
     }
 
-    pub fn notebooks(&self) -> &BTreeMap<u32, BTreeMap<u32, Note>> {
-        &self.notes
+    pub fn notebook(&self) -> Notebook {
+        self.notebook.clone()
     }
 
     /// Calculates the balance of the account by summing up the values of all its notes.
     pub fn balance(&self) -> HashMap<AssetId, u128> {
         let mut balances: HashMap<AssetId, u128> = HashMap::new();
 
-        for (_tree_number, tree_notes) in self.notes.iter() {
-            for (_note_position, note) in tree_notes.iter() {
+        for (_, tree) in self.notebook.unspent().iter() {
+            for (_, note) in tree.iter() {
                 match note.token {
                     AssetId::Erc20(address) => {
                         balances
@@ -114,10 +112,7 @@ impl IndexerAccount {
                 (tree_number, start_position + index)
             };
 
-            self.notes
-                .entry(tree_number)
-                .or_default()
-                .insert(note_position, note);
+            self.notebook.add(tree_number, note_position, note);
         }
 
         self.synced_block = self.synced_block.max(block_number);
@@ -149,13 +144,24 @@ impl IndexerAccount {
                 (tree_number, start_position + index)
             };
 
-            self.notes
-                .entry(tree_number)
-                .or_default()
-                .insert(note_position, note);
+            self.notebook.add(tree_number, note_position, note);
         }
 
         self.synced_block = self.synced_block.max(block_number);
         Ok(())
+    }
+
+    pub fn handle_nullified_event(
+        &mut self,
+        event: &RailgunSmartWallet::Nullified,
+        timestamp: u64,
+    ) {
+        let tree_number: u32 = event.treeNumber as u32;
+
+        for nullifier in event.nullifier.iter() {
+            let nullifier_bytes: &[u8; 32] = &nullifier.clone().into();
+            self.notebook
+                .nullify(tree_number, nullifier_bytes, timestamp);
+        }
     }
 }

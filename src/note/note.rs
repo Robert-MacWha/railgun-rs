@@ -321,7 +321,7 @@ mod tests {
     use alloy::primitives::address;
     use tracing_test::traced_test;
 
-    use crate::{crypto::keys::bytes_to_fr, hex_to_fr};
+    use crate::crypto::keys::{bytes_to_fr, hex_to_fr};
 
     use super::*;
 

@@ -7,14 +7,14 @@ use crate::{
     railgun::address::RailgunAddress,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AssetId {
     Erc20(Address),
     Erc721(Address, U256),
     Erc1155(Address, U256),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AccountId {
     Eip155(Address),
     Railgun(RailgunAddress),

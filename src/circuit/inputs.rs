@@ -233,7 +233,7 @@ mod tests {
     use crate::{
         abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
         circuit::inputs::hash_bound_params,
-        hex_to_fr,
+        crypto::keys::hex_to_fr,
     };
 
     #[test]

@@ -23,6 +23,7 @@ use crate::{
         keys::{FieldKey, SpendingKey, ViewingKey, bigint_to_fr, fq_to_u256, fr_to_u256},
         poseidon::poseidon_hash,
     },
+    indexer::notebook::Notebook,
     merkle_tree::MerkleTree,
     note::note::{EncryptError, Note, encrypt_note},
     railgun::address::RailgunAddress,
@@ -84,7 +85,7 @@ pub fn create_transaction(
     adapt_input: &[u8; 32],
     sender_spending_key: SpendingKey,
     sender_viewing_key: ViewingKey,
-    notes: BTreeMap<u32, BTreeMap<u32, Note>>,
+    notebook: &mut Notebook,
     asset: AssetId,
     value: u128,
     receiver: AccountId,
@@ -97,7 +98,7 @@ pub fn create_transaction(
 
     info!("Selecting notes for transaction...");
     let tree_txns = get_transact_notes(
-        notes,
+        notebook,
         sender_spending_key,
         sender_viewing_key,
         asset.clone(),
@@ -437,7 +438,7 @@ impl TransactNote for Note {
 ///
 /// TODO: Add internal checks to ensure notes are this account's notes
 fn get_transact_notes(
-    notes: BTreeMap<u32, BTreeMap<u32, Note>>,
+    notebook: &mut Notebook,
     sender_spending_key: SpendingKey,
     sender_viewing_key: ViewingKey,
     asset: AssetId,
@@ -452,7 +453,22 @@ fn get_transact_notes(
     let mut tree_transactions = BTreeMap::new();
     let mut total_value: u128 = 0;
 
-    for (tree_number, notes) in notes.iter() {
+    // TODO: Mutate the notebook to mark notes as spent. Unfortunately we can't
+    // add newly created notes to the notebook here because we don't know what
+    // their leaf indices will be until they're inserted into the on-chain Merkle
+    // tree.
+    //
+    // Note for future Robert: Consequentially this also means we're practically
+    // limited to a single unshield per EVM transaction. In theory we could stuff
+    // multiple unshields into multiple railgun transactions, but since each railgun
+    // tx can only contain a single unshield AND we can't use notes created in the
+    // same EVM tx, we'd be limited to unshielding the set of notes available at the
+    // start of the EVM tx. So if you have 3 notes with each 5 WETH, you'd be able to
+    // unshield 5 WETH to 3 people, or 15 to 1 person, but not 2 WETH to 5 people since
+    // that would require using the newly created change notes. This API-error-dependant-
+    // on-internal-state error is a bad code smell, so it's best to limit the API
+    // to a single unshield per EVM tx.
+    for (tree_number, notes) in notebook.unspent().iter() {
         let mut notes_in = Vec::new();
         let mut nullifiers = Vec::new();
 
@@ -552,8 +568,7 @@ mod tests {
 
     use crate::{
         caip::AssetId,
-        crypto::keys::{ByteKey, SpendingKey, ViewingKey},
-        hex_to_fr,
+        crypto::keys::{ByteKey, SpendingKey, ViewingKey, hex_to_fr},
         note::transact::{TransactNote, TransferNote, UnshieldNote},
         railgun::address::RailgunAddress,
     };

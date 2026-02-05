@@ -376,6 +376,12 @@ pub fn bigint_to_fr(bi: &BigInt) -> Fr {
     Fr::from_be_bytes_mod_order(&bytes)
 }
 
+pub fn hex_to_fr(hex_str: &str) -> Fr {
+    let stripped = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    let bytes = hex::decode(stripped).unwrap();
+    Fr::from_be_bytes_mod_order(&bytes)
+}
+
 /// Converts babyjubjub_rs::Fr to arkworks Fr
 ///
 /// Babyjubjub uses an old version of arkworks, and I can't find a way to

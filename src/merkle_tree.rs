@@ -14,10 +14,6 @@ use crate::crypto::{keys::fr_to_bytes, poseidon::poseidon_hash};
 /// operations like `root` and `generate_proof`
 #[derive(Debug, Clone)]
 pub struct MerkleTree {
-    // TODO: Consider moving this elsewhere? It's stored here in the railgun SDK,
-    // but not sure why
-    pub nullifiers: Vec<[u8; 32]>,
-
     number: u32,
     depth: usize,
     zeros: Vec<Fr>,
@@ -28,8 +24,6 @@ pub struct MerkleTree {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerkleTreeState {
-    pub nullifiers: Vec<[u8; 32]>,
-
     pub number: u32,
     pub depth: usize,
     pub tree: Vec<Vec<[u8; 32]>>,
@@ -66,7 +60,6 @@ impl MerkleTree {
         tree[depth].insert(0, root);
 
         MerkleTree {
-            nullifiers: Vec::new(),
             number: tree_number,
             depth,
             zeros,
@@ -89,7 +82,6 @@ impl MerkleTree {
                     .collect()
             })
             .collect();
-        tree.nullifiers = state.nullifiers;
 
         tree
     }
@@ -117,7 +109,6 @@ impl MerkleTree {
             .collect();
 
         MerkleTreeState {
-            nullifiers: self.nullifiers.clone(),
             number: self.number,
             depth: self.depth,
             tree,
@@ -253,7 +244,7 @@ fn hash_left_right(left: Fr, right: Fr) -> Fr {
 mod tests {
     use tracing_test::traced_test;
 
-    use crate::hex_to_fr;
+    use crate::crypto::keys::hex_to_fr;
 
     use super::*;
 

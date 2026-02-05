@@ -13,14 +13,14 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, info_span};
+use tracing::{info, info_span, warn};
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
     crypto::{keys::fr_to_u256, poseidon::poseidon_hash},
-    indexer::{account::IndexerAccount, subsquid_client::SubsquidClient},
+    indexer::{account::IndexerAccount, notebook::Notebook, subsquid_client::SubsquidClient},
     merkle_tree::{MerkleTree, MerkleTreeState},
     note::note::{Note, NoteError},
     railgun::address::RailgunAddress,
@@ -111,14 +111,14 @@ impl Indexer {
         &mut self.trees
     }
 
-    pub fn notes(&self, address: RailgunAddress) -> BTreeMap<u32, BTreeMap<u32, Note>> {
+    pub fn notebook(&self, address: RailgunAddress) -> Option<Notebook> {
         for account in self.accounts.iter() {
             if account.address() == address {
-                return account.notebooks().clone();
+                return Some(account.notebook());
             }
         }
 
-        BTreeMap::new()
+        None
     }
 
     pub fn balance(&self, address: RailgunAddress) -> HashMap<AssetId, u128> {
@@ -279,6 +279,7 @@ impl Indexer {
     fn handle_log(&mut self, log: Log) -> Result<(), SyncError> {
         let topic0 = log.topics()[0];
         let block_number = log.block_number.unwrap();
+        let block_timestamp = log.block_timestamp.unwrap();
 
         match topic0 {
             RailgunSmartWallet::Shield::SIGNATURE_HASH => {
@@ -291,10 +292,14 @@ impl Indexer {
             }
             RailgunSmartWallet::Nullified::SIGNATURE_HASH => {
                 let event = RailgunSmartWallet::Nullified::decode_log(&log.inner)?;
-                self.handle_nullified(&event.data);
+                self.handle_nullified(&event.data, block_timestamp);
+            }
+            RailgunSmartWallet::Unshield::SIGNATURE_HASH => {
+                // Unshield events are not needed for indexing. Spent notes are
+                // already tracked via Nullified events.
             }
             _ => {
-                println!("Unknown event: {:?}", topic0);
+                warn!("Unknown event: {:?}", topic0);
             }
         }
 
@@ -376,15 +381,9 @@ impl Indexer {
         Ok(())
     }
 
-    fn handle_nullified(&mut self, event: &RailgunSmartWallet::Nullified) {
-        let tree_number = event.treeNumber as u32;
-
-        let mut nullifiers: Vec<[u8; 32]> = event.nullifier.iter().map(|&n| n.into()).collect();
-
-        self.trees
-            .entry(tree_number)
-            .or_insert(MerkleTree::new(tree_number))
-            .nullifiers
-            .append(&mut nullifiers);
+    fn handle_nullified(&mut self, event: &RailgunSmartWallet::Nullified, timestamp: u64) {
+        for account in self.accounts.iter_mut() {
+            account.handle_nullified_event(event, timestamp);
+        }
     }
 }
