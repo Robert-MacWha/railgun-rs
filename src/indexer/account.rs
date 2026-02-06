@@ -1,11 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use tracing::info;
 
 use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
+    account::RailgunAccount,
     caip::AssetId,
-    crypto::keys::{SpendingKey, ViewingKey},
     indexer::{indexer::TOTAL_LEAVES, notebook::Notebook},
     note::note::{Note, NoteError},
     railgun::address::RailgunAddress,
@@ -16,44 +16,36 @@ use crate::{
 /// The indexer will use the held keys to decrypt notes from shield and transact events,
 /// storing them in the notebook for reference.
 pub struct IndexerAccount {
-    address: RailgunAddress,
-    spending_key: SpendingKey,
-    viewing_key: ViewingKey,
+    inner: RailgunAccount,
 
     /// The latest block number that has been processed for this account
     synced_block: u64,
-    notebook: Notebook,
+    notebooks: BTreeMap<u32, Notebook>,
 }
 
 impl IndexerAccount {
-    pub fn new(
-        address: RailgunAddress,
-        spending_key: SpendingKey,
-        viewing_key: ViewingKey,
-    ) -> Self {
+    pub fn new(inner: RailgunAccount) -> Self {
         IndexerAccount {
-            address,
-            spending_key,
-            viewing_key,
+            inner,
             synced_block: 0,
-            notebook: Notebook::new(),
+            notebooks: BTreeMap::new(),
         }
     }
 
     pub fn address(&self) -> RailgunAddress {
-        self.address
+        self.inner.address()
     }
 
-    pub fn notebook(&self) -> Notebook {
-        self.notebook.clone()
+    pub fn notebooks(&self) -> BTreeMap<u32, Notebook> {
+        self.notebooks.clone()
     }
 
     /// Calculates the balance of the account by summing up the values of all its notes.
     pub fn balance(&self) -> HashMap<AssetId, u128> {
         let mut balances: HashMap<AssetId, u128> = HashMap::new();
 
-        for (_, tree) in self.notebook.unspent().iter() {
-            for (_, note) in tree.iter() {
+        for (_, notebook) in self.notebooks.iter() {
+            for (_, note) in notebook.unspent().iter() {
                 match note.token {
                     AssetId::Erc20(address) => {
                         balances
@@ -88,8 +80,11 @@ impl IndexerAccount {
                 preimage: event.commitments[index].clone(),
                 ciphertext: ciphertext.clone(),
             };
-            let note =
-                Note::decrypt_shield_request(shield_request, self.spending_key, self.viewing_key);
+            let note = Note::decrypt_shield_request(
+                shield_request,
+                self.inner.spending_key(),
+                self.inner.viewing_key(),
+            );
 
             let note = match note {
                 Err(NoteError::Aes(e)) => {
@@ -112,7 +107,10 @@ impl IndexerAccount {
                 (tree_number, start_position + index)
             };
 
-            self.notebook.add(tree_number, note_position, note);
+            self.notebooks
+                .entry(tree_number)
+                .or_default()
+                .add(note_position, note);
         }
 
         self.synced_block = self.synced_block.max(block_number);
@@ -128,7 +126,11 @@ impl IndexerAccount {
         let start_position: u32 = event.startPosition.saturating_to();
 
         for (index, ciphertext) in event.ciphertext.iter().enumerate() {
-            let note = Note::decrypt(ciphertext, self.spending_key, self.viewing_key);
+            let note = Note::decrypt(
+                ciphertext,
+                self.inner.spending_key(),
+                self.inner.viewing_key(),
+            );
 
             let note = match note {
                 Err(NoteError::Aes(_)) => continue,
@@ -144,7 +146,10 @@ impl IndexerAccount {
                 (tree_number, start_position + index)
             };
 
-            self.notebook.add(tree_number, note_position, note);
+            self.notebooks
+                .entry(tree_number)
+                .or_default()
+                .add(note_position, note);
         }
 
         self.synced_block = self.synced_block.max(block_number);
@@ -159,9 +164,17 @@ impl IndexerAccount {
         let tree_number: u32 = event.treeNumber as u32;
 
         for nullifier in event.nullifier.iter() {
-            let nullifier_bytes: &[u8; 32] = &nullifier.clone().into();
-            self.notebook
-                .nullify(tree_number, nullifier_bytes, timestamp);
+            let nullifier_bytes: &[u8; 32] = &(*nullifier).into();
+            self.notebooks
+                .entry(tree_number)
+                .or_default()
+                .nullify(nullifier_bytes, timestamp);
         }
+    }
+}
+
+impl From<RailgunAccount> for IndexerAccount {
+    fn from(account: RailgunAccount) -> Self {
+        IndexerAccount::new(account)
     }
 }

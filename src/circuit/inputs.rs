@@ -10,7 +10,7 @@ use crate::{
     abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
     crypto::{hash_to_scalar, keys::fr_to_bigint},
     merkle_tree::MerkleTree,
-    note::{note::Note, transact::TransactNote},
+    note::{note::Note, tree_transaction::TransactNote},
 };
 
 // TODO: Consider replacing me with functional approach, since the struct
@@ -74,7 +74,6 @@ impl CircuitInputs {
         }
     }
 
-    // TODO: Pass in pre-computed nullifiers
     pub fn format(
         merkle_tree: &mut MerkleTree,
         min_gas_price: u128,

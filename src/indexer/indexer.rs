@@ -13,16 +13,17 @@ use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, info_span, warn};
+use tracing::{info, warn};
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
+    account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
     crypto::{keys::fr_to_u256, poseidon::poseidon_hash},
     indexer::{account::IndexerAccount, notebook::Notebook, subsquid_client::SubsquidClient},
     merkle_tree::{MerkleTree, MerkleTreeState},
-    note::note::{Note, NoteError},
+    note::note::NoteError,
     railgun::address::RailgunAddress,
 };
 
@@ -95,8 +96,9 @@ impl Indexer {
         })
     }
 
-    pub fn add_account(&mut self, account: IndexerAccount) {
-        self.accounts.push(account);
+    /// Adds an account to the indexer for tracking
+    pub fn add_account(&mut self, account: RailgunAccount) {
+        self.accounts.push(account.into());
     }
 
     pub fn chain(&self) -> ChainConfig {
@@ -111,10 +113,10 @@ impl Indexer {
         &mut self.trees
     }
 
-    pub fn notebook(&self, address: RailgunAddress) -> Option<Notebook> {
+    pub fn notebooks(&self, address: RailgunAddress) -> Option<BTreeMap<u32, Notebook>> {
         for account in self.accounts.iter() {
             if account.address() == address {
-                return Some(account.notebook());
+                return Some(account.notebooks());
             }
         }
 
@@ -131,11 +133,15 @@ impl Indexer {
         HashMap::new()
     }
 
-    pub fn state(&self) -> IndexerState {
+    pub fn state(&mut self) -> IndexerState {
         IndexerState {
             chain_id: self.chain.id,
             synced_block: self.synced_block,
-            trees: self.trees.iter().map(|(k, v)| (*k, v.state())).collect(),
+            trees: self
+                .trees
+                .iter_mut()
+                .map(|(k, v)| (*k, v.state()))
+                .collect(),
         }
     }
 
@@ -197,17 +203,14 @@ impl Indexer {
             "Syncing from Subsquid from block {} to {:?}",
             self.synced_block, to_block
         );
-        let span = info_span!("Fetch Commitments",).entered();
         let client = SubsquidClient::new(endpoint);
         let commitments = client
             .fetch_all_commitments(self.synced_block, Some(to_block))
             .await?;
-        span.exit();
 
         info!("Fetched {} commitments from Subsquid", commitments.len());
 
         // TODO: Consider sorting commitments and inserting contiguous ranges together
-        let span = info_span!("Insert Commitments").entered();
         info!("Grouping commits");
         let mut groups: HashMap<u32, Vec<(usize, Fr)>> = HashMap::new();
         for c in commitments {
@@ -243,7 +246,6 @@ impl Indexer {
                 tree.insert_leaves(&[hash], pos);
             }
         }
-        span.exit();
 
         self.synced_block = to_block;
 

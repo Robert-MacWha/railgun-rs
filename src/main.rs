@@ -1,7 +1,4 @@
-use std::{
-    str::FromStr,
-    sync::{Arc, Mutex},
-};
+use std::str::FromStr;
 
 mod abis;
 mod account;
@@ -13,18 +10,14 @@ mod indexer;
 mod merkle_tree;
 mod note;
 mod railgun;
-mod tx_data;
+mod transaction;
 
 use alloy::{
     network::Ethereum,
     primitives::{Address, U256, address},
     providers::{DynProvider, Provider, ProviderBuilder},
-    rpc::types::TransactionRequest,
     signers::local::PrivateKeySigner,
 };
-use ark_bn254::Fr;
-use ark_ff::{BigInteger, PrimeField};
-use num_bigint::BigUint;
 use tracing::info;
 
 use crate::{
@@ -32,13 +25,14 @@ use crate::{
     caip::AssetId,
     chain_config::{ChainConfig, MAINNET_CONFIG},
     crypto::keys::{ByteKey, SpendingKey, ViewingKey},
-    indexer::indexer::Indexer,
+    indexer::indexer::{Indexer, IndexerState},
+    transaction::{shield_builder::ShieldBuilder, tx_builder::TxBuilder},
 };
 
 // Anvil test private key (0)
 const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
-const INDEXER_STATE_PATH: &str = "indexer_state.json";
+const INDEXER_STATE_PATH: &str = "indexer_state.bincode";
 
 #[tokio::main]
 async fn main() {
@@ -48,6 +42,7 @@ async fn main() {
     let viewing_private_key = ViewingKey::from_bytes([2u8; 32]);
 
     let latest = 24378760;
+    // let latest = 24178760;
     let asset = AssetId::Erc20(USDC_ADDRESS);
     let amount = 100 * 10u128.pow(6); // 100 USDC
     let chain = MAINNET_CONFIG;
@@ -63,36 +58,67 @@ async fn main() {
         .unwrap()
         .erased();
 
-    // sync_indexer(provider, chain, latest).await;
-    let indexer = load_indexer_from_state(provider.clone()).await;
+    sync_indexer(provider.clone(), chain, latest).await;
+    let mut indexer = load_indexer_from_state(provider.clone()).await;
 
-    let account = RailgunAccount::new(spending_private_key, viewing_private_key, indexer.clone());
-    shield(provider.clone(), &account, asset.clone(), amount).await;
+    info!("Shielding to Railgun account");
+    let account_1 = RailgunAccount::new(spending_private_key, viewing_private_key, chain.id);
+    let account_2 = RailgunAccount::new(
+        SpendingKey::from_bytes([3u8; 32]),
+        ViewingKey::from_bytes([4u8; 32]),
+        chain.id,
+    );
 
-    indexer.lock().unwrap().sync().await.unwrap();
-    let balance = account.balance();
-    info!("Account Balance: {:?}", balance);
+    indexer.add_account(account_1.clone());
+    indexer.add_account(account_2.clone());
+    shield(provider.clone(), &indexer, &account_1, asset, amount).await;
 
-    info!("Unshielding {} of asset {:?}", amount / 2, asset);
-    let unshield_tx = account
-        .unshield(asset.clone(), amount / 2, address)
+    indexer.sync().await.unwrap();
+    let balance_1 = indexer.balance(account_1.address());
+    let balance_2 = indexer.balance(account_2.address());
+    info!("Railgun account 1 balance: {:?}", balance_1);
+    info!("Railgun account 2 balance: {:?}", balance_2);
+
+    info!("Sending transaction");
+    let tx = TxBuilder::new(&mut indexer)
+        .transfer(&account_1, account_2.address(), asset, 1000, "test memo")
+        .unwrap()
+        .build()
         .unwrap();
-    let tx = TransactionRequest::default()
-        .to(unshield_tx.to)
-        .value(unshield_tx.value)
-        .input(unshield_tx.data.into());
     provider
-        .send_transaction(tx)
+        .send_transaction(tx.into())
         .await
         .unwrap()
         .get_receipt()
         .await
         .unwrap();
-    info!("Unshielded {} of asset {:?}", amount / 2, asset);
 
-    indexer.lock().unwrap().sync().await.unwrap();
-    let balance = account.balance();
-    info!("Account Balance: {:?}", balance);
+    indexer.sync().await.unwrap();
+    let balance_1 = indexer.balance(account_1.address());
+    let balance_2 = indexer.balance(account_2.address());
+
+    info!("Railgun account 1 balance: {:?}", balance_1);
+    info!("Railgun account 2 balance: {:?}", balance_2);
+
+    info!("Unshielding from Railgun account");
+    let unshield_tx = TxBuilder::new(&mut indexer)
+        .set_unshield(&account_2, address, asset, 500)
+        .unwrap()
+        .build()
+        .unwrap();
+    provider
+        .send_transaction(unshield_tx.into())
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    indexer.sync().await.unwrap();
+    let balance_1 = indexer.balance(account_1.address());
+    let balance_2 = indexer.balance(account_2.address());
+    info!("Railgun account 1 balance: {:?}", balance_1);
+    info!("Railgun account 2 balance: {:?}", balance_2);
 }
 
 /// Sync the indexer up to a specific block, saving the state.
@@ -104,25 +130,28 @@ async fn sync_indexer(provider: DynProvider, chain: ChainConfig, to_block: u64) 
     indexer.validate().await.unwrap();
 
     let state = indexer.state();
-    let state_json = serde_json::to_string_pretty(&state).unwrap();
-    std::fs::write(INDEXER_STATE_PATH, state_json).unwrap();
+    let state_serde = bitcode::serialize(&state).unwrap();
+    std::fs::write(INDEXER_STATE_PATH, state_serde).unwrap();
 }
 
-async fn load_indexer_from_state(provider: DynProvider) -> Arc<Mutex<Indexer>> {
+async fn load_indexer_from_state(provider: DynProvider) -> Indexer {
     info!("Loading indexer state from {}", INDEXER_STATE_PATH);
 
-    let state_json = std::fs::read_to_string(INDEXER_STATE_PATH).unwrap();
-    let state: indexer::indexer::IndexerState = serde_json::from_str(&state_json).unwrap();
+    let state_serde = std::fs::read(INDEXER_STATE_PATH).unwrap();
+    let state: IndexerState = bitcode::deserialize(&state_serde).unwrap();
     let mut indexer = Indexer::new_with_state(provider, state).unwrap();
     indexer.validate().await.unwrap();
-    Arc::new(Mutex::new(indexer))
+    indexer
 }
 
 /// Approves and shields a specified asset and amount
-async fn shield(provider: DynProvider, account: &RailgunAccount, asset: AssetId, amount: u128) {
-    info!("Shielding {} of asset {:?}", amount, asset);
-
-    // Approve
+async fn shield(
+    provider: DynProvider,
+    indexer: &Indexer,
+    account: &RailgunAccount,
+    asset: AssetId,
+    amount: u128,
+) {
     let erc20_instance = abis::erc20::ERC20::new(
         match asset {
             AssetId::Erc20(addr) => addr,
@@ -139,14 +168,12 @@ async fn shield(provider: DynProvider, account: &RailgunAccount, asset: AssetId,
         .await
         .unwrap();
 
-    // Shield
-    let shield_tx = account.shield(asset, amount).unwrap();
-    let tx = TransactionRequest::default()
-        .to(shield_tx.to)
-        .value(shield_tx.value)
-        .input(shield_tx.data.into());
+    let shield_tx = ShieldBuilder::new(indexer.chain())
+        .shield(account.address(), asset, amount / 2)
+        .build()
+        .unwrap();
     provider
-        .send_transaction(tx)
+        .send_transaction(shield_tx.into())
         .await
         .unwrap()
         .get_receipt()

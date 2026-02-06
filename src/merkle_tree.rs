@@ -1,25 +1,21 @@
 use alloy::primitives::utils::keccak256_cached;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, info_span};
+use tracing::info;
 
 use crate::crypto::{keys::fr_to_bytes, poseidon::poseidon_hash};
 
-/// A sparse Merkle tree implementation using Poseidon hash function.
-///
-/// TODO: Consider using a type state pattern to enforce rebuilding after inserts
-/// Would be a little more complex, but means we could drop `&mut self` on read-only
-/// operations like `root` and `generate_proof`
 #[derive(Debug, Clone)]
 pub struct MerkleTree {
     number: u32,
     depth: usize,
     zeros: Vec<Fr>,
     tree: Vec<Vec<Fr>>,
-
-    rebuild_needed: bool,
+    dirty_indices: Vec<Vec<bool>>,
+    has_dirty: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,9 +40,6 @@ pub enum MerkleTreeError {
 
 const TREE_DEPTH: usize = 16;
 
-// TODO: Add benchmarks
-// TODO: Consider dirty optimizations for sparse trees. Slower while syncing,
-// faster for incremental updates.
 impl MerkleTree {
     pub fn new(tree_number: u32) -> Self {
         Self::new_with_depth(tree_number, TREE_DEPTH)
@@ -57,22 +50,27 @@ impl MerkleTree {
         let mut tree: Vec<Vec<Fr>> = (0..=depth).map(|_| Vec::new()).collect();
 
         let root = hash_left_right(zeros[depth - 1], zeros[depth - 1]);
-        tree[depth].insert(0, root);
+        tree[depth].push(root);
+
+        // Initialize dirty_indices with proper sizes
+        let mut dirty_indices: Vec<Vec<bool>> = Vec::with_capacity(depth + 1);
+        for level in 0..=depth {
+            dirty_indices.push(vec![false; tree[level].len()]);
+        }
 
         MerkleTree {
             number: tree_number,
             depth,
             zeros,
             tree,
-            rebuild_needed: false,
+            dirty_indices,
+            has_dirty: false,
         }
     }
 
-    /// Creates a Merkle tree from a saved state. Re-builds the sparse tree
-    /// from the leaves automatically.
     pub fn new_from_state(state: MerkleTreeState) -> Self {
-        let mut tree = MerkleTree::new_with_depth(state.number, state.depth);
-        tree.tree = state
+        let zeros = zero_value_levels(state.depth);
+        let tree: Vec<Vec<Fr>> = state
             .tree
             .iter()
             .map(|level| {
@@ -83,7 +81,18 @@ impl MerkleTree {
             })
             .collect();
 
-        tree
+        // Initialize dirty tracking to match tree structure
+        let dirty_indices: Vec<Vec<bool>> =
+            tree.iter().map(|level| vec![false; level.len()]).collect();
+
+        MerkleTree {
+            number: state.number,
+            depth: state.depth,
+            zeros,
+            tree,
+            dirty_indices,
+            has_dirty: false,
+        }
     }
 
     pub fn number(&self) -> u32 {
@@ -91,27 +100,20 @@ impl MerkleTree {
     }
 
     pub fn root(&mut self) -> Fr {
-        self.rebuild_sparse_tree();
+        self.update_dirty_nodes();
         self.tree[self.depth][0]
     }
 
-    pub fn state(&self) -> MerkleTreeState {
-        self.clone().into_state()
-    }
-
-    pub fn into_state(mut self) -> MerkleTreeState {
-        self.rebuild_sparse_tree();
-
-        let tree: Vec<Vec<[u8; 32]>> = self
-            .tree
-            .iter()
-            .map(|level| level.iter().map(fr_to_bytes).collect())
-            .collect();
-
+    pub fn state(&mut self) -> MerkleTreeState {
+        self.update_dirty_nodes();
         MerkleTreeState {
             number: self.number,
             depth: self.depth,
-            tree,
+            tree: self
+                .tree
+                .iter()
+                .map(|level| level.iter().map(fr_to_bytes).collect())
+                .collect(),
         }
     }
 
@@ -120,20 +122,29 @@ impl MerkleTree {
             return;
         }
 
-        self.rebuild_needed = true;
-
         let end_position = start_position + leaves.len();
+
         if self.tree[0].len() < end_position {
+            let old_len = self.tree[0].len();
             self.tree[0].resize(end_position, self.zeros[0]);
+            self.dirty_indices[0].resize(end_position, false);
+
+            for i in old_len..end_position {
+                self.dirty_indices[0][i] = true;
+            }
+            self.has_dirty = true;
         }
 
         for (i, &leaf) in leaves.iter().enumerate() {
-            self.tree[0][start_position + i] = leaf;
+            let idx = start_position + i;
+            self.tree[0][idx] = leaf;
+            self.dirty_indices[0][idx] = true;
+            self.has_dirty = true;
         }
     }
 
     pub fn generate_proof(&mut self, element: Fr) -> Result<MerkleProof, MerkleTreeError> {
-        self.rebuild_sparse_tree();
+        self.update_dirty_nodes();
 
         let initial_index = self.tree[0]
             .iter()
@@ -160,7 +171,7 @@ impl MerkleTree {
             element,
             elements,
             indices: initial_index as u32,
-            root: self.root(),
+            root: self.tree[self.depth][0],
         })
     }
 
@@ -186,36 +197,61 @@ impl MerkleTree {
         current_hash == proof.root
     }
 
-    fn rebuild_sparse_tree(&mut self) {
-        if !self.rebuild_needed {
+    fn update_dirty_nodes(&mut self) {
+        if !self.has_dirty {
             return;
         }
 
-        let span = info_span!("Rebuild Sparse Tree").entered();
-        info!("Rebuilding sparse Merkle tree number {}", self.number);
-
-        self.rebuild_needed = false;
-        let mut width = self.tree[0].len();
+        info!("Updating dirty nodes in Merkle tree {}", self.number);
 
         for level in 0..self.depth {
-            let next_level_width = width.div_ceil(2);
-            self.tree[level + 1].resize(next_level_width, self.zeros[level + 1]);
-
-            for i in 0..next_level_width {
-                let left = self.tree[level][i * 2];
-                let right = if i * 2 + 1 < width {
-                    self.tree[level][i * 2 + 1]
-                } else {
-                    self.zeros[level]
-                };
-
-                self.tree[level + 1][i] = hash_left_right(left, right);
+            if !self.dirty_indices[level].iter().any(|&d| d) {
+                continue;
             }
-            width = next_level_width;
+
+            let current_level_len = self.tree[level].len();
+            let next_level_width = current_level_len.div_ceil(2);
+
+            if self.tree[level + 1].len() < next_level_width {
+                self.tree[level + 1].resize(next_level_width, self.zeros[level + 1]);
+                self.dirty_indices[level + 1].resize(next_level_width, false);
+            }
+
+            let mut dirty_parents: Vec<usize> = (0..current_level_len)
+                .filter(|&i| self.dirty_indices[level][i])
+                .map(|i| i / 2)
+                .collect();
+            dirty_parents.dedup();
+
+            // Parallel hash computation for dirty parents
+            let updates: Vec<_> = dirty_parents
+                .into_par_iter()
+                .map(|parent_idx| {
+                    let left_idx = parent_idx * 2;
+                    let right_idx = left_idx + 1;
+
+                    let left = self.tree[level][left_idx];
+                    let right = if right_idx < current_level_len {
+                        self.tree[level][right_idx]
+                    } else {
+                        self.zeros[level]
+                    };
+
+                    (parent_idx, hash_left_right(left, right))
+                })
+                .collect();
+
+            // Sequential write
+            for (parent_idx, hash) in updates {
+                self.tree[level + 1][parent_idx] = hash;
+                self.dirty_indices[level + 1][parent_idx] = true;
+            }
+
+            // Clear dirty flags
+            self.dirty_indices[level].fill(false);
         }
 
-        info!("Rebuilt Merkle tree root: {:?}", self.tree[self.depth][0]);
-        span.exit();
+        info!("Updated Merkle tree root: {:?}", self.tree[self.depth][0]);
     }
 }
 
@@ -291,5 +327,27 @@ mod tests {
         let mut rebuilt_tree = MerkleTree::new_from_state(state);
 
         assert_eq!(tree.root(), rebuilt_tree.root());
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_incremental_inserts_with_rebuild_between() {
+        // Reproduces the bug where resizing the leaf array between
+        // rebuilds leaves padding nodes unmarked as dirty, causing
+        // stale upper levels.
+        let mut tree_incremental = MerkleTree::new(0);
+        let mut tree_batch = MerkleTree::new(0);
+
+        let leaves_a: Vec<Fr> = (0..5).map(|i| Fr::from(i as u64 + 1)).collect();
+        let leaves_b: Vec<Fr> = (5..10).map(|i| Fr::from(i as u64 + 1)).collect();
+
+        tree_incremental.insert_leaves(&leaves_a, 0);
+        let _ = tree_incremental.root();
+        tree_incremental.insert_leaves(&leaves_b, 5);
+
+        let all_leaves: Vec<Fr> = (0..10).map(|i| Fr::from(i as u64 + 1)).collect();
+        tree_batch.insert_leaves(&all_leaves, 0);
+
+        assert_eq!(tree_incremental.root(), tree_batch.root());
     }
 }

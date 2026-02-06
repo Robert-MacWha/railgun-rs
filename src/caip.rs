@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use alloy::primitives::{Address, U256, Uint};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
@@ -22,8 +24,18 @@ pub enum AccountId {
 
 impl AssetId {
     pub fn hash(&self) -> Fr {
-        let token_data: TokenData = self.clone().into();
+        let token_data: TokenData = (*self).into();
         Fr::from_be_bytes_mod_order(&token_data.hash())
+    }
+}
+
+impl Display for AssetId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AssetId::Erc20(address) => write!(f, "erc20:{:?}", address),
+            AssetId::Erc721(address, sub_id) => write!(f, "erc721:{:?}/{}", address, sub_id),
+            AssetId::Erc1155(address, sub_id) => write!(f, "erc1155:{:?}/{}", address, sub_id),
+        }
     }
 }
 

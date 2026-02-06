@@ -56,9 +56,9 @@ impl Note {
     pub fn new(
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
-        random_seed: &[u8; 16],
-        value: u128,
         token: AssetId,
+        value: u128,
+        random_seed: &[u8; 16],
         memo: &str,
     ) -> Self {
         Note {
@@ -107,9 +107,9 @@ impl Note {
         Ok(Note::new(
             spending_key,
             viewing_key,
-            &random,
-            value,
             asset_id,
+            value,
+            &random,
             memo,
         ))
     }
@@ -140,9 +140,9 @@ impl Note {
         Ok(Note::new(
             spending_key,
             viewing_key,
-            &random,
-            req.preimage.value.saturating_to(),
             req.preimage.token.clone().into(),
+            req.preimage.value.saturating_to(),
+            &random,
             "",
         ))
     }
@@ -306,11 +306,11 @@ impl Note {
         Note::new(
             spending_key,
             viewing_key,
-            &[3u8; 16],
-            100u128,
             AssetId::Erc20(alloy::primitives::address!(
                 "0x1234567890123456789012345678901234567890"
             )),
+            100u128,
+            &[3u8; 16],
             "test memo",
         )
     }
@@ -443,9 +443,9 @@ mod tests {
         let expected = Note::new(
             receiver_spending_key,
             receiver_viewing_key,
-            &shared_random,
-            value,
             asset,
+            value,
+            &shared_random,
             memo,
         );
 
