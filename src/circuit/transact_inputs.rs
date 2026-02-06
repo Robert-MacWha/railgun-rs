@@ -13,13 +13,10 @@ use crate::{
     note::{note::Note, tree_transaction::TransactNote},
 };
 
-// TODO: Consider replacing me with functional approach, since the struct
-// is just a data container.
 #[derive(Debug, Clone)]
-pub struct CircuitInputs {
+pub struct TransactCircuitInputs {
     // Public Inputs
     pub merkle_root: BigInt,
-    pub bound_params: BoundParams,
     pub bound_params_hash: BigInt,
     pub nullifiers: Vec<BigInt>,
     pub commitments_out: Vec<BigInt>,
@@ -37,72 +34,18 @@ pub struct CircuitInputs {
     value_out: Vec<BigInt>,
 }
 
-impl CircuitInputs {
-    pub fn new(
-        merkle_root: BigInt,
-        bound_params: BoundParams,
-        bound_params_hash: BigInt,
-        nullifiers: Vec<BigInt>,
-        commitments_out: Vec<BigInt>,
-        token: BigInt,
-        public_key: [BigInt; 2],
-        signature: [BigInt; 3],
-        random_in: Vec<BigInt>,
-        value_in: Vec<BigInt>,
-        path_elements: Vec<Vec<BigInt>>,
-        leaves_indices: Vec<BigInt>,
-        nullifying_key: BigInt,
-        npk_out: Vec<BigInt>,
-        value_out: Vec<BigInt>,
-    ) -> Self {
-        CircuitInputs {
-            merkle_root,
-            bound_params,
-            bound_params_hash,
-            nullifiers,
-            commitments_out,
-            token,
-            public_key,
-            signature,
-            random_in,
-            value_in,
-            path_elements,
-            leaves_indices,
-            nullifying_key,
-            npk_out,
-            value_out,
-        }
-    }
-
-    pub fn format(
+impl TransactCircuitInputs {
+    pub fn from_inputs(
         merkle_tree: &mut MerkleTree,
-        min_gas_price: u128,
-        unshield: UnshieldType,
-        chain_id: ChainId,
-        adapt_contract: Address,
-        adapt_input: &[u8; 32],
+        bound_params_hash: Fr,
         notes_in: Vec<Note>,
         notes_out: Vec<Box<dyn TransactNote>>,
-        commitment_ciphertexts: Vec<CommitmentCiphertext>,
     ) -> Result<Self, ()> {
         if notes_in.is_empty() || notes_out.is_empty() {
             return Err(());
         }
 
         let merkle_root = merkle_tree.root();
-        let tree_number = merkle_tree.number();
-
-        let bound_params = BoundParams {
-            treeNumber: tree_number as u16,
-            minGasPrice: U72::saturating_from(min_gas_price),
-            unshield,
-            chainID: chain_id,
-            adaptContract: adapt_contract,
-            adaptParams: adapt_input.into(),
-            commitmentCiphertext: commitment_ciphertexts,
-        };
-        let bound_params_hash = hash_bound_params(&bound_params);
-
         let merkle_proofs: Vec<_> = notes_in
             .iter()
             .map(|note| merkle_tree.generate_proof(note.hash()))
@@ -169,12 +112,11 @@ impl CircuitInputs {
             .map(|note| BigInt::from(note.value()))
             .collect();
 
-        Ok(CircuitInputs::new(
-            fr_to_bigint(&merkle_root),
-            bound_params,
-            fr_to_bigint(&bound_params_hash),
-            nullifiers.iter().map(fr_to_bigint).collect(),
-            commitments_out.iter().map(fr_to_bigint).collect(),
+        Ok(TransactCircuitInputs {
+            merkle_root: fr_to_bigint(&merkle_root),
+            bound_params_hash: fr_to_bigint(&bound_params_hash),
+            nullifiers: nullifiers.iter().map(fr_to_bigint).collect(),
+            commitments_out: commitments_out.iter().map(fr_to_bigint).collect(),
             token,
             public_key,
             signature,
@@ -182,10 +124,10 @@ impl CircuitInputs {
             value_in,
             path_elements,
             leaves_indices,
-            fr_to_bigint(&nullifying_key),
-            npk_out.iter().map(fr_to_bigint).collect(),
+            nullifying_key: fr_to_bigint(&nullifying_key),
+            npk_out: npk_out.iter().map(fr_to_bigint).collect(),
             value_out,
-        ))
+        })
     }
 
     /// Flattens the circuit inputs into a HashMap suitable for use as zk-SNARK inputs.
@@ -214,55 +156,5 @@ impl CircuitInputs {
         m.insert("valueOut".into(), self.value_out.clone());
 
         m
-    }
-}
-
-fn hash_bound_params(bound_params: &BoundParams) -> Fr {
-    let encoded = bound_params.abi_encode();
-    let hash = hash_to_scalar(&encoded);
-    Fr::from_be_bytes_mod_order(&hash.to_be_bytes::<32>())
-}
-
-#[cfg(test)]
-mod tests {
-    use alloy::primitives::{Bytes, FixedBytes, address, aliases::U72};
-
-    use tracing_test::traced_test;
-
-    use crate::{
-        abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
-        circuit::inputs::hash_bound_params,
-        crypto::keys::hex_to_fr,
-    };
-
-    #[test]
-    #[traced_test]
-    fn test_hash_bound_params() {
-        let bound_params = BoundParams {
-            treeNumber: 1,
-            minGasPrice: U72::saturating_from(10),
-            unshield: UnshieldType::NONE,
-            chainID: 1,
-            adaptContract: address!("0x1234567890123456789012345678901234567890"),
-            adaptParams: [5u8; 32].into(),
-            commitmentCiphertext: vec![CommitmentCiphertext {
-                ciphertext: [
-                    FixedBytes::from_slice(&[1u8; 32]),
-                    FixedBytes::from_slice(&[1u8; 32]),
-                    FixedBytes::from_slice(&[1u8; 32]),
-                    FixedBytes::from_slice(&[1u8; 32]),
-                ],
-                blindedSenderViewingKey: FixedBytes::from_slice(&[2u8; 32]),
-                blindedReceiverViewingKey: FixedBytes::from_slice(&[3u8; 32]),
-                annotationData: Bytes::from(&[4u8; 50]),
-                memo: Bytes::from(&[5u8; 50]),
-            }],
-        };
-
-        let hash = hash_bound_params(&bound_params);
-        let expected =
-            hex_to_fr("0x0171c913baef93e5cf6f223442727c680a1a1844b9999032ac789638032822fb");
-
-        assert_eq!(hash, expected);
     }
 }

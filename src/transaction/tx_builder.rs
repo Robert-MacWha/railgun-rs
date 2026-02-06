@@ -10,6 +10,7 @@ use crate::{
     abis::railgun::RailgunSmartWallet,
     account::RailgunAccount,
     caip::AssetId,
+    circuit::{native_prover::NativeProver, prover::TransactProver},
     indexer::{indexer::Indexer, notebook::Notebook},
     note::{
         change::ChangeNote,
@@ -43,6 +44,7 @@ pub struct TxBuilder<'a> {
     /// Working set of notebooks that hold unspent notes for addresses involved
     notebooks: HashMap<RailgunAddress, BTreeMap<u32, Notebook>>,
     senders: HashSet<RailgunAccount>,
+    prover: Box<dyn TransactProver>,
 }
 
 // TODO: Cache and build all at once
@@ -55,7 +57,14 @@ impl<'a> TxBuilder<'a> {
 
             notebooks: HashMap::new(),
             senders: HashSet::new(),
+            prover: Box::new(NativeProver::new()),
         }
+    }
+
+    pub fn new_with_prover(indexer: &'a mut Indexer, prover: Box<dyn TransactProver>) -> Self {
+        let mut builder = Self::new(indexer);
+        builder.prover = prover;
+        builder
     }
 
     /// Adds a transfer operation to the transaction builder
@@ -110,8 +119,15 @@ impl<'a> TxBuilder<'a> {
         let chain = self.indexer.chain();
         let merkle_trees = self.indexer.merkle_trees();
         for (_, tree_txns) in self.tree_txns.into_iter() {
-            let txns: Vec<crate::abis::railgun::Transaction> =
-                create_transaction(merkle_trees, 0, chain, Address::ZERO, &[0u8; 32], tree_txns)?;
+            let txns: Vec<crate::abis::railgun::Transaction> = create_transaction(
+                &self.prover,
+                merkle_trees,
+                0,
+                chain,
+                Address::ZERO,
+                &[0u8; 32],
+                tree_txns,
+            )?;
             transactions.extend(txns);
         }
 

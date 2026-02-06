@@ -2,8 +2,10 @@
 //!
 //! https://github.com/Railgun-Privacy/contract/blob/9ec09123eb140fdaaf3a5ff1f29d634c353630cd/contracts/logic/Globals.sol
 
-use alloy::primitives::{Address, U256};
-use alloy_sol_types::sol;
+use alloy::primitives::{Address, ChainId, U256, aliases::U72};
+use alloy_sol_types::{SolValue, sol};
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
 use thiserror::Error;
 
 use crate::crypto::hash_to_scalar;
@@ -69,6 +71,34 @@ impl TokenData {
         let result_bytes = hash.to_be_bytes::<32>();
         bytes[32 - result_bytes.len()..].copy_from_slice(&result_bytes);
         bytes.to_vec()
+    }
+}
+
+impl BoundParams {
+    pub fn new(
+        tree_number: u16,
+        min_gas_price: u128,
+        unshield: UnshieldType,
+        chain_id: ChainId,
+        adapt_contract: Address,
+        adapt_input: &[u8; 32],
+        commitment_ciphertexts: Vec<CommitmentCiphertext>,
+    ) -> Self {
+        BoundParams {
+            treeNumber: tree_number,
+            minGasPrice: U72::saturating_from(min_gas_price),
+            unshield,
+            chainID: chain_id,
+            adaptContract: adapt_contract,
+            adaptParams: adapt_input.into(),
+            commitmentCiphertext: commitment_ciphertexts,
+        }
+    }
+
+    pub fn hash(&self) -> Fr {
+        let encoded = self.abi_encode();
+        let hash = hash_to_scalar(&encoded);
+        Fr::from_be_bytes_mod_order(&hash.to_be_bytes::<32>())
     }
 }
 
@@ -194,5 +224,48 @@ sol! {
         G1Point a;
         G2Point b;
         G1Point c;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::primitives::{Bytes, FixedBytes, address};
+
+    use tracing_test::traced_test;
+
+    use crate::{
+        abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
+        crypto::keys::hex_to_fr,
+    };
+
+    #[test]
+    #[traced_test]
+    fn test_hash_bound_params() {
+        let bound_params = BoundParams::new(
+            1,
+            10,
+            UnshieldType::NONE,
+            1,
+            address!("0x1234567890123456789012345678901234567890"),
+            &[5u8; 32],
+            vec![CommitmentCiphertext {
+                ciphertext: [
+                    FixedBytes::from_slice(&[1u8; 32]),
+                    FixedBytes::from_slice(&[1u8; 32]),
+                    FixedBytes::from_slice(&[1u8; 32]),
+                    FixedBytes::from_slice(&[1u8; 32]),
+                ],
+                blindedSenderViewingKey: FixedBytes::from_slice(&[2u8; 32]),
+                blindedReceiverViewingKey: FixedBytes::from_slice(&[3u8; 32]),
+                annotationData: Bytes::from(&[4u8; 50]),
+                memo: Bytes::from(&[5u8; 50]),
+            }],
+        );
+
+        let hash = bound_params.hash();
+        let expected =
+            hex_to_fr("0x0171c913baef93e5cf6f223442727c680a1a1844b9999032ac789638032822fb");
+
+        assert_eq!(hash, expected);
     }
 }

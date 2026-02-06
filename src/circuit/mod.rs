@@ -1,3 +1,3 @@
-pub mod circom_reduction;
-pub mod inputs;
-pub mod zkey;
+pub mod native_prover;
+pub mod prover;
+pub mod transact_inputs;
