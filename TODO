@@ -6,8 +6,11 @@
 - Refactor and tidy up
 - Optimize performance
   - Benchmark current performance + components
-  - Try to use `https://github.com/philsippl/circom-witness-rs` for witness generation.  Seems to be ~30x faster for native, and probably faster for wasm too since we avoid wasmer overhead.
+  - [x] Try to use `https://github.com/philsippl/circom-witness-rs` for witness generation.  Seems to be ~30x faster for native, and probably faster for wasm too since we avoid wasmer overhead.
     - Potentially smaller bin because of deduplication. However it also means bundling more code in the main binary instead of in .wasm files that can be loaded from remote on demand. So need to measure and see.
+- Get working tested on WASM
+  - Try switching to `https://github.com/iden3/circom-witnesscalc/tree/045320ecbafbff0617ab37eb6d85950ea8cc15ef`.  Need to fork it
+  - to disable some C api stuff, but it might be possible?
 - Implement PPOI
 - Implement broadcasters
 - Implement native token support for shield / unshield

@@ -21,7 +21,8 @@ use crate::{
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
     crypto::{keys::fr_to_u256, poseidon::poseidon_hash},
-    indexer::{account::IndexerAccount, notebook::Notebook, subsquid_client::SubsquidClient},
+    indexer::{account::IndexerAccount, notebook::Notebook},
+    // indexer::subsquid_client::SubsquidClient,
     merkle_tree::{MerkleTree, MerkleTreeState},
     note::note::NoteError,
     railgun::address::RailgunAddress,
@@ -53,8 +54,8 @@ pub enum SyncError {
     NoteError(#[from] NoteError),
     #[error("No Subsquid endpoint configured")]
     MissingSubsquidEndpoint,
-    #[error("Subsquid client error: {0}")]
-    SubsquidClientError(#[from] crate::indexer::subsquid_client::SubsquidError),
+    // #[error("Subsquid client error: {0}")]
+    // SubsquidClientError(#[from] crate::indexer::subsquid_client::SubsquidError),
 }
 
 #[derive(Debug, Error)]
@@ -183,74 +184,74 @@ impl Indexer {
         Ok(())
     }
 
-    /// Quick syncs from Subsquid
-    ///
-    /// If to_block is None, syncs up to the latest block
-    ///
-    /// TODO: Make this a generic method so it's only present when subsquid_endpoint is set
-    /// TODO: Have this sync full notes so we can track balances
-    pub async fn sync_from_subsquid(&mut self, to_block: Option<u64>) -> Result<(), SyncError> {
-        let Some(endpoint) = self.chain.subsquid_endpoint else {
-            return Err(SyncError::MissingSubsquidEndpoint);
-        };
+    // /// Quick syncs from Subsquid
+    // ///
+    // /// If to_block is None, syncs up to the latest block
+    // ///
+    // /// TODO: Make this a generic method so it's only present when subsquid_endpoint is set
+    // /// TODO: Have this sync full notes so we can track balances
+    // pub async fn sync_from_subsquid(&mut self, to_block: Option<u64>) -> Result<(), SyncError> {
+    //     let Some(endpoint) = self.chain.subsquid_endpoint else {
+    //         return Err(SyncError::MissingSubsquidEndpoint);
+    //     };
 
-        let to_block = match to_block {
-            Some(b) => b,
-            None => self.provider.get_block_number().await.unwrap(),
-        };
+    //     let to_block = match to_block {
+    //         Some(b) => b,
+    //         None => self.provider.get_block_number().await.unwrap(),
+    //     };
 
-        info!(
-            "Syncing from Subsquid from block {} to {:?}",
-            self.synced_block, to_block
-        );
-        let client = SubsquidClient::new(endpoint);
-        let commitments = client
-            .fetch_all_commitments(self.synced_block, Some(to_block))
-            .await?;
+    //     info!(
+    //         "Syncing from Subsquid from block {} to {:?}",
+    //         self.synced_block, to_block
+    //     );
+    //     let client = SubsquidClient::new(endpoint);
+    //     let commitments = client
+    //         .fetch_all_commitments(self.synced_block, Some(to_block))
+    //         .await?;
 
-        info!("Fetched {} commitments from Subsquid", commitments.len());
+    //     info!("Fetched {} commitments from Subsquid", commitments.len());
 
-        // TODO: Consider sorting commitments and inserting contiguous ranges together
-        info!("Grouping commits");
-        let mut groups: HashMap<u32, Vec<(usize, Fr)>> = HashMap::new();
-        for c in commitments {
-            let hash = Fr::from_str(&c.hash).unwrap();
-            let global_pos = c.tree_position as u64;
+    //     // TODO: Consider sorting commitments and inserting contiguous ranges together
+    //     info!("Grouping commits");
+    //     let mut groups: HashMap<u32, Vec<(usize, Fr)>> = HashMap::new();
+    //     for c in commitments {
+    //         let hash = Fr::from_str(&c.hash).unwrap();
+    //         let global_pos = c.tree_position as u64;
 
-            //? Manually calculate the actual tree number and position because.
-            // It seems like subsquid doesn't properly respect tree boundaries
-            // so it reports tx
-            // 0xb028ffa4f761a91abb09d139cbf466992d65cb60ba02c1f2d9db5400f8bbd497
-            // as being in (tree 0 position 65536), which is invalid, instead of
-            // (tree 1 position 0).
-            //
-            // By manually calculating the tree number & position based on the
-            // 2^16 leaves per tree, we can work around this issue.
-            let actual_tree = (c.tree_number) + (global_pos / 65536) as u32;
-            let actual_pos = (global_pos % 65536) as usize;
+    //         //? Manually calculate the actual tree number and position because.
+    //         // It seems like subsquid doesn't properly respect tree boundaries
+    //         // so it reports tx
+    //         // 0xb028ffa4f761a91abb09d139cbf466992d65cb60ba02c1f2d9db5400f8bbd497
+    //         // as being in (tree 0 position 65536), which is invalid, instead of
+    //         // (tree 1 position 0).
+    //         //
+    //         // By manually calculating the tree number & position based on the
+    //         // 2^16 leaves per tree, we can work around this issue.
+    //         let actual_tree = (c.tree_number) + (global_pos / 65536) as u32;
+    //         let actual_pos = (global_pos % 65536) as usize;
 
-            groups
-                .entry(actual_tree)
-                .or_default()
-                .push((actual_pos, hash));
-        }
+    //         groups
+    //             .entry(actual_tree)
+    //             .or_default()
+    //             .push((actual_pos, hash));
+    //     }
 
-        info!("Inserting commits into Merkle Trees");
-        for (tree_number, leaves) in groups {
-            let tree = self
-                .trees
-                .entry(tree_number)
-                .or_insert(MerkleTree::new(tree_number));
+    //     info!("Inserting commits into Merkle Trees");
+    //     for (tree_number, leaves) in groups {
+    //         let tree = self
+    //             .trees
+    //             .entry(tree_number)
+    //             .or_insert(MerkleTree::new(tree_number));
 
-            for (pos, hash) in leaves {
-                tree.insert_leaves(&[hash], pos);
-            }
-        }
+    //         for (pos, hash) in leaves {
+    //             tree.insert_leaves(&[hash], pos);
+    //         }
+    //     }
 
-        self.synced_block = to_block;
+    //     self.synced_block = to_block;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     /// Validates that all Merkle Tree roots are seen on-chain. If any are not,
     /// returns a ValidationError.

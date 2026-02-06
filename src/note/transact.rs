@@ -1,17 +1,19 @@
 use std::{collections::BTreeMap, fs};
 
 use alloy::primitives::{Address, FixedBytes, aliases::U120};
-use alloy_sol_types::SolCall;
 use ark_bn254::{Bn254, Fr};
-use ark_circom::{CircomBuilder, CircomConfig, CircomReduction, read_zkey};
 use ark_ec::AffineRepr;
+use ark_ff::UniformRand;
 use ark_groth16::{Groth16, ProvingKey, prepare_verifying_key};
+use ark_relations::r1cs::ConstraintMatrices;
 use num_bigint::BigInt;
 use tracing::info;
 
+use crate::circuit::{circom_reduction::CircomReduction, zkey::read_zkey};
 use crate::{
     abis::railgun::{
-        CommitmentCiphertext, CommitmentPreimage, G1Point, G2Point, SnarkProof, Transaction, UnshieldType,
+        CommitmentCiphertext, CommitmentPreimage, G1Point, G2Point, SnarkProof, Transaction,
+        UnshieldType,
     },
     caip::AssetId,
     chain_config::ChainConfig,
@@ -43,12 +45,12 @@ pub fn create_transaction(
             UnshieldType::NONE
         };
 
-        // Load circuit artifacts
+        info!("Loading Artifacts");
         let notes_in: Vec<Note> = tree_tx.notes_in().clone();
         let notes_out = tree_tx.notes_out();
-        let (mut builder, params) = load_artifacts(notes_in.len(), notes_out.len());
+        let (params, matrices) = load_artifacts(notes_in.len(), notes_out.len());
 
-        // Construct circuit inputs
+        info!("Constructing circuit inputs");
         let commitment_ciphertexts: Vec<CommitmentCiphertext> = tree_tx
             .encryptable_notes_out()
             .iter()
@@ -67,90 +69,92 @@ pub fn create_transaction(
         )
         .unwrap();
 
-        // Build the circuit
-        info!("Building circuit for tree {}", tree_number);
+    todo!();
 
-        for (name, values) in inputs.as_flat_map() {
-            for value in values {
-                builder.push_input(&name, value);
-            }
-        }
+        // info!("Generated witnesses for tree {}", tree_number);
+        // let inputs_flat = inputs.as_flat_map();
+        // let rust_witnesss_witness = witness_calculator.calculate(inputs_flat);
+        // let full_assignment: Vec<Fr> = rust_witnesss_witness.iter().map(bigint_to_fr).collect();
 
-        let circom = builder.build().unwrap();
-        let public_inputs = circom.get_public_inputs().unwrap();
+        // info!("Creating proof");
+        // let mut rng = ark_std::rand::thread_rng();
+        // let r = Fr::rand(&mut rng);
+        // let s = Fr::rand(&mut rng);
 
-        info!("Generating proof for tree {}", tree_number);
+        // let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
+        //     &params,
+        //     r,
+        //     s,
+        //     &matrices,
+        //     matrices.num_instance_variables,
+        //     matrices.num_constraints,
+        //     &full_assignment,
+        // )
+        // .unwrap();
 
-        let mut rng = ark_std::rand::thread_rng();
-        let proof = Groth16::<Bn254, CircomReduction>::create_random_proof_with_reduction(
-            circom, &params, &mut rng,
-        )
-        .unwrap();
+        // let public_inputs = &full_assignment[1..matrices.num_instance_variables];
+        // let pvk = prepare_verifying_key(&params.vk);
+        // let verified =
+        //     Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, public_inputs).unwrap();
+        // assert!(verified, "Proof verification failed");
+        // info!("Proof verified successfully for tree {}", tree_number);
 
-        info!("Verifying proof for tree {}", tree_number);
+        // let transaction = Transaction {
+        //     proof: SnarkProof {
+        //         a: G1Point {
+        //             x: fq_to_u256(&proof.a.x().unwrap()),
+        //             y: fq_to_u256(&proof.a.y().unwrap()),
+        //         },
+        //         b: G2Point {
+        //             x: [
+        //                 fq_to_u256(&proof.b.x().unwrap().c1),
+        //                 fq_to_u256(&proof.b.x().unwrap().c0),
+        //             ],
+        //             y: [
+        //                 fq_to_u256(&proof.b.y().unwrap().c1),
+        //                 fq_to_u256(&proof.b.y().unwrap().c0),
+        //             ],
+        //         },
+        //         c: G1Point {
+        //             x: fq_to_u256(&proof.c.x().unwrap()),
+        //             y: fq_to_u256(&proof.c.y().unwrap()),
+        //         },
+        //     },
+        //     merkleRoot: bigint_to_bytes(&inputs.merkle_root),
+        //     nullifiers: inputs.nullifiers.iter().map(bigint_to_bytes).collect(),
+        //     commitments: inputs.commitments_out.iter().map(bigint_to_bytes).collect(),
+        //     boundParams: inputs.bound_params,
+        //     unshieldPreimage: match tree_tx.unshield {
+        //         Some(unshield) => {
+        //             info!(
+        //                 "Unshield npk: {:?}",
+        //                 fr_to_u256(&unshield.note_public_key())
+        //             );
+        //             info!(
+        //                 "Unshield token_id: {:?}",
+        //                 fr_to_u256(&unshield.asset.hash())
+        //             );
+        //             info!("Unshield value: {:?}", unshield.value);
+        //             info!("Unshield hash: {:?}", fr_to_u256(&unshield.hash()));
+        //             info!("Last commitment_out: {:?}", &inputs.commitments_out.last());
+        //             CommitmentPreimage {
+        //                 npk: fr_to_u256(&unshield.note_public_key()).into(),
+        //                 token: unshield.asset.into(),
+        //                 value: U120::saturating_from(unshield.value),
+        //             }
+        //         }
+        //         //? If there's no unshield note, the preimage is ignored by the
+        //         //? contract so we can just return a zeroed preimage. Just using
+        //         //? `asset` for convenience.
+        //         None => CommitmentPreimage {
+        //             npk: FixedBytes::ZERO,
+        //             token: AssetId::Erc20(Address::ZERO).into(),
+        //             value: U120::saturating_from(0),
+        //         },
+        //     },
+        // };
 
-        let pvk = prepare_verifying_key(&params.vk);
-        let verified =
-            Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
-        assert!(verified, "Proof verification failed");
-        info!("Proof verified successfully for tree {}", tree_number);
-
-        let transaction = Transaction {
-            proof: SnarkProof {
-                a: G1Point {
-                    x: fq_to_u256(&proof.a.x().unwrap()),
-                    y: fq_to_u256(&proof.a.y().unwrap()),
-                },
-                b: G2Point {
-                    x: [
-                        fq_to_u256(&proof.b.x().unwrap().c1),
-                        fq_to_u256(&proof.b.x().unwrap().c0),
-                    ],
-                    y: [
-                        fq_to_u256(&proof.b.y().unwrap().c1),
-                        fq_to_u256(&proof.b.y().unwrap().c0),
-                    ],
-                },
-                c: G1Point {
-                    x: fq_to_u256(&proof.c.x().unwrap()),
-                    y: fq_to_u256(&proof.c.y().unwrap()),
-                },
-            },
-            merkleRoot: bigint_to_bytes(&inputs.merkle_root),
-            nullifiers: inputs.nullifiers.iter().map(bigint_to_bytes).collect(),
-            commitments: inputs.commitments_out.iter().map(bigint_to_bytes).collect(),
-            boundParams: inputs.bound_params,
-            unshieldPreimage: match tree_tx.unshield {
-                Some(unshield) => {
-                    info!(
-                        "Unshield npk: {:?}",
-                        fr_to_u256(&unshield.note_public_key())
-                    );
-                    info!(
-                        "Unshield token_id: {:?}",
-                        fr_to_u256(&unshield.asset.hash())
-                    );
-                    info!("Unshield value: {:?}", unshield.value);
-                    info!("Unshield hash: {:?}", fr_to_u256(&unshield.hash()));
-                    info!("Last commitment_out: {:?}", &inputs.commitments_out.last());
-                    CommitmentPreimage {
-                        npk: fr_to_u256(&unshield.note_public_key()).into(),
-                        token: unshield.asset.into(),
-                        value: U120::saturating_from(unshield.value),
-                    }
-                }
-                //? If there's no unshield note, the preimage is ignored by the
-                //? contract so we can just return a zeroed preimage. Just using
-                //? `asset` for convenience.
-                None => CommitmentPreimage {
-                    npk: FixedBytes::ZERO,
-                    token: AssetId::Erc20(Address::ZERO).into(),
-                    value: U120::saturating_from(0),
-                },
-            },
-        };
-
-        transactions.push(transaction);
+        // transactions.push(transaction);
     }
 
     Ok(transactions)
@@ -160,20 +164,17 @@ fn bigint_to_bytes(value: &BigInt) -> FixedBytes<32> {
     fr_to_u256(&bigint_to_fr(value)).into()
 }
 
-fn load_artifacts(notes_in: usize, notes_out: usize) -> (CircomBuilder<Fr>, ProvingKey<Bn254>) {
+fn load_artifacts(
+    notes_in: usize,
+    notes_out: usize,
+) -> (ProvingKey<Bn254>, ConstraintMatrices<Fr>) {
     if notes_in != 1 || notes_out != 2 {
         todo!("Only 1 input and 2 output notes are supported currently");
     }
-
-    const WASM_PATH: &str = "artifacts/01x02/01x02.wasm";
-    const R1CS_PATH: &str = "artifacts/01x02/01x02.r1cs";
     const ZKEY_PATH: &str = "artifacts/01x02/01x02.zkey";
 
-    let cfg = CircomConfig::<Fr>::new(WASM_PATH, R1CS_PATH).unwrap();
-    let builder = CircomBuilder::new(cfg);
-
     let mut zkey_file = fs::File::open(ZKEY_PATH).unwrap();
-    let (params, _matrices) = read_zkey(&mut zkey_file).unwrap();
+    let (params, matrices) = read_zkey(&mut zkey_file).unwrap();
 
-    (builder, params)
+    (params, matrices)
 }

@@ -1,7 +1,6 @@
 use alloy::primitives::Uint;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use light_poseidon::PoseidonError;
 use rand::random;
 use thiserror::Error;
 
@@ -18,10 +17,7 @@ use crate::{
 };
 
 #[derive(Debug, Error)]
-pub enum ShieldError {
-    #[error("Poseidon hash error: {0}")]
-    Poseidon(#[from] PoseidonError),
-}
+pub enum ShieldError {}
 
 pub fn create_shield_request(
     recipient: RailgunAddress,

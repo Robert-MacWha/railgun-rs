@@ -34,7 +34,7 @@ const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5e
 const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 const INDEXER_STATE_PATH: &str = "indexer_state.bincode";
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     tracing_subscriber::fmt::init();
 
@@ -58,7 +58,7 @@ async fn main() {
         .unwrap()
         .erased();
 
-    sync_indexer(provider.clone(), chain, latest).await;
+    // sync_indexer(provider.clone(), chain, latest).await;
     let mut indexer = load_indexer_from_state(provider.clone()).await;
 
     info!("Shielding to Railgun account");
@@ -121,18 +121,18 @@ async fn main() {
     info!("Railgun account 2 balance: {:?}", balance_2);
 }
 
-/// Sync the indexer up to a specific block, saving the state.
-async fn sync_indexer(provider: DynProvider, chain: ChainConfig, to_block: u64) {
-    info!("Syncing indexer up to block {}", to_block);
+// /// Sync the indexer up to a specific block, saving the state.
+// async fn sync_indexer(provider: DynProvider, chain: ChainConfig, to_block: u64) {
+//     info!("Syncing indexer up to block {}", to_block);
 
-    let mut indexer = Indexer::new(provider, chain);
-    indexer.sync_from_subsquid(Some(to_block)).await.unwrap();
-    indexer.validate().await.unwrap();
+//     let mut indexer = Indexer::new(provider, chain);
+//     indexer.sync_from_subsquid(Some(to_block)).await.unwrap();
+//     indexer.validate().await.unwrap();
 
-    let state = indexer.state();
-    let state_serde = bitcode::serialize(&state).unwrap();
-    std::fs::write(INDEXER_STATE_PATH, state_serde).unwrap();
-}
+//     let state = indexer.state();
+//     let state_serde = bitcode::serialize(&state).unwrap();
+//     std::fs::write(INDEXER_STATE_PATH, state_serde).unwrap();
+// }
 
 async fn load_indexer_from_state(provider: DynProvider) -> Indexer {
     info!("Loading indexer state from {}", INDEXER_STATE_PATH);

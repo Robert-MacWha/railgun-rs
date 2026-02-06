@@ -12,6 +12,7 @@ let
 
   rustToolchain = pkgs.rust-bin.stable."1.87.0".default.override {
     extensions = [ "rust-src" ];
+    targets = [ "wasm32-unknown-unknown" ];
   };
 
   circom = pkgs.callPackage ./flakes/circom.nix { };
@@ -22,7 +23,10 @@ pkgs.mkShell {
     pkgs.rust-analyzer
     circom
     pkgs.just
-
+    pkgs.cmake
     unstable.foundry
+
+    pkgs.cargo-bloat
+    pkgs.binaryen
   ];
 }

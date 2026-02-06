@@ -5,7 +5,7 @@ use ark_serialize::CanonicalSerialize;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::{EdwardsPoint, Scalar};
 use ed25519_dalek::SigningKey;
-use light_poseidon::PoseidonHasher;
+// use light_poseidon::PoseidonHasher;
 use num_bigint::{BigInt, Sign};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
@@ -13,6 +13,7 @@ use thiserror::Error;
 use crate::crypto::aes::{
     AesError, Ciphertext, CiphertextCtr, decrypt_ctr, decrypt_gcm, encrypt_ctr, encrypt_gcm,
 };
+use crate::crypto::poseidon::poseidon_hash;
 
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -300,23 +301,17 @@ impl SharedKey {
 
 impl MasterPublicKey {
     pub fn new(spending_pubkey: SpendingPublicKey, nullifying_key: NullifyingKey) -> Self {
-        let mut poseidon = light_poseidon::Poseidon::<Fr>::new_circom(3).unwrap();
-        let hash = poseidon
-            .hash(&[
-                spending_pubkey.x_fr(),
-                spending_pubkey.y_fr(),
-                nullifying_key.to_fr(),
-            ])
-            .unwrap();
-        MasterPublicKey(fr_to_bytes(&hash))
+        MasterPublicKey::from_fr(&poseidon_hash(&[
+            spending_pubkey.x_fr(),
+            spending_pubkey.y_fr(),
+            nullifying_key.to_fr(),
+        ]))
     }
 }
 
 impl NullifyingKey {
     pub fn new(viewing_key: ViewingKey) -> Self {
-        let mut poseidon = light_poseidon::Poseidon::<Fr>::new_circom(1).unwrap();
-        let hash = poseidon.hash(&[viewing_key.to_fr()]).unwrap();
-        NullifyingKey::from_fr(&hash)
+        NullifyingKey::from_fr(&poseidon_hash(&[viewing_key.to_fr()]))
     }
 }
 
@@ -364,6 +359,12 @@ pub fn fr_to_bigint(fr: &Fr) -> BigInt {
 pub fn fr_to_u256(fr: &Fr) -> U256 {
     let bytes = fr_to_bytes(fr);
     U256::from_be_bytes::<32>(bytes)
+}
+
+pub fn biguint_to_u256(value: &num_bigint::BigUint) -> U256 {
+    let bytes = value.to_bytes_be();
+    let fr = Fr::from_be_bytes_mod_order(&bytes);
+    fr_to_u256(&fr)
 }
 
 pub fn fq_to_u256(fq: &ark_bn254::Fq) -> U256 {

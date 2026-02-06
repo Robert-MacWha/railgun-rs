@@ -1,7 +1,7 @@
 use alloy::primitives::utils::keccak256_cached;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
-use rayon::iter::{IntoParallelIterator, ParallelIterator};
+// use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
@@ -225,7 +225,7 @@ impl MerkleTree {
 
             // Parallel hash computation for dirty parents
             let updates: Vec<_> = dirty_parents
-                .into_par_iter()
+                .into_iter()
                 .map(|parent_idx| {
                     let left_idx = parent_idx * 2;
                     let right_idx = left_idx + 1;
