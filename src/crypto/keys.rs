@@ -13,7 +13,7 @@ use thiserror::Error;
 use crate::crypto::aes::{
     AesError, Ciphertext, CiphertextCtr, decrypt_ctr, decrypt_gcm, encrypt_ctr, encrypt_gcm,
 };
-use crate::crypto::poseidon::poseidon_hash;
+use crate::crypto::poseidon::{poseidon_fr_to_arkworks, poseidon_hash};
 
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
@@ -156,7 +156,10 @@ impl SpendingKey {
     pub fn public_key(&self) -> SpendingPublicKey {
         let sk = babyjubjub_rs::PrivateKey::import(self.0.to_vec()).unwrap();
         let pk = sk.public();
-        let (x, y) = (babyjubjub_to_ark(&pk.x), babyjubjub_to_ark(&pk.y));
+        let (x, y) = (
+            poseidon_fr_to_arkworks(&pk.x),
+            poseidon_fr_to_arkworks(&pk.y),
+        );
 
         SpendingPublicKey {
             x: x.into_bigint().to_bytes_be().try_into().unwrap(),
@@ -176,8 +179,8 @@ impl SpendingKey {
         let signature = sk.sign(msg_bigint).unwrap();
 
         SpendingSignature {
-            r8_x: babyjubjub_to_ark(&signature.r_b8.x),
-            r8_y: babyjubjub_to_ark(&signature.r_b8.y),
+            r8_x: poseidon_fr_to_arkworks(&signature.r_b8.x),
+            r8_y: poseidon_fr_to_arkworks(&signature.r_b8.y),
             s: bigint_to_fr(&signature.s),
         }
     }
@@ -380,18 +383,6 @@ pub fn bigint_to_fr(bi: &BigInt) -> Fr {
 pub fn hex_to_fr(hex_str: &str) -> Fr {
     let stripped = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     let bytes = hex::decode(stripped).unwrap();
-    Fr::from_be_bytes_mod_order(&bytes)
-}
-
-/// Converts babyjubjub_rs::Fr to arkworks Fr
-///
-/// Babyjubjub uses an old version of arkworks, and I can't find a way to
-/// directly convert between the two types. Ergo this hacky approach.
-fn babyjubjub_to_ark(f: &babyjubjub_rs::Fr) -> Fr {
-    let s = format!("{:?}", f);
-    // Format is "Fr(0x...)"
-    let hex = s.trim_start_matches("Fr(0x").trim_end_matches(")");
-    let bytes = hex::decode(hex).unwrap();
     Fr::from_be_bytes_mod_order(&bytes)
 }
 
