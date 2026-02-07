@@ -21,11 +21,13 @@ impl NativeProver {
     }
 }
 
+// TODO: Consider using github.com/iden3/circom-witnesscalc/tree/045320ecbafbff0617ab37eb6d85950ea8cc15ef for smaller witness generation
 impl TransactProver for NativeProver {
     fn prove_transact(
         &self,
         inputs: &TransactCircuitInputs,
     ) -> Result<Proof, Box<dyn std::error::Error>> {
+        info!("Loading artifacts");
         let (pk, mut builder) =
             self.load_artifacts(inputs.nullifiers.len(), inputs.commitments_out.len());
 
@@ -79,9 +81,9 @@ impl NativeProver {
             todo!("Only 1 input and 2 output notes are supported currently");
         }
 
-        const WASM_PATH: &str = "artifacts/01x02/01x02.wasm";
-        const R1CS_PATH: &str = "artifacts/01x02/01x02.r1cs";
-        const ZKEY_PATH: &str = "artifacts/01x02/01x02.zkey";
+        const WASM_PATH: &str = "artifacts/01x02.wasm";
+        const R1CS_PATH: &str = "artifacts/01x02.r1cs";
+        const ZKEY_PATH: &str = "artifacts/01x02.zkey";
 
         let cfg = CircomConfig::<Fr>::new(WASM_PATH, R1CS_PATH).unwrap();
         let builder = CircomBuilder::new(cfg);

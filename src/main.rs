@@ -1,17 +1,5 @@
 use std::str::FromStr;
 
-mod abis;
-mod account;
-mod caip;
-mod chain_config;
-mod circuit;
-mod crypto;
-mod indexer;
-mod merkle_tree;
-mod note;
-mod railgun;
-mod transaction;
-
 use alloy::{
     network::Ethereum,
     primitives::{Address, U256, address},
@@ -20,10 +8,10 @@ use alloy::{
 };
 use tracing::info;
 
-use crate::{
+use railgun_rs::{
     account::RailgunAccount,
     caip::AssetId,
-    chain_config::{ChainConfig, MAINNET_CONFIG},
+    chain_config::MAINNET_CONFIG,
     crypto::keys::{ByteKey, SpendingKey, ViewingKey},
     indexer::indexer::{Indexer, IndexerState},
     transaction::{shield_builder::ShieldBuilder, tx_builder::TxBuilder},
@@ -69,8 +57,8 @@ async fn main() {
         chain.id,
     );
 
-    indexer.add_account(account_1.clone());
-    indexer.add_account(account_2.clone());
+    indexer.add_account(&account_1);
+    indexer.add_account(&account_2);
     shield(provider.clone(), &indexer, &account_1, asset, amount).await;
 
     indexer.sync().await.unwrap();
@@ -152,7 +140,7 @@ async fn shield(
     asset: AssetId,
     amount: u128,
 ) {
-    let erc20_instance = abis::erc20::ERC20::new(
+    let erc20_instance = railgun_rs::abis::erc20::ERC20::new(
         match asset {
             AssetId::Erc20(addr) => addr,
             _ => panic!("Unsupported asset for shielding"),

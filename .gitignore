@@ -1,5 +1,3 @@
 /target
 .direnv
 .envrc
-indexer_state.bincode
-/artifacts

@@ -1,14 +1,10 @@
 use std::collections::HashMap;
 
-use alloy::primitives::{Address, ChainId, aliases::U72};
-use alloy_sol_types::SolValue;
 use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use num_bigint::{BigInt, Sign};
 
 use crate::{
-    abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
-    crypto::{hash_to_scalar, keys::fr_to_bigint},
+    crypto::keys::fr_to_bigint,
     merkle_tree::MerkleTree,
     note::{note::Note, tree_transaction::TransactNote},
 };

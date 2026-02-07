@@ -173,8 +173,8 @@ impl IndexerAccount {
     }
 }
 
-impl From<RailgunAccount> for IndexerAccount {
-    fn from(account: RailgunAccount) -> Self {
-        IndexerAccount::new(account)
+impl From<&RailgunAccount> for IndexerAccount {
+    fn from(account: &RailgunAccount) -> Self {
+        IndexerAccount::new(account.clone())
     }
 }

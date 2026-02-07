@@ -1,13 +1,16 @@
 use ark_bn254::Fr;
 use ark_ff::{BigInt, PrimeField};
 use ff_ce::PrimeField as OldPrimeField;
+use light_poseidon::PoseidonHasher;
 
 pub fn poseidon_hash(inputs: &[Fr]) -> Fr {
-    let inputs = inputs.into_iter().map(arkwork_fr_to_poseidon).collect();
+    let mut poseidon = light_poseidon::Poseidon::<Fr>::new_circom(inputs.len()).unwrap();
+    poseidon.hash(inputs).unwrap()
+    // let inputs = inputs.into_iter().map(arkwork_fr_to_poseidon).collect();
 
-    let poseidon = poseidon_rs::Poseidon::new();
-    let hash = poseidon.hash(inputs).unwrap();
-    poseidon_fr_to_arkworks(&hash)
+    // let poseidon = poseidon_rs::Poseidon::new();
+    // let hash = poseidon.hash(inputs).unwrap();
+    // poseidon_fr_to_arkworks(&hash)
 }
 
 pub fn poseidon_fr_to_arkworks(fr: &poseidon_rs::Fr) -> Fr {

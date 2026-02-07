@@ -30,9 +30,7 @@ pub struct Commitment {
     pub hash: String,
     pub tree_number: u32,
     pub tree_position: u32,
-    pub block_number: String,
-    pub commitment_type: String,
-    pub transaction_hash: String,
+    pub id: String,
 }
 
 #[derive(Debug, Error)]
@@ -56,24 +54,24 @@ impl SubsquidClient {
         to_block: Option<u64>,
     ) -> Result<Vec<Commitment>, SubsquidError> {
         let mut all = Vec::new();
-        let mut offset = 0u32;
+        let mut last_id: Option<String> = None;
         let limit = 10000u32;
 
         loop {
-            info!(
-                "Fetching commitments: from_block={}, to_block={:?}, limit={}, offset={}",
-                from_block, to_block, limit, offset
-            );
             let batch = self
-                .fetch_commitments(from_block, to_block, limit, offset)
+                .fetch_commitments(from_block, to_block, limit, last_id.as_deref())
                 .await?;
             let batch_len = batch.len();
+
+            if let Some(last) = batch.last() {
+                last_id = Some(last.id.clone());
+            }
+
             all.extend(batch);
 
             if batch_len < limit as usize {
                 break;
             }
-            offset += limit;
         }
 
         Ok(all)
@@ -84,7 +82,7 @@ impl SubsquidClient {
         from_block: u64,
         to_block: Option<u64>,
         limit: u32,
-        offset: u32,
+        after_id: Option<&str>,
     ) -> Result<Vec<Commitment>, SubsquidError> {
         let block_filter = match to_block {
             Some(to) => format!(
@@ -94,22 +92,24 @@ impl SubsquidClient {
             None => format!("blockNumber_gte: \"{}\"", from_block),
         };
 
+        let id_filter = match after_id {
+            Some(id) => format!(", id_gt: \"{}\"", id),
+            None => String::new(),
+        };
+
         let query = format!(
             r#"{{
-                commitments(
-                    orderBy: treePosition_ASC,
-                    limit: {limit},
-                    offset: {offset},
-                    where: {{ {block_filter} }}
-                ) {{
-                    hash
-                    treeNumber
-                    treePosition
-                    blockNumber
-                    commitmentType
-                    transactionHash
-                }}
-            }}"#
+            commitments(
+                orderBy: id_ASC,
+                limit: {limit},
+                where: {{ {block_filter}{id_filter} }}
+            ) {{
+                id
+                treeNumber
+                treePosition
+                hash
+            }}
+        }}"#
         );
 
         let resp: GraphQLResponse<CommitmentsData> = self

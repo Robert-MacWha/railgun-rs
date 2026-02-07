@@ -69,6 +69,7 @@ pub fn create_transaction(
         )
         .unwrap();
 
+        info!("Proving transaction");
         let proof = prover.prove_transact(&inputs).unwrap();
         let transaction = Transaction {
             proof: SnarkProof {

@@ -9,9 +9,6 @@ pub struct RailgunAccount {
     spending_key: SpendingKey,
 }
 
-const SPENDING_DERIVATION_PATH: &str = "m/44'/1984'/0'/0'/";
-const VIEWING_DERIVATION_PATH: &str = "m/420'/1984'/0'/0'/";
-
 impl RailgunAccount {
     pub fn new(spending_key: SpendingKey, viewing_key: ViewingKey, chain_id: u64) -> Self {
         RailgunAccount {

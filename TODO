@@ -3,6 +3,8 @@
 - [x] Implement builder pattern for shields / transactions
 - [x] Implement transfer
 - Create integration test that uses anvil for shield, balance check, unshield
+- Implement PPOI
+- Implement broadcasters
 - Refactor and tidy up
 - Optimize performance
   - Benchmark current performance + components
@@ -11,7 +13,5 @@
 - Get working tested on WASM
   - Try switching to `https://github.com/iden3/circom-witnesscalc/tree/045320ecbafbff0617ab37eb6d85950ea8cc15ef`.  Need to fork it
   - to disable some C api stuff, but it might be possible?
-- Implement PPOI
-- Implement broadcasters
 - Implement native token support for shield / unshield
 - Implement NFT support for shield / unshield / transfer

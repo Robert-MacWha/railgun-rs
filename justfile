@@ -1,18 +1,24 @@
-# Config
-rpc := "http://localhost:8545"
 fork_url := env_var("FORK_URL")
 fork_block := "24378760"
-test_account := "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+rpc_url := "http://127.0.0.1:8545"
+whale_address := "0xee7ae85f2fe2239e27d9c1e23fffe168d63b4055"
+test_address := "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+railgun_address := "0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9"
 usdc := "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
-anvil:
-    anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --auto-impersonate
+snapshot:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --port 8545 --auto-impersonate --state ./tests/fixtures/state.json &
+    ANVIL_PID=$!
+    sleep 1
+    
+    # setup txs
+    cast send --from {{whale_address}} --unlocked --rpc-url {{rpc_url}} {{usdc}} "transfer(address,uint256)" {{test_address}} 100000000000000
+    cast send --from {{test_address}} --unlocked --rpc-url {{rpc_url}} {{usdc}} "approve(address,uint256)" {{railgun_address}} 100000000000000
 
-setup:
-    cd forge && forge script script/Setup.s.sol --rpc-url {{rpc}} --unlocked --broadcast
+    # dump
+    kill $ANVIL_PID
 
-bal:
-    @echo "ETH:"
-    @cast balance {{test_account}} --rpc-url {{rpc}}
-    @echo "USDC:"
-    @cast erc20 balance {{usdc}} {{test_account}} --rpc-url {{rpc}}
+integration-test:
+    RUST_LOG=info cargo test -- --ignored --nocapture
