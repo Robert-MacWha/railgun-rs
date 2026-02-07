@@ -2,7 +2,7 @@
 - [x] Fix event tracker so it works with unshielding
 - [x] Implement builder pattern for shields / transactions
 - [x] Implement transfer
-- Create integration test that uses anvil for shield, balance check, unshield
+- [x] Create integration test that uses anvil for shield, balance check, unshield
 - Implement PPOI
 - Implement broadcasters
 - Refactor and tidy up
