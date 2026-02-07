@@ -23,7 +23,7 @@ use crate::common;
 const STATE_PATH: &str = "./tests/fixtures/state.json";
 const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
-const FORK_BLOCK: u64 = 24_378_760;
+const FORK_BLOCK: u64 = 24378760;
 const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 const USDC: AssetId = AssetId::Erc20(USDC_ADDRESS);
 const CHAIN: ChainConfig = MAINNET_CONFIG;

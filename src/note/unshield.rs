@@ -4,6 +4,7 @@ use ark_ff::PrimeField;
 
 use crate::{caip::AssetId, crypto::poseidon::poseidon_hash, note::tree_transaction::TransactNote};
 
+/// Unshield notes represent value exiting the Railgun system to an external address.
 #[derive(Debug, Clone)]
 pub struct UnshieldNote {
     pub receiver: Address,

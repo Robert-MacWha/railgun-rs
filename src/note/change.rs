@@ -4,17 +4,22 @@ use crate::{
     abis::railgun::CommitmentCiphertext,
     account::RailgunAccount,
     caip::AssetId,
-    crypto::keys::ViewingKey,
     note::{
-        note::{EncryptError, Note},
+        note::EncryptError,
+        transfer::TransferNote,
         tree_transaction::{EncryptableNote, TransactNote},
     },
 };
 
+/// Change notes are special cases of transfer notes that transfer value to and
+/// from the same account.
+///
+/// They're used to recover value from partially consumed notes. If a transaction
+/// needs to consume more in_notes than the value being sent, a change note is
+/// created to "transfer" the remainder back to the sender's account.
 #[derive(Debug, Clone)]
 pub struct ChangeNote {
-    sender_key: ViewingKey,
-    inner: Note,
+    inner: TransferNote,
 }
 
 impl ChangeNote {
@@ -22,22 +27,19 @@ impl ChangeNote {
         account: &RailgunAccount,
         asset: AssetId,
         value: u128,
-        random_seed: &[u8; 16],
+        random: [u8; 16],
         memo: &str,
     ) -> Self {
-        let note = Note::new(
-            account.spending_key(),
+        let inner = TransferNote::new(
             account.viewing_key(),
+            account.address(),
             asset,
             value,
-            random_seed,
+            random,
             memo,
         );
 
-        ChangeNote {
-            sender_key: account.viewing_key(),
-            inner: note,
-        }
+        ChangeNote { inner }
     }
 
     pub fn set_value(&mut self, value: u128) {
@@ -47,7 +49,7 @@ impl ChangeNote {
 
 impl EncryptableNote for ChangeNote {
     fn encrypt(&self) -> Result<CommitmentCiphertext, EncryptError> {
-        self.inner.encrypt(self.sender_key, false)
+        self.inner.encrypt()
     }
 }
 

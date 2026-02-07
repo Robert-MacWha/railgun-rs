@@ -218,13 +218,7 @@ fn new_tree_transaction(
     TreeTransaction {
         notes_in,
         transfers_out: Vec::new(),
-        change: Some(ChangeNote::new(
-            from,
-            asset,
-            cumulative_value,
-            &random(),
-            "",
-        )),
+        change: Some(ChangeNote::new(from, asset, cumulative_value, random(), "")),
         unshield: None,
     }
 }

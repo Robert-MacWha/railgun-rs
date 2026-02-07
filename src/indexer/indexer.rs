@@ -54,6 +54,8 @@ pub enum SyncError {
     MissingSubsquidEndpoint,
     #[error("Subsquid client error: {0}")]
     SubsquidClientError(#[from] crate::indexer::subsquid_client::SubsquidError),
+    #[error("Validation error: {0}")]
+    ValidationError(#[from] ValidationError),
 }
 
 #[derive(Debug, Error)]
@@ -179,6 +181,8 @@ impl Indexer {
             from_block = to_block + 1;
         }
 
+        self.validate().await?;
+        self.synced_block = end_block;
         Ok(())
     }
 

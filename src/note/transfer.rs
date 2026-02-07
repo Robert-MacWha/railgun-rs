@@ -15,6 +15,7 @@ use crate::{
     railgun::address::RailgunAddress,
 };
 
+/// Transfer notes represent value being sent from one Railgun account to another.
 #[derive(Debug, Clone)]
 pub struct TransferNote {
     pub from_key: ViewingKey,

@@ -10,15 +10,18 @@ use crate::{
     },
 };
 
-/// TreeTransaction represents a full transaction involving a single asset on a
-/// single Merkle tree.
+/// TreeTransactions represent a single railgun transaction's worth of notes.
+/// They include in_notes (those consumed), transfer_notes (those sent to other accounts),
+/// a optional change note (for value returned to the sender), and an optional
+/// unshield note (for value exiting the system).
 ///
-/// Supports many input notes, many transfer notes, a single unshield note, and
-/// a single change note.
+/// A completely filled-out TreeTransaction should always satisfy the equation:
+/// sum(in_notes.value) = sum(transfer_notes.value) + change_note.value + unshield_note.value.
 ///
-/// Note: The railgun contracts currently only support a single unshield operation
-/// per transaction. This is because there's only one unshield preimage in the
-/// transaction data.
+/// DEV: TreeTransactions can only unshield a single note, a limitation of railgun's
+/// smart contracts.
+///
+/// TODO: Make TreeTransaction generic over the note asset.
 #[derive(Default, Debug, Clone)]
 pub struct TreeTransaction {
     pub notes_in: Vec<Note>,
@@ -97,10 +100,7 @@ mod tests {
     use crate::{
         caip::AssetId,
         crypto::keys::{ByteKey, SpendingKey, ViewingKey},
-        note::{
-            transfer::TransferNote, tree_transaction::TransactNote,
-            unshield::UnshieldNote,
-        },
+        note::{transfer::TransferNote, tree_transaction::TransactNote, unshield::UnshieldNote},
         railgun::address::RailgunAddress,
     };
 

@@ -6,10 +6,13 @@ test_address := "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 railgun_address := "0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9"
 usdc := "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
+anvil:
+    anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --port 8545 --auto-impersonate --load-state ./tests/fixtures/state.json &
+
 snapshot:
     #!/usr/bin/env bash
     set -euo pipefail
-    anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --port 8545 --auto-impersonate --state ./tests/fixtures/state.json &
+    anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --port 8545 --auto-impersonate --dump-state ./tests/fixtures/state.json &
     ANVIL_PID=$!
     sleep 1
     
@@ -20,5 +23,5 @@ snapshot:
     # dump
     kill $ANVIL_PID
 
-integration-test:
+integration:
     RUST_LOG=info cargo test -- --ignored --nocapture
