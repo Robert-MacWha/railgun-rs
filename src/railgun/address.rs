@@ -2,11 +2,12 @@ use std::{fmt::Display, str::FromStr};
 
 use alloy::primitives::ChainId;
 use bech32::Hrp;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::crypto::keys::{HexKey, MasterPublicKey, SpendingKey, ViewingKey, ViewingPublicKey};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct RailgunAddress {
     master_key: MasterPublicKey,
     viewing_pubkey: ViewingPublicKey,

@@ -53,8 +53,7 @@ impl TransactCircuitInputs {
             .zip(merkle_proofs.iter())
             .map(|(note, proof)| note.nullifier(proof.indices))
             .collect::<Vec<Fr>>();
-
-        let commitments_out: Vec<Fr> = notes_out.iter().map(|note| note.hash()).collect();
+        let commitments: Vec<Fr> = notes_out.iter().map(|note| note.hash()).collect();
 
         let note_zero = notes_in[0].clone();
         let token = fr_to_bigint(&note_zero.token.hash());
@@ -64,7 +63,7 @@ impl TransactCircuitInputs {
             merkle_root,
             bound_params_hash,
             &nullifiers,
-            &commitments_out,
+            &commitments,
         );
         let signature = [
             fr_to_bigint(&signature[0]),
@@ -112,7 +111,7 @@ impl TransactCircuitInputs {
             merkle_root: fr_to_bigint(&merkle_root),
             bound_params_hash: fr_to_bigint(&bound_params_hash),
             nullifiers: nullifiers.iter().map(fr_to_bigint).collect(),
-            commitments_out: commitments_out.iter().map(fr_to_bigint).collect(),
+            commitments_out: commitments.iter().map(fr_to_bigint).collect(),
             token,
             public_key,
             signature,

@@ -21,7 +21,6 @@ use tracing_subscriber::EnvFilter;
 use crate::common;
 
 const STATE_PATH: &str = "./tests/fixtures/state.json";
-const TEST_PRIVATE_KEY: &str = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 
 const FORK_BLOCK: u64 = 24378760;
 const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
@@ -47,7 +46,10 @@ async fn test_transact() {
 
     // Setup provider, indexer, and accounts
     info!("Setting up provider");
-    let signer = PrivateKeySigner::from_str(TEST_PRIVATE_KEY).unwrap();
+    let signer = PrivateKeySigner::from_str(
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    )
+    .unwrap();
     let provider = ProviderBuilder::new()
         .network::<Ethereum>()
         .wallet(signer)

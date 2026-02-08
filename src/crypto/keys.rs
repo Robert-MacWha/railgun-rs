@@ -7,6 +7,7 @@ use curve25519_dalek::{EdwardsPoint, Scalar};
 use ed25519_dalek::SigningKey;
 // use light_poseidon::PoseidonHasher;
 use num_bigint::{BigInt, Sign};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
@@ -16,9 +17,9 @@ use crate::crypto::aes::{
 use crate::crypto::poseidon::{poseidon_fr_to_arkworks, poseidon_hash};
 
 /// Private key for signing transactions (BabyJubJub curve).
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SpendingKey([u8; 32]);
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SpendingPublicKey {
     x: [u8; 32],
     y: [u8; 32],
@@ -31,25 +32,25 @@ pub struct SpendingSignature {
 }
 
 /// Private key for viewing transactions and ECDH.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ViewingKey([u8; 32]);
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ViewingPublicKey([u8; 32]);
 
 /// Master public key (wallet identifier).
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MasterPublicKey([u8; 32]);
 
 /// Symmetric key for AES encryption.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SharedKey([u8; 32]);
 
 /// Key for nullifier derivation.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NullifyingKey([u8; 32]);
 
 /// Blinded public key for stealth addresses.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BlindedKey([u8; 32]);
 
 #[derive(Debug, Error)]
@@ -79,6 +80,7 @@ pub trait HexKey: ByteKey {
     }
 
     fn from_hex(hex: &str) -> Result<Self, hex::FromHexError> {
+        let hex = hex.strip_prefix("0x").unwrap_or(hex);
         let bytes = hex::decode(hex)?;
         let arr: [u8; 32] = bytes
             .as_slice()

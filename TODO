@@ -4,6 +4,8 @@
 - [x] Implement transfer
 - [x] Create integration test that uses anvil for shield, balance check, unshield
 - Implement PPOI
+  - [x] Get POI for a shield note
+  - [x] Send a POI for a transfer note 
 - Implement broadcasters
 - Refactor and tidy up
 - Optimize performance
@@ -15,3 +17,4 @@
   - to disable some C api stuff, but it might be possible?
 - Implement native token support for shield / unshield
 - Implement NFT support for shield / unshield / transfer
+- Stop storing the private keys everywhere

@@ -3,20 +3,21 @@ use std::fmt::Display;
 use alloy::primitives::{Address, U256, Uint};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     abis::railgun::{TokenData, TokenType},
     railgun::address::RailgunAddress,
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum AssetId {
     Erc20(Address),
     Erc721(Address, U256),
     Erc1155(Address, U256),
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum AccountId {
     Eip155(Address),
     Railgun(RailgunAddress),

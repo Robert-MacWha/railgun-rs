@@ -1,8 +1,8 @@
-fork_url := env_var("FORK_URL")
+fork_url := env_var("FORK_URL_MAINNET")
 fork_block := "24378760"
 rpc_url := "http://127.0.0.1:8545"
-whale_address := "0xee7ae85f2fe2239e27d9c1e23fffe168d63b4055"
-test_address := "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+whale_address := "0x3b4d794a66304f130a4db8f2551b0070dfcf5ca7"
+dev_address := "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
 railgun_address := "0xFA7093CDD9EE6932B4eb2c9e1cde7CE00B1FA4b9"
 usdc := "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
 
@@ -17,8 +17,8 @@ snapshot:
     sleep 1
     
     # setup txs
-    cast send --from {{whale_address}} --unlocked --rpc-url {{rpc_url}} {{usdc}} "transfer(address,uint256)" {{test_address}} 100000000000000
-    cast send --from {{test_address}} --unlocked --rpc-url {{rpc_url}} {{usdc}} "approve(address,uint256)" {{railgun_address}} 100000000000000
+    cast send --from {{whale_address}} --unlocked --rpc-url {{rpc_url}} {{usdc}} "transfer(address,uint256)" {{dev_address}} 100000000000000
+    cast send --from {{dev_address}} --unlocked --rpc-url {{rpc_url}} {{usdc}} "approve(address,uint256)" {{railgun_address}} 100000000000000
 
     # dump
     kill $ANVIL_PID

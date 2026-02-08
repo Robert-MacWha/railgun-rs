@@ -21,7 +21,9 @@ impl NativeProver {
     }
 }
 
-// TODO: Consider using github.com/iden3/circom-witnesscalc/tree/045320ecbafbff0617ab37eb6d85950ea8cc15ef for smaller witness generation
+// TODO: Consider using github.com/iden3/circom-witnesscalc/tree/045320ecbafbff0617ab37eb6d85950ea8cc15ef
+// for smaller witness generation. That way you (a) won't need the .wasm files, and (b) can generate the
+// witness in rust instead of using wasmer + ark-circom.
 impl TransactProver for NativeProver {
     fn prove_transact(
         &self,

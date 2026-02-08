@@ -7,5 +7,6 @@ pub mod crypto;
 pub mod indexer;
 pub mod merkle_tree;
 pub mod note;
+pub mod poi;
 pub mod railgun;
 pub mod transaction;

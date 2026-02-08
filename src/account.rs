@@ -1,8 +1,11 @@
+use serde::Deserialize;
+use serde::Serialize;
+
 use crate::crypto::keys::SpendingKey;
 use crate::crypto::keys::ViewingKey;
 use crate::railgun::address::RailgunAddress;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct RailgunAccount {
     address: RailgunAddress,
     viewing_key: ViewingKey,

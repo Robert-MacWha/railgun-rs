@@ -4352,6 +4352,7 @@ dependencies = [
  "alloy",
  "alloy-contract",
  "alloy-sol-types",
+ "anyhow",
  "ark-bn254",
  "ark-circom",
  "ark-ec",

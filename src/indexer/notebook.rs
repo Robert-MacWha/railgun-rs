@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
 use crate::{crypto::keys::bytes_to_fr, note::note::Note};
 
 /// Notebook holds a collection of spent and unspent notes for a Railgun account,
 /// on a single tree.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Notebook {
     pub unspent: BTreeMap<u32, Note>,
     pub spent: BTreeMap<u32, Note>,

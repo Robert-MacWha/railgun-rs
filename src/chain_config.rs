@@ -6,14 +6,20 @@ pub struct ChainConfig {
     /// EIP-155 Chain ID
     pub id: ChainId,
     /// Railgun Smart Wallet Address on this chain
+    ///
+    /// Sourced from
+    /// https://docs.railgun.org/wiki/learn/helpful-links
     pub railgun_smart_wallet: Address,
     /// Block number the railgun smart wallet was deployed at
     pub deployment_block: u64,
     /// Subsquid GraphQL Endpoint for fast syncing
+    ///
+    /// Sourced from
+    /// https://github.com/Railgun-Community/wallet/blob/3ee3364648d416aa055bb1d5f5a2c4961be00ed6/src/services/railgun/railgun-txids/graphql/index.ts#L3187
     pub subsquid_endpoint: Option<&'static str>,
 }
 
-pub const CHAIN_CONFIGS: &[ChainConfig] = &[MAINNET_CONFIG];
+pub const CHAIN_CONFIGS: &[ChainConfig] = &[MAINNET_CONFIG, SEPOLIA_CONFIG];
 
 pub const MAINNET_CONFIG: ChainConfig = ChainConfig {
     id: 1,
@@ -22,6 +28,13 @@ pub const MAINNET_CONFIG: ChainConfig = ChainConfig {
     subsquid_endpoint: Some(
         "https://rail-squid.squids.live/squid-railgun-ethereum-v2/v/v1/graphql",
     ),
+};
+
+pub const SEPOLIA_CONFIG: ChainConfig = ChainConfig {
+    id: 11155111,
+    railgun_smart_wallet: address!("0xeCFCf3b4eC647c4Ca6D49108b311b7a7C9543fea"),
+    deployment_block: 5784774,
+    subsquid_endpoint: Some("https://rail-squid.squids.live/squid-railgun-eth-sepolia-v2/graphql"),
 };
 
 pub const fn get_chain_config(chain_id: ChainId) -> Option<ChainConfig> {

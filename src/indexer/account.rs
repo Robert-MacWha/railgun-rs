@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
+use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::{
@@ -15,6 +16,7 @@ use crate::{
 ///
 /// The indexer will use the held keys to decrypt notes from shield and transact events,
 /// storing them in the notebook for reference.
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexerAccount {
     inner: RailgunAccount,
 

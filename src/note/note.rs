@@ -1,6 +1,7 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use rand::random;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -22,7 +23,7 @@ use crate::{
 /// Note represents a Railgun from the chain.
 /// TODO: Consider adding leaf_index / tree_position to Note struct,
 /// so it knows its own index in the tree
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Note {
     pub spending_key: SpendingKey,
     pub viewing_key: ViewingKey,
@@ -169,27 +170,16 @@ impl Note {
         )
     }
 
-    /// Returns the note's hash
-    ///
-    /// Hash of (note_public_key, token_id, value)
-    pub fn hash(&self) -> Fr {
-        poseidon_hash(&[
-            self.note_public_key(),
-            self.token.hash(),
-            Fr::from(self.value),
-        ])
-    }
-
     pub fn sign_circuit_inputs(
         &self,
         merkle_root: Fr,
         bound_params_hash: Fr,
         nullifiers: &Vec<Fr>,
-        commitments_out: &Vec<Fr>,
+        commitments: &Vec<Fr>,
     ) -> [Fr; 3] {
         let mut inputs = vec![merkle_root, bound_params_hash];
         inputs.extend_from_slice(nullifiers);
-        inputs.extend_from_slice(commitments_out);
+        inputs.extend_from_slice(commitments);
 
         self.sign(&inputs)
     }
@@ -198,6 +188,17 @@ impl Note {
         let sig_hash = poseidon_hash(inputs);
         let signature = self.spending_key.sign(sig_hash);
         [signature.r8_x, signature.r8_y, signature.s]
+    }
+
+    /// Returns the note's hash. Also known as the commitment hash.
+    ///
+    /// Hash of (note_public_key, token_id, value)
+    pub fn hash(&self) -> Fr {
+        poseidon_hash(&[
+            self.note_public_key(),
+            self.token.hash(),
+            Fr::from(self.value),
+        ])
     }
 
     /// Returns the note's spending public key

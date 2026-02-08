@@ -37,11 +37,12 @@ pub struct Indexer {
     accounts: Vec<IndexerAccount>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct IndexerState {
     pub chain_id: ChainId,
     pub synced_block: u64,
     pub trees: BTreeMap<u32, MerkleTreeState>,
+    pub accounts: Vec<IndexerAccount>,
 }
 
 #[derive(Debug, Error)]
@@ -66,7 +67,7 @@ pub enum ValidationError {
     ContractError(#[from] alloy_contract::Error),
 }
 
-const BATCH_SIZE: u64 = 1000;
+const BATCH_SIZE: u64 = 5;
 pub const TOTAL_LEAVES: u32 = 2u32.pow(16);
 
 impl Indexer {
@@ -93,7 +94,7 @@ impl Indexer {
             chain,
             synced_block: state.synced_block,
             trees,
-            accounts: Vec::new(),
+            accounts: state.accounts,
         })
     }
 
@@ -143,6 +144,7 @@ impl Indexer {
                 .iter_mut()
                 .map(|(k, v)| (*k, v.state()))
                 .collect(),
+            accounts: self.accounts.clone(),
         }
     }
 
@@ -258,6 +260,7 @@ impl Indexer {
     /// Validates that all Merkle Tree roots are seen on-chain. If any are not,
     /// returns a ValidationError.
     pub async fn validate(&mut self) -> Result<(), ValidationError> {
+        info!("Validating Merkle Tree roots on-chain");
         let contract =
             RailgunSmartWallet::new(self.chain.railgun_smart_wallet, self.provider.clone());
 
