@@ -5,7 +5,7 @@ use num_bigint::{BigInt, Sign};
 
 use crate::{
     crypto::keys::fr_to_bigint,
-    merkle_tree::MerkleTree,
+    merkle_tree::{MerkleTree, UtxoMerkleTree, UtxoTree},
     note::{note::Note, operation::TransactNote},
 };
 
@@ -32,7 +32,7 @@ pub struct TransactCircuitInputs {
 
 impl TransactCircuitInputs {
     pub fn from_inputs(
-        merkle_tree: &mut MerkleTree,
+        merkle_tree: &mut UtxoMerkleTree,
         bound_params_hash: Fr,
         notes_in: Vec<Note>,
         notes_out: Vec<Box<dyn TransactNote>>,

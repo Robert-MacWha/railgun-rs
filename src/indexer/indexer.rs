@@ -22,7 +22,7 @@ use crate::{
         notebook::Notebook,
         syncer::{self, SyncEvent, Syncer},
     },
-    merkle_tree::{MerkleTree, MerkleTreeState},
+    merkle_tree::{MerkleTree, MerkleTreeState, UtxoHash, UtxoMerkleTree},
     note::note::NoteError,
     railgun::address::RailgunAddress,
 };
@@ -36,7 +36,7 @@ pub struct Indexer {
     /// The latest block number that has been synced
     synced_block: u64,
     /// UTXO trees are merkle trees that track all railgun commitments.
-    utxo_trees: BTreeMap<u32, MerkleTree>,
+    utxo_trees: BTreeMap<u32, UtxoMerkleTree>,
 
     /// List of accounts being tracked by the indexer
     accounts: Vec<IndexedAccount>,
@@ -119,7 +119,7 @@ impl Indexer {
         self.synced_block
     }
 
-    pub fn merkle_trees(&mut self) -> &mut BTreeMap<u32, MerkleTree> {
+    pub fn merkle_trees(&mut self) -> &mut BTreeMap<u32, UtxoMerkleTree> {
         &mut self.utxo_trees
     }
 
@@ -282,14 +282,18 @@ impl Indexer {
     }
 
     fn handle_legacy(&mut self, event: syncer::LegacyCommitment, _block_number: u64) {
-        self.insert_leaves(event.tree_number, event.leaf_index as usize, &[event.hash]);
+        self.insert_leaves(
+            event.tree_number,
+            event.leaf_index as usize,
+            &[event.hash.into()],
+        );
     }
 
     /// Inserts leaves into the appropriate Merkle Tree, handling tree boundaries.
     ///
     /// If the leaves cross a tree boundary, it will fill the first tree, then
     /// insert the remaining leaves into the next tree.
-    fn insert_leaves(&mut self, tree_number: u32, start_position: usize, leaves: &[Fr]) {
+    fn insert_leaves(&mut self, tree_number: u32, start_position: usize, leaves: &[UtxoHash]) {
         if leaves.is_empty() {
             return;
         }

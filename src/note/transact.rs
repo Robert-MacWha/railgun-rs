@@ -8,6 +8,7 @@ use tracing::info;
 
 use crate::abis::railgun::{BoundParams, RailgunSmartWallet};
 use crate::circuit::prover::TransactProver;
+use crate::merkle_tree::UtxoMerkleTree;
 use crate::transaction::tx_data::TxData;
 use crate::{
     abis::railgun::{
@@ -27,7 +28,7 @@ use crate::{
 
 pub fn create_txdata(
     prover: &impl TransactProver,
-    merkle_trees: &mut BTreeMap<u32, MerkleTree>,
+    merkle_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
     min_gas_price: u128,
     chain: ChainConfig,
     adapt_contract: Address,
@@ -57,7 +58,7 @@ pub fn create_txdata(
 
 pub fn create_transactions(
     prover: &impl TransactProver,
-    merkle_trees: &mut BTreeMap<u32, MerkleTree>,
+    merkle_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
     min_gas_price: u128,
     chain: ChainConfig,
     adapt_contract: Address,

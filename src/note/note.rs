@@ -17,6 +17,7 @@ use crate::{
         poseidon::poseidon_hash,
         railgun_base_37,
     },
+    merkle_tree::UtxoHash,
     railgun::address::RailgunAddress,
 };
 
@@ -200,12 +201,13 @@ impl Note {
     /// Returns the note's hash. Also known as the commitment hash.
     ///
     /// Hash of (note_public_key, token_id, value)
-    pub fn hash(&self) -> Fr {
+    pub fn hash(&self) -> UtxoHash {
         poseidon_hash(&[
             self.note_public_key(),
             self.token.hash(),
             Fr::from(self.value),
         ])
+        .into()
     }
 
     /// Returns the note's spending public key
