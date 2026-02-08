@@ -1,17 +1,15 @@
-use std::collections::{BTreeMap, HashMap};
-use std::str::FromStr;
-
-use alloy::{
-    primitives::{ChainId, U256},
-    providers::{DynProvider, Provider},
-    rpc::types::{Filter, Log},
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
 };
-use alloy_sol_types::SolEvent;
+
+use alloy::primitives::{ChainId, U256};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
@@ -19,30 +17,37 @@ use crate::{
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
     crypto::{keys::fr_to_u256, poseidon::poseidon_hash},
-    indexer::subsquid_client::SubsquidClient,
-    indexer::{account::IndexerAccount, notebook::Notebook},
+    indexer::{
+        indexed_account::IndexedAccount,
+        notebook::Notebook,
+        syncer::{self, SyncEvent, Syncer},
+    },
     merkle_tree::{MerkleTree, MerkleTreeState},
     note::note::NoteError,
     railgun::address::RailgunAddress,
 };
 
+pub type CommitmentHash = Fr;
+pub type TxIdLeafHash = Fr;
+
 pub struct Indexer {
-    provider: DynProvider,
+    syncer: Arc<dyn Syncer>,
     chain: ChainConfig,
     /// The latest block number that has been synced
     synced_block: u64,
-    trees: BTreeMap<u32, MerkleTree>,
+    /// UTXO trees are merkle trees that track all railgun commitments.
+    utxo_trees: BTreeMap<u32, MerkleTree>,
 
     /// List of accounts being tracked by the indexer
-    accounts: Vec<IndexerAccount>,
+    accounts: Vec<IndexedAccount>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct IndexerState {
     pub chain_id: ChainId,
     pub synced_block: u64,
-    pub trees: BTreeMap<u32, MerkleTreeState>,
-    pub accounts: Vec<IndexerAccount>,
+    pub utxo_trees: BTreeMap<u32, MerkleTreeState>,
+    pub accounts: Vec<IndexedAccount>,
 }
 
 #[derive(Debug, Error)]
@@ -53,10 +58,12 @@ pub enum SyncError {
     NoteError(#[from] NoteError),
     #[error("No Subsquid endpoint configured")]
     MissingSubsquidEndpoint,
-    #[error("Subsquid client error: {0}")]
-    SubsquidClientError(#[from] crate::indexer::subsquid_client::SubsquidError),
+    // #[error("Subsquid client error: {0}")]
+    // SubsquidClientError(#[from] crate::indexer::subsquid_syncer::SubsquidError),
     #[error("Validation error: {0}")]
     ValidationError(#[from] ValidationError),
+    #[error("Syncer error: {0}")]
+    SyncerError(Box<dyn std::error::Error>),
 }
 
 #[derive(Debug, Error)]
@@ -65,35 +72,36 @@ pub enum ValidationError {
     NotSeen { tree_number: u32, root: U256 },
     #[error("Contract error: {0}")]
     ContractError(#[from] alloy_contract::Error),
+    #[error("Syncer error: {0}")]
+    SyncerError(Box<dyn std::error::Error>),
 }
 
-const BATCH_SIZE: u64 = 5;
-pub const TOTAL_LEAVES: u32 = 2u32.pow(16);
+pub const TOTAL_LEAVES: usize = 2usize.pow(16);
 
 impl Indexer {
-    pub fn new(provider: DynProvider, chain: ChainConfig) -> Self {
+    pub fn new(syncer: Box<dyn Syncer>, chain: ChainConfig) -> Self {
         Indexer {
-            provider,
+            syncer: Arc::from(syncer),
             chain,
             synced_block: chain.deployment_block,
-            trees: BTreeMap::new(),
+            utxo_trees: BTreeMap::new(),
             accounts: Vec::new(),
         }
     }
 
-    pub fn new_with_state(provider: DynProvider, state: IndexerState) -> Option<Self> {
+    pub fn new_with_state(syncer: Box<dyn Syncer>, state: IndexerState) -> Option<Self> {
         let chain = get_chain_config(state.chain_id)?;
         let trees = state
-            .trees
+            .utxo_trees
             .into_iter()
             .map(|(k, v)| (k, MerkleTree::new_from_state(v)))
             .collect();
 
         Some(Indexer {
-            provider,
+            syncer: Arc::from(syncer),
             chain,
             synced_block: state.synced_block,
-            trees,
+            utxo_trees: trees,
             accounts: state.accounts,
         })
     }
@@ -112,7 +120,7 @@ impl Indexer {
     }
 
     pub fn merkle_trees(&mut self) -> &mut BTreeMap<u32, MerkleTree> {
-        &mut self.trees
+        &mut self.utxo_trees
     }
 
     pub fn notebooks(&self, address: RailgunAddress) -> Option<BTreeMap<u32, Notebook>> {
@@ -139,8 +147,8 @@ impl Indexer {
         IndexerState {
             chain_id: self.chain.id,
             synced_block: self.synced_block,
-            trees: self
-                .trees
+            utxo_trees: self
+                .utxo_trees
                 .iter_mut()
                 .map(|(k, v)| (*k, v.state()))
                 .collect(),
@@ -148,39 +156,29 @@ impl Indexer {
         }
     }
 
-    /// Sync the indexer with the head of the chain
-    ///
-    /// Syncs by fetching logs in batches and processing them to update the Merkle
-    /// Trees and accounts. The provider must be an archival node to fetch historical
-    /// logs.
-    ///
-    /// TODO: Add error handling for provider log rate batch size limits
     pub async fn sync(&mut self) -> Result<(), SyncError> {
         let start_block = self.synced_block + 1;
-        let end_block = self.provider.get_block_number().await.unwrap();
+        let end_block = self
+            .syncer
+            .latest_block()
+            .await
+            .map_err(SyncError::SyncerError)?;
 
         info!("Syncing from block {} to {}", start_block, end_block);
+        let syncer = self.syncer.clone();
+        let mut stream = syncer
+            .sync(start_block, end_block)
+            .await
+            .map_err(SyncError::SyncerError)?;
 
-        let mut from_block = start_block;
-        while from_block <= end_block {
-            let to_block = std::cmp::min(from_block + BATCH_SIZE, end_block);
-            let filter = Filter::new()
-                .address(self.chain.railgun_smart_wallet)
-                .from_block(from_block)
-                .to_block(to_block);
-            let logs = self.provider.get_logs(&filter).await.unwrap();
-            info!(
-                "Fetched {} logs from blocks {} to {}",
-                logs.len(),
-                from_block,
-                to_block
-            );
-            for log in logs {
-                self.handle_log(log)?;
+        while let Some(event) = stream.next().await {
+            match event {
+                SyncEvent::Shield(shield, block) => self.handle_shield(&shield, block)?,
+                SyncEvent::Transact(transact, block) => self.handle_transact(&transact, block)?,
+                SyncEvent::Nullified(nullified, block) => self.handle_nullified(&nullified, block),
+                SyncEvent::Operation(op) => self.handle_operation(&op),
+                SyncEvent::Legacy(legacy, block) => self.handle_legacy(legacy, block),
             }
-
-            // Advance the from_block for the next iteration
-            from_block = to_block + 1;
         }
 
         self.validate().await?;
@@ -188,127 +186,29 @@ impl Indexer {
         Ok(())
     }
 
-    /// Quick syncs from Subsquid
-    ///
-    /// If to_block is None, syncs up to the latest block
-    ///
-    /// TODO: Make this a generic method so it's only present when subsquid_endpoint is set
-    /// TODO: Have this sync full notes so we can track balances
-    pub async fn sync_from_subsquid(&mut self, to_block: Option<u64>) -> Result<(), SyncError> {
-        let Some(endpoint) = self.chain.subsquid_endpoint else {
-            return Err(SyncError::MissingSubsquidEndpoint);
-        };
-
-        let to_block = match to_block {
-            Some(b) => b,
-            None => self.provider.get_block_number().await.unwrap(),
-        };
-
-        info!(
-            "Syncing from Subsquid from block {} to {:?}",
-            self.synced_block, to_block
-        );
-        let client = SubsquidClient::new(endpoint);
-        let commitments = client
-            .fetch_all_commitments(self.synced_block, Some(to_block))
-            .await?;
-
-        info!("Fetched {} commitments from Subsquid", commitments.len());
-
-        // TODO: Consider sorting commitments and inserting contiguous ranges together
-        info!("Grouping commits");
-        let mut groups: HashMap<u32, Vec<(usize, Fr)>> = HashMap::new();
-        for c in commitments {
-            let hash = Fr::from_str(&c.hash).unwrap();
-            let global_pos = c.tree_position as u64;
-
-            //? Manually calculate the actual tree number and position because.
-            // It seems like subsquid doesn't properly respect tree boundaries
-            // so it reports tx
-            // 0xb028ffa4f761a91abb09d139cbf466992d65cb60ba02c1f2d9db5400f8bbd497
-            // as being in (tree 0 position 65536), which is invalid, instead of
-            // (tree 1 position 0).
-            //
-            // By manually calculating the tree number & position based on the
-            // 2^16 leaves per tree, we can work around this issue.
-            let actual_tree = (c.tree_number) + (global_pos / 65536) as u32;
-            let actual_pos = (global_pos % 65536) as usize;
-
-            groups
-                .entry(actual_tree)
-                .or_default()
-                .push((actual_pos, hash));
-        }
-
-        info!("Inserting commits into Merkle Trees");
-        for (tree_number, leaves) in groups {
-            let tree = self
-                .trees
-                .entry(tree_number)
-                .or_insert(MerkleTree::new(tree_number));
-
-            for (pos, hash) in leaves {
-                tree.insert_leaves(&[hash], pos);
-            }
-        }
-
-        self.synced_block = to_block;
-
-        Ok(())
-    }
-
     /// Validates that all Merkle Tree roots are seen on-chain. If any are not,
     /// returns a ValidationError.
     pub async fn validate(&mut self) -> Result<(), ValidationError> {
-        info!("Validating Merkle Tree roots on-chain");
-        let contract =
-            RailgunSmartWallet::new(self.chain.railgun_smart_wallet, self.provider.clone());
+        info!("Validating {} trees", self.utxo_trees.len());
 
-        for (i, tree) in self.trees.iter_mut() {
-            let root = fr_to_u256(&tree.root());
-            let seen = contract
-                .rootHistory(U256::from(*i), root.into())
-                .call()
-                .await?;
+        for (i, tree) in self.utxo_trees.iter_mut() {
+            let root = tree.root();
+            info!("Tree {} root: {}", i, fr_to_u256(&root));
+
+            let seen = self
+                .syncer
+                .seen(root)
+                .await
+                .map_err(ValidationError::SyncerError)?;
 
             if !seen {
                 return Err(ValidationError::NotSeen {
                     tree_number: *i,
-                    root: root.try_into().unwrap(),
+                    root: fr_to_u256(&root),
                 });
             }
 
             info!("Validated tree {}", i);
-        }
-
-        Ok(())
-    }
-
-    fn handle_log(&mut self, log: Log) -> Result<(), SyncError> {
-        let topic0 = log.topics()[0];
-        let block_number = log.block_number.unwrap();
-        let block_timestamp = log.block_timestamp.unwrap();
-
-        match topic0 {
-            RailgunSmartWallet::Shield::SIGNATURE_HASH => {
-                let event = RailgunSmartWallet::Shield::decode_log(&log.inner)?;
-                self.handle_shield(&event.data, block_number)?;
-            }
-            RailgunSmartWallet::Transact::SIGNATURE_HASH => {
-                let event = RailgunSmartWallet::Transact::decode_log(&log.inner)?;
-                self.handle_transact(&event.data, block_number)?;
-            }
-            RailgunSmartWallet::Nullified::SIGNATURE_HASH => {
-                let event = RailgunSmartWallet::Nullified::decode_log(&log.inner)?;
-                self.handle_nullified(&event.data, block_timestamp);
-            }
-            RailgunSmartWallet::Unshield::SIGNATURE_HASH => {
-                // Unshield events are not needed for indexing. Spent notes are
-                // already tracked via Nullified events.
-            }
-            _ => {
-                warn!("Unknown event: {:?}", topic0);
-            }
         }
 
         Ok(())
@@ -320,8 +220,6 @@ impl Indexer {
         event: &RailgunSmartWallet::Shield,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let tree_number: u32 = event.treeNumber.saturating_to();
-
         let leaves: Vec<Fr> = event
             .commitments
             .iter()
@@ -336,19 +234,11 @@ impl Indexer {
             })
             .collect();
 
-        let is_crossing_tree =
-            event.startPosition + U256::from(event.commitments.len()) >= TOTAL_LEAVES;
-
-        let (tree_number, start_position) = if is_crossing_tree {
-            (tree_number + 1, 0)
-        } else {
-            (tree_number, event.startPosition.saturating_to())
-        };
-
-        self.trees
-            .entry(tree_number)
-            .or_insert(MerkleTree::new(tree_number))
-            .insert_leaves(&leaves, start_position);
+        self.insert_leaves(
+            event.treeNumber.saturating_to(),
+            event.startPosition.saturating_to(),
+            &leaves,
+        );
 
         for account in self.accounts.iter_mut() {
             account.handle_shield_event(event, block_number)?;
@@ -362,25 +252,17 @@ impl Indexer {
         event: &RailgunSmartWallet::Transact,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let tree_number: u32 = event.treeNumber.saturating_to();
-
-        let leaves: Vec<Fr> = event
+        let leaves = event
             .hash
             .iter()
-            .map(|hash| Fr::from_be_bytes_mod_order(hash.as_slice()))
-            .collect();
+            .map(|h| Fr::from_be_bytes_mod_order(h.as_slice()))
+            .collect::<Vec<Fr>>();
 
-        let is_crossing_tree = event.startPosition + U256::from(event.hash.len()) >= TOTAL_LEAVES;
-        let (tree_number, start_position) = if is_crossing_tree {
-            (tree_number + 1, 0)
-        } else {
-            (tree_number, event.startPosition.saturating_to())
-        };
-
-        self.trees
-            .entry(tree_number)
-            .or_insert(MerkleTree::new(tree_number))
-            .insert_leaves(&leaves, start_position);
+        self.insert_leaves(
+            event.treeNumber.saturating_to(),
+            event.startPosition.saturating_to(),
+            &leaves,
+        );
 
         for account in self.accounts.iter_mut() {
             account.handle_transact_event(event, block_number)?;
@@ -392,6 +274,42 @@ impl Indexer {
     fn handle_nullified(&mut self, event: &RailgunSmartWallet::Nullified, timestamp: u64) {
         for account in self.accounts.iter_mut() {
             account.handle_nullified_event(event, timestamp);
+        }
+    }
+
+    fn handle_operation(&mut self, _event: &syncer::Operation) {
+        // TODO
+    }
+
+    fn handle_legacy(&mut self, event: syncer::LegacyCommitment, _block_number: u64) {
+        self.insert_leaves(event.tree_number, event.leaf_index as usize, &[event.hash]);
+    }
+
+    /// Inserts leaves into the appropriate Merkle Tree, handling tree boundaries.
+    ///
+    /// If the leaves cross a tree boundary, it will fill the first tree, then
+    /// insert the remaining leaves into the next tree.
+    fn insert_leaves(&mut self, tree_number: u32, start_position: usize, leaves: &[Fr]) {
+        if leaves.is_empty() {
+            return;
+        }
+
+        let mut remaining = leaves;
+        let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
+        let mut position = start_position % TOTAL_LEAVES;
+
+        while !remaining.is_empty() {
+            let space_in_tree = TOTAL_LEAVES - position;
+            let to_insert = remaining.len().min(space_in_tree);
+
+            self.utxo_trees
+                .entry(current_tree)
+                .or_insert_with(|| MerkleTree::new(current_tree))
+                .insert_leaves(&remaining[..to_insert], position);
+
+            remaining = &remaining[to_insert..];
+            current_tree += 1;
+            position = 0;
         }
     }
 }

@@ -27,6 +27,7 @@ use crate::{
 pub struct Note {
     pub spending_key: SpendingKey,
     pub viewing_key: ViewingKey,
+    pub tree_number: u32,
     pub random_seed: [u8; 16],
     pub value: u128,
     pub token: AssetId,
@@ -57,6 +58,7 @@ impl Note {
     pub fn new(
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
+        tree_number: u32,
         token: AssetId,
         value: u128,
         random_seed: &[u8; 16],
@@ -65,6 +67,7 @@ impl Note {
         Note {
             spending_key,
             viewing_key,
+            tree_number,
             random_seed: *random_seed,
             value,
             token,
@@ -74,9 +77,10 @@ impl Note {
 
     /// Decrypt a note
     pub fn decrypt(
-        encrypted: &CommitmentCiphertext,
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
+        tree_number: u32,
+        encrypted: &CommitmentCiphertext,
     ) -> Result<Note, NoteError> {
         let blinded_sender = BlindedKey::from_bytes(encrypted.blindedSenderViewingKey.into());
         let shared_key = viewing_key.derive_shared_key_blinded(blinded_sender)?;
@@ -108,6 +112,7 @@ impl Note {
         Ok(Note::new(
             spending_key,
             viewing_key,
+            tree_number,
             asset_id,
             value,
             &random,
@@ -117,9 +122,10 @@ impl Note {
 
     /// Decrypts a shield note into a Note
     pub fn decrypt_shield_request(
-        req: ShieldRequest,
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
+        tree_number: u32,
+        req: ShieldRequest,
     ) -> Result<Note, NoteError> {
         let encrypted_bundle: [[u8; 32]; 3] = [
             req.ciphertext.encryptedBundle[0].into(),
@@ -141,6 +147,7 @@ impl Note {
         Ok(Note::new(
             spending_key,
             viewing_key,
+            tree_number,
             req.preimage.token.clone().into(),
             req.preimage.value.saturating_to(),
             &random,
@@ -307,6 +314,7 @@ impl Note {
         Note::new(
             spending_key,
             viewing_key,
+            1,
             AssetId::Erc20(alloy::primitives::address!(
                 "0x1234567890123456789012345678901234567890"
             )),
@@ -439,11 +447,12 @@ mod tests {
 
         // Receiver decrypts with their own keys
         let decrypted =
-            Note::decrypt(&encrypted, receiver_spending_key, receiver_viewing_key).unwrap();
+            Note::decrypt(receiver_spending_key, receiver_viewing_key, 1, &encrypted).unwrap();
 
         let expected = Note::new(
             receiver_spending_key,
             receiver_viewing_key,
+            1,
             asset,
             value,
             &shared_random,

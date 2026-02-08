@@ -6,7 +6,7 @@ use num_bigint::{BigInt, Sign};
 use crate::{
     crypto::keys::fr_to_bigint,
     merkle_tree::MerkleTree,
-    note::{note::Note, tree_transaction::TransactNote},
+    note::{note::Note, operation::TransactNote},
 };
 
 #[derive(Debug, Clone)]

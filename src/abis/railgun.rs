@@ -6,6 +6,7 @@ use alloy::primitives::{Address, ChainId, U256, aliases::U72};
 use alloy_sol_types::{SolValue, sol};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use serde::Deserialize;
 use thiserror::Error;
 
 use crate::crypto::hash_to_scalar;
@@ -151,7 +152,7 @@ sol! {
         uint256 tokenSubID;
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Deserialize)]
     struct CommitmentCiphertext {
         bytes32[4] ciphertext; // Ciphertext order: IV & tag (16 bytes each), encodedMPK (senderMPK XOR receiverMPK), random & amount (16 bytes each), token
         bytes32 blindedSenderViewingKey;

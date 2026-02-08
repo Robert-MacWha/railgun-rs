@@ -39,6 +39,23 @@ Info from broadcasters:
 Unencrypted data:
 https://github.com/Railgun-Community/shared-models/blob/dc3af7873305938f9f0771a24ad91f807f1b88e0/src/models/broadcaster.ts#L75
 ```js
+type BroadcasterRawParamsShared = {
+  chainID: number;
+  chainType: ChainType;
+  useRelayAdapt: boolean; // Depends on to address
+  to: string;
+  data: string;
+  minGasPrice: string; // just `gasPrice` or `maxFeePerGas` from the transaction gas estimate
+  txidVersion: TXIDVersion;
+  feesID: string; // from broadcaster info
+  broadcasterViewingKey: string; // from broadcaster railgun address
+  devLog: boolean; // From config (https://github.com/Railgun-Community/waku-broadcaster-client/blob/main/packages/common/src/models/broadcaster-config.ts#L5)
+  minVersion: string;  // From config
+  maxVersion: string; // From config
+  preTransactionPOIsPerTxidLeafPerList: PreTransactionPOIsPerTxidLeafPerList; // Collection of all list keys, new operation hashes, and proofs for that operation.
+  transactType: BroadcasterTransactRequestType.COMMON;
+};
+
 export type PreTransactionPOIsPerTxidLeafPerList = Record<
   string, // listKey
   Record<
@@ -46,29 +63,6 @@ export type PreTransactionPOIsPerTxidLeafPerList = Record<
     PreTransactionPOI
   >
 >;
-
-type BroadcasterRawParamsShared = {
-  txidVersion: TXIDVersion;
-  chainID: number;
-  chainType: ChainType;
-  feesID: string;
-  broadcasterViewingKey: string;
-  devLog: boolean;
-  minVersion: string;
-  maxVersion: string;
-};
-
-export type BroadcasterTransactRequestRaw = BroadcasterRawParamsShared & {
-  to: string;
-  data: string;
-  useRelayAdapt: boolean;
-  preTransactionPOIsPerTxidLeafPerList: PreTransactionPOIsPerTxidLeafPerList;
-}
-
-export type BroadcasterRawParamsTransactCommon = BroadcasterTransactRequestRaw & {
-  transactType: BroadcasterTransactRequestType.COMMON;
-  minGasPrice: string;
-};
 ```
 
 Encrypt with the broadcaster's viewing key:
@@ -86,7 +80,7 @@ txIdLeafHash:
 export const getRailgunTxidLeafHash = (
   railgunTxidBigInt: bigint, // hash of [nullifiers, commitments, boundParamsHash]
   utxoTreeIn: bigint, // the tree the in_notes are coming from
-  globalTreePosition: bigint, // For transactions pre-submission, equal to the below constant (I think)
+  globalTreePosition: bigint, // For transactions pre-submission, equal to the below constant (I think).
 ): string => {
   return ByteUtils.nToHex(
     poseidon([railgunTxidBigInt, utxoTreeIn, globalTreePosition]),

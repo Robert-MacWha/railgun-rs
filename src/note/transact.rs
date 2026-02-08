@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
 
+use alloy::primitives::U256;
 use alloy::primitives::{Address, FixedBytes, aliases::U120};
+use alloy_sol_types::SolCall;
 use num_bigint::BigInt;
 use tracing::info;
 
-use crate::abis::railgun::BoundParams;
+use crate::abis::railgun::{BoundParams, RailgunSmartWallet};
 use crate::circuit::prover::TransactProver;
+use crate::transaction::tx_data::TxData;
 use crate::{
     abis::railgun::{
         CommitmentCiphertext, CommitmentPreimage, G1Point, G2Point, SnarkProof, Transaction,
@@ -18,35 +21,65 @@ use crate::{
     merkle_tree::MerkleTree,
     note::{
         note::{EncryptError, Note},
-        tree_transaction::{TransactNote, TreeTransaction},
+        operation::{Operation, TransactNote},
     },
 };
 
-pub fn create_transaction(
-    prover: &Box<dyn TransactProver>,
+pub fn create_txdata(
+    prover: &impl TransactProver,
     merkle_trees: &mut BTreeMap<u32, MerkleTree>,
     min_gas_price: u128,
     chain: ChainConfig,
     adapt_contract: Address,
     adapt_input: &[u8; 32],
-    tree_txns: BTreeMap<u32, TreeTransaction>,
+    operations: Vec<Operation>,
+) -> Result<TxData, EncryptError> {
+    let transactions = create_transactions(
+        prover,
+        merkle_trees,
+        min_gas_price,
+        chain,
+        adapt_contract,
+        adapt_input,
+        operations,
+    )?;
+
+    let call = RailgunSmartWallet::transactCall {
+        _transactions: transactions,
+    };
+    let calldata = call.abi_encode();
+    Ok(TxData {
+        to: chain.railgun_smart_wallet,
+        data: calldata,
+        value: U256::ZERO,
+    })
+}
+
+pub fn create_transactions(
+    prover: &impl TransactProver,
+    merkle_trees: &mut BTreeMap<u32, MerkleTree>,
+    min_gas_price: u128,
+    chain: ChainConfig,
+    adapt_contract: Address,
+    adapt_input: &[u8; 32],
+    operations: Vec<Operation>,
 ) -> Result<Vec<Transaction>, EncryptError> {
     let mut transactions = Vec::new();
-    for (tree_number, tree_tx) in tree_txns {
-        info!("Processing tree {}", tree_number);
-        let merkle_tree = merkle_trees.get_mut(&tree_number).unwrap();
+    for operation in operations {
+        info!("Processing tree {}", operation.tree_index);
+        let merkle_tree = merkle_trees.get_mut(&operation.tree_index).unwrap();
 
-        let unshield = if tree_tx.unshield.is_some() {
+        let unshield = if operation.unshield_note.is_some() {
             UnshieldType::NORMAL
         } else {
             UnshieldType::NONE
         };
 
-        let notes_in: Vec<Note> = tree_tx.notes_in().clone();
-        let notes_out = tree_tx.notes_out();
+        let notes_in: Vec<Note> = operation.in_notes().clone();
+        let notes_out = operation.notes_out();
 
         info!("Constructing circuit inputs");
-        let commitment_ciphertexts: Vec<CommitmentCiphertext> = tree_tx
+        let commitment_ciphertexts: Vec<CommitmentCiphertext> = operation
             .encryptable_notes_out()
             .iter()
             .map(|n| n.encrypt())
@@ -90,7 +123,7 @@ pub fn create_transaction(
             nullifiers: inputs.nullifiers.iter().map(bigint_to_bytes).collect(),
             commitments: inputs.commitments_out.iter().map(bigint_to_bytes).collect(),
             boundParams: bound_params,
-            unshieldPreimage: match tree_tx.unshield {
+            unshieldPreimage: match operation.unshield_note {
                 Some(unshield) => {
                     info!(
                         "Unshield npk: {:?}",

@@ -14,14 +14,19 @@ use railgun_rs::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, SEPOLIA_CONFIG},
+    circuit::native_prover::NativeProver,
     crypto::{
         keys::{HexKey, SpendingKey, ViewingKey, fr_to_bytes},
         poseidon::poseidon_hash,
     },
-    indexer::indexer::Indexer,
+    indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
+    note::{
+        note::Note,
+        transact::{create_transactions, create_txdata},
+    },
     poi::client::{BlindedCommitmentData, BlindedCommitmentType, PoiClient},
     railgun::address::RailgunAddress,
-    transaction::shield_builder::ShieldBuilder,
+    transaction::{shield_builder::ShieldBuilder, tx_builder::TxBuilder},
 };
 
 const CHAIN: ChainConfig = SEPOLIA_CONFIG;
@@ -64,11 +69,12 @@ async fn main() {
     // std::fs::write(INDEXER_STATE, bitcode::serialize(&state).unwrap()).unwrap();
     let indexer_state = std::fs::read(INDEXER_STATE).unwrap();
     let indexer_state = bitcode::deserialize(&indexer_state).unwrap();
-    let mut indexer = Indexer::new_with_state(provider.clone(), indexer_state).unwrap();
+    let subsquid = Box::new(SubsquidSyncer::new(PPOI_URL));
+    let mut indexer = Indexer::new_with_state(subsquid, indexer_state).unwrap();
     indexer.add_account(&account);
 
     info!("Syncing indexer");
-    indexer.sync().await.unwrap();
+    // indexer.sync().await.unwrap();
     info!("Balance: {:?}", indexer.balance(account.address()));
 
     info!("Saving indexer");
@@ -76,6 +82,8 @@ async fn main() {
     std::fs::write("./indexer_state_11155111.bincode", indexer_state).unwrap();
 
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
+
+    let mut notes: Vec<Note> = Vec::new();
 
     let notebooks = indexer.notebooks(account.address()).unwrap();
     for (tree_index, notebook) in notebooks {
@@ -85,28 +93,82 @@ async fn main() {
             let commitment_hash = note.hash();
             let npk = note.note_public_key();
             let global_tree_position = Fr::from(tree_index * 65536 + leaf_index);
-            let blinded_commitment = fr_to_bytes(&poseidon_hash(&[
-                commitment_hash,
-                npk,
-                global_tree_position,
-            ]));
+            let blinded_commitment = poseidon_hash(&[commitment_hash, npk, global_tree_position]);
 
             let pois = poi_client
                 .pois(vec![BlindedCommitmentData {
-                    blinded_commitment,
+                    blinded_commitment: fr_to_bytes(&blinded_commitment),
                     commitment_type: BlindedCommitmentType::Shield,
                 }])
                 .await
                 .unwrap();
 
             let merkle_proofs = poi_client
-                .merkle_proofs(vec![blinded_commitment])
+                .merkle_proofs(vec![fr_to_bytes(&blinded_commitment)])
                 .await
                 .unwrap();
 
             info!("POIs: {:?}", pois);
             info!("Merkle Proofs: {:?}", merkle_proofs);
+
+            notes.push(note.clone());
         }
+    }
+
+    let prover = Box::new(NativeProver::new());
+    let merkle_trees = indexer.merkle_trees();
+
+    // Creates a transaction builder for our desired set of operations.
+    let tx = TxBuilder::new().set_unshield(address, USDC, 1_000);
+
+    let builder_address = RailgunAddress::from_str("0zk1qyqhtwaa9zj3ug9dmxhfedappvm509w7dr5lgadaehxz38w9u457mrv7j6fe3z53layes62mktxj5kd6reh2kxd39ds2gnpf6wphtw39y5g36lsvukeywfqa8y0").unwrap();
+    let builder_fee_asset = USDC;
+    let builder_fee_per_gas = 1;
+
+    // Build a new transaction group with the builder's fee
+    let mut estimated_gas = 100;
+
+    while true {
+        let builder_fee = builder_fee_per_gas * (estimated_gas as u128);
+        let mut builder_tx = TxBuilder::new().transfer(
+            account.clone(),
+            builder_address,
+            builder_fee_asset,
+            builder_fee,
+            "",
+        );
+
+        for transfer in tx.transfers.iter() {
+            builder_tx = builder_tx.transfer(
+                transfer.from.clone(),
+                transfer.to,
+                transfer.asset,
+                transfer.value,
+                &transfer.memo,
+            );
+        }
+        for unshield in tx.unshields.values() {
+            builder_tx = builder_tx.set_unshield(unshield.to, unshield.asset, unshield.value);
+        }
+
+        let operations = builder_tx.build(notes.clone()).unwrap();
+        let tx_data = create_txdata(
+            prover.as_ref(),
+            merkle_trees,
+            0,
+            CHAIN,
+            Address::ZERO,
+            &[0u8; 32],
+            operations,
+        )
+        .unwrap();
+
+        let new_estimated_gas = provider.estimate_gas(tx_data.into()).await.unwrap();
+        if new_estimated_gas == estimated_gas {
+            break;
+        }
+
+        estimated_gas = new_estimated_gas;
     }
 }
 
@@ -137,55 +199,3 @@ async fn shield_usdc(provider: DynProvider, to: RailgunAddress, amount: u128) {
 
     info!("Shielded");
 }
-
-// let url = "https://ppoi-agg.horsewithsixlegs.xyz";
-// let client = PpoiClient::new(url);
-
-// info!("Requesting health");
-// let health = client.health().await.unwrap();
-// info!("Health: {}", health);
-
-// let commitment_hash = "";
-// let npk = "";
-// let global_tree_position = "";
-// let blinded_commitment = fr_to_u256(&poseidon_hash(&[
-//     hex_to_fr(commitment_hash),
-//     hex_to_fr(npk),
-//     hex_to_fr(global_tree_position),
-// ]));
-
-// let pois = client
-//     .pois_per_list(GetPoisPerListParams {
-//         chain: ChainParams {
-//             chain_type: 0.to_string(), // EVM
-//             chain_id: 0.to_string(),   // Mainnet
-//             txid_version: TxidVersion::V2PoseidonMerkle,
-//         },
-//         list_keys: vec![
-//             "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
-//             "55049dc47b4435bca4a8f8ac27b1858e409f9f72b317fde4a442095cfc454893".to_string(),
-//         ],
-//         blinded_commitment_datas: vec![BlindedCommitmentData {
-//             blinded_commitment: blinded_commitment.to_string(),
-//             commitment_type: BlindedCommitmentType::Shield,
-//         }],
-//     })
-//     .await
-//     .unwrap();
-
-// println!("POIs: {:?}", pois);
-
-// info!("Creating POI Client");
-// let mut headers = HeaderMap::new();
-// headers.insert("User-Agent", HeaderValue::from_static("railgun-rs/0.1.0"));
-// let poi_client = HttpClientBuilder::default()
-//     .set_headers(headers)
-//     .build("https://ppoi-agg.horsewithsixlegs.xyz/")
-//     .unwrap();
-// info!("Requesting health");
-// let health = poi_client.health().await.unwrap();
-// info!("Health: {}", health);
-
-// info!("Requesting status");
-// let status = poi_client.node_status().await.unwrap();
-// info!("Status: {:?}", status);

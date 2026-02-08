@@ -5,7 +5,12 @@
 - [x] Create integration test that uses anvil for shield, balance check, unshield
 - Implement PPOI
   - [x] Get POI for a shield note
-  - [x] Send a POI for a transfer note 
+  - [ ] Get the TXID merkle tree
+    - [ ] Setup syncing to download TXID merkle tree from subsquid
+    - [ ] Verify the root against the poi API
+  - [ ] Generate POI proof inputs for a transfer operation
+  - [ ] Send to a broadcaster
+  - [ ] Send a POI for a transfer note 
 - Implement broadcasters
 - Refactor and tidy up
 - Optimize performance

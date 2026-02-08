@@ -1,0 +1,584 @@
+use std::{array::TryFromSliceError, pin::Pin};
+
+use alloy::primitives::{Bytes, FixedBytes, U256, ruint::ParseError};
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
+use futures::StreamExt;
+use futures::{Stream, stream};
+use graphql_client::{GraphQLQuery, Response};
+use reqwest::Client;
+use thiserror::Error;
+use tracing::{info, warn};
+
+use crate::{
+    abis::railgun::{
+        CommitmentCiphertext, CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, TokenData,
+        TokenType,
+    },
+    crypto::keys::fr_to_bytes,
+    indexer::{
+        graphql_bigint,
+        syncer::{LegacyCommitment, Operation, SyncEvent, Syncer},
+    },
+};
+
+pub type BigInt = graphql_bigint::BigInt;
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schemas/railgun.graphql",
+    query_path = "graphql/queries/commitments.graphql",
+    response_derives = "Debug, Clone"
+)]
+struct CommitmentsQuery {}
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schemas/railgun.graphql",
+    query_path = "graphql/queries/nullifiers.graphql",
+    response_derives = "Debug, Clone"
+)]
+struct NullifiersQuery {}
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schemas/railgun.graphql",
+    query_path = "graphql/queries/operations.graphql",
+    response_derives = "Debug, Clone"
+)]
+struct OperationsQuery {}
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schemas/railgun.graphql",
+    query_path = "graphql/queries/block_number.graphql",
+    response_derives = "Debug, Clone"
+)]
+struct BlockNumberQuery {}
+
+#[derive(GraphQLQuery)]
+#[graphql(
+    schema_path = "graphql/schemas/railgun.graphql",
+    query_path = "graphql/queries/root.graphql",
+    response_derives = "Debug, Clone"
+)]
+struct SeenRootQuery {}
+
+pub struct SubsquidSyncer {
+    client: Client,
+    endpoint: String,
+    batch_size: u32,
+}
+
+#[derive(Debug, Error)]
+pub enum SubsquidError {
+    #[error("HTTP request error: {0}")]
+    HttpRequestError(#[from] reqwest::Error),
+    #[error("Graphql Errors: {0:?}")]
+    GraphqlErrors(Vec<graphql_client::Error>),
+    #[error("Missing data in response")]
+    MissingData,
+    #[error("TryFromSlice error: {0}")]
+    TryFromSlice(#[from] TryFromSliceError),
+    #[error("ParseInt Error: {0}")]
+    ParseInt(#[from] ParseError),
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
+}
+
+impl SubsquidSyncer {
+    pub fn new(endpoint: &str) -> Self {
+        SubsquidSyncer {
+            client: Client::new(),
+            endpoint: endpoint.to_string(),
+            batch_size: 100000,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Syncer for SubsquidSyncer {
+    async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        let request_body = BlockNumberQuery::build_query(block_number_query::Variables {});
+
+        let res: Response<block_number_query::ResponseData> = self
+            .client
+            .post(&self.endpoint)
+            .json(&request_body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(errs) = res.errors {
+            return Err(Box::new(SubsquidError::GraphqlErrors(errs)));
+        }
+
+        let Some(data) = res.data else {
+            return Err(Box::new(SubsquidError::MissingData));
+        };
+
+        let block_number = data
+            .transactions
+            .into_iter()
+            .next()
+            .map(|t| t.block_number.0.saturating_to::<u64>())
+            .unwrap_or(0);
+
+        Ok(block_number)
+    }
+
+    async fn seen(&self, utxo_merkle_root: Fr) -> Result<bool, Box<dyn std::error::Error>> {
+        let request_body = SeenRootQuery::build_query(seen_root_query::Variables {
+            root: Some(Bytes::from(fr_to_bytes(&utxo_merkle_root))),
+        });
+
+        let res: Response<seen_root_query::ResponseData> = self
+            .client
+            .post(&self.endpoint)
+            .json(&request_body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(errs) = res.errors {
+            return Err(Box::new(SubsquidError::GraphqlErrors(errs)));
+        }
+
+        let Some(data) = res.data else {
+            return Err(Box::new(SubsquidError::MissingData));
+        };
+
+        Ok(data.transactions.into_iter().next().is_some())
+    }
+
+    async fn sync(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Pin<Box<dyn Stream<Item = SyncEvent> + Send + '_>>, Box<dyn std::error::Error>>
+    {
+        info!(
+            "Starting sync from block {} to block {}",
+            from_block, to_block
+        );
+
+        let commitment_stream = self.commitment_stream(from_block, to_block);
+        // let nullified_stream = self.nullified_stream(from_block, to_block);
+        // let operation_stream = self.operation_stream(from_block, to_block);
+
+        let stream = commitment_stream;
+        // .chain(nullified_stream)
+        // .chain(operation_stream);
+
+        Ok(Box::pin(stream))
+    }
+}
+
+impl SubsquidSyncer {
+    fn commitment_stream(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        stream::unfold(String::new(), move |last_id| async move {
+            info!("Fetching commitments");
+
+            let batch = self
+                .fetch_commitment_events(from_block, to_block, &last_id)
+                .await
+                .ok()?;
+
+            if batch.0.is_empty() && batch.1.is_empty() && batch.2.is_empty() {
+                info!("Synced commitments up to block {}", to_block);
+                return None;
+            }
+
+            info!(
+                "Fetched batch of commitments: {} shields, {} transacts, {} legacy",
+                batch.0.len(),
+                batch.1.len(),
+                batch.2.len()
+            );
+
+            let events: Vec<SyncEvent> = batch
+                .0
+                .into_iter()
+                .map(|(s, b)| SyncEvent::Shield(s, b))
+                .chain(batch.1.into_iter().map(|(t, b)| SyncEvent::Transact(t, b)))
+                .chain(batch.2.into_iter().map(|(l, b)| SyncEvent::Legacy(l, b)))
+                .collect();
+
+            Some((stream::iter(events), batch.3))
+        })
+        .flatten()
+    }
+
+    fn nullified_stream(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        stream::unfold(String::new(), move |last_id| async move {
+            info!("Fetching nullifieds");
+
+            let batch = self
+                .fetch_nullified_events(from_block, to_block, &last_id)
+                .await
+                .ok()?;
+
+            if batch.0.is_empty() {
+                info!("Synced nullifieds up to block {}", to_block);
+                return None;
+            }
+
+            info!("Fetched batch of nullifieds: {}", batch.0.len());
+
+            let events: Vec<SyncEvent> = batch
+                .0
+                .into_iter()
+                .map(|(n, b)| SyncEvent::Nullified(n, b))
+                .collect();
+
+            Some((stream::iter(events), batch.1))
+        })
+        .flatten()
+    }
+
+    fn operation_stream(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        stream::unfold(String::new(), move |last_id| async move {
+            info!("Fetching operations");
+
+            let batch = self
+                .fetch_operations(from_block, to_block, &last_id)
+                .await
+                .ok()?;
+
+            if batch.0.is_empty() {
+                info!("Synced operations up to block {}", to_block);
+                return None;
+            }
+
+            info!("Fetched batch of operations: {}", batch.0.len());
+
+            let events: Vec<SyncEvent> = batch.0.into_iter().map(SyncEvent::Operation).collect();
+
+            Some((stream::iter(events), batch.1))
+        })
+        .flatten()
+    }
+
+    pub async fn fetch_commitment_events(
+        &self,
+        from_block: u64,
+        to_block: u64,
+        after_id: &str,
+    ) -> Result<
+        (
+            Vec<(RailgunSmartWallet::Shield, u64)>,
+            Vec<(RailgunSmartWallet::Transact, u64)>,
+            Vec<(LegacyCommitment, u64)>,
+            String,
+        ),
+        SubsquidError,
+    > {
+        let request_body = CommitmentsQuery::build_query(commitments_query::Variables {
+            id_gt: Some(after_id.to_string()),
+            block_number_gt: Some(U256::from(from_block).into()),
+            block_number_lt: Some(U256::from(to_block).into()),
+            limit: Some(self.batch_size as i64),
+        });
+
+        let res: Response<commitments_query::ResponseData> = self
+            .client
+            .post(&self.endpoint)
+            .json(&request_body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(errs) = res.errors {
+            return Err(SubsquidError::GraphqlErrors(errs));
+        }
+
+        let Some(data) = res.data else {
+            return Err(SubsquidError::MissingData);
+        };
+        let commitments = data.commitments;
+        let last_id = commitments
+            .last()
+            .map(|c| c.id.clone())
+            .unwrap_or("".to_string());
+
+        let mut shield_events = Vec::new();
+        let mut transact_events = Vec::new();
+        let mut legacy_events = Vec::new();
+
+        for c in commitments.into_iter() {
+            match &c.on {
+                commitments_query::CommitmentsQueryCommitmentsOn::ShieldCommitment(shield) => {
+                    let shield = parse_shield(&c, shield)?;
+                    shield_events.push((shield, c.block_number.0.saturating_to::<u64>()));
+                }
+                commitments_query::CommitmentsQueryCommitmentsOn::TransactCommitment(transact) => {
+                    let transact = parse_transact(&c, transact)?;
+                    transact_events.push((transact, c.block_number.0.saturating_to::<u64>()))
+                }
+                _ => legacy_events.push((
+                    LegacyCommitment {
+                        hash: Fr::from_le_bytes_mod_order(&c.hash.0.as_le_bytes()),
+                        tree_number: c.tree_number as u32,
+                        leaf_index: c.tree_position as u32,
+                    },
+                    c.block_number.0.saturating_to::<u64>(),
+                )),
+            }
+        }
+
+        Ok((shield_events, transact_events, legacy_events, last_id))
+    }
+
+    async fn fetch_nullified_events(
+        &self,
+        from_block: u64,
+        to_block: u64,
+        after_id: &str,
+    ) -> Result<(Vec<(RailgunSmartWallet::Nullified, u64)>, String), SubsquidError> {
+        let request_body = NullifiersQuery::build_query(nullifiers_query::Variables {
+            id_gt: Some(after_id.to_string()),
+            block_number_gt: Some(U256::from(from_block).into()),
+            block_number_lt: Some(U256::from(to_block).into()),
+            limit: Some(self.batch_size as i64),
+        });
+
+        let res: Response<nullifiers_query::ResponseData> = self
+            .client
+            .post(&self.endpoint)
+            .json(&request_body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(errs) = res.errors {
+            return Err(SubsquidError::GraphqlErrors(errs));
+        }
+
+        let Some(data) = res.data else {
+            return Err(SubsquidError::MissingData);
+        };
+
+        let nullifieds = data.nullifiers;
+        let last_id = nullifieds
+            .last()
+            .map(|n| n.id.clone())
+            .unwrap_or("".to_string());
+
+        let mut nullified_events = Vec::new();
+        for n in nullifieds.into_iter() {
+            let nullified = RailgunSmartWallet::Nullified {
+                treeNumber: n.tree_number as u16,
+                nullifier: vec![n.nullifier.as_ref().try_into().map_err(|e| {
+                    SubsquidError::InvalidData(format!("Invalid nullifier: {}", e))
+                })?],
+            };
+            nullified_events.push((nullified, n.block_number.0.saturating_to::<u64>()));
+        }
+
+        Ok((nullified_events, last_id))
+    }
+
+    async fn fetch_operations(
+        &self,
+        from_block: u64,
+        to_block: u64,
+        after_id: &str,
+    ) -> Result<(Vec<Operation>, String), SubsquidError> {
+        let request_body = OperationsQuery::build_query(operations_query::Variables {
+            id_gt: Some(after_id.to_string()),
+            block_number_gt: Some(U256::from(from_block).into()),
+            block_number_lt: Some(U256::from(to_block).into()),
+            limit: Some(self.batch_size as i64),
+        });
+
+        let res: Response<operations_query::ResponseData> = self
+            .client
+            .post(&self.endpoint)
+            .json(&request_body)
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        if let Some(errs) = res.errors {
+            return Err(SubsquidError::GraphqlErrors(errs));
+        }
+
+        let Some(data) = res.data else {
+            return Err(SubsquidError::MissingData);
+        };
+
+        let operations_data = data.transactions;
+        let last_id = operations_data
+            .last()
+            .map(|op| op.id.clone())
+            .unwrap_or("".to_string());
+
+        let mut operations = Vec::new();
+        for op in operations_data.into_iter() {
+            let operation = Operation {
+                nullifiers: op
+                    .nullifiers
+                    .into_iter()
+                    .map(|n| Fr::from_be_bytes_mod_order(n.as_ref()))
+                    .collect(),
+                commitment_hashes: op
+                    .commitments
+                    .into_iter()
+                    .map(|h| Fr::from_be_bytes_mod_order(h.as_ref()))
+                    .collect(),
+                bound_params_hash: Fr::from_be_bytes_mod_order(op.bound_params_hash.as_ref()),
+                utxo_batch_tree_number: op.utxo_tree_out.0.saturating_to(),
+                utxo_batch_start_index: op.utxo_batch_start_position_out.0.saturating_to(),
+            };
+            operations.push(operation);
+        }
+
+        Ok((operations, last_id))
+    }
+}
+
+fn parse_shield(
+    c: &commitments_query::CommitmentsQueryCommitments,
+    shield: &commitments_query::CommitmentsQueryCommitmentsOnShieldCommitment,
+) -> Result<RailgunSmartWallet::Shield, SubsquidError> {
+    if shield.encrypted_bundle.len() != 3 {
+        return Err(SubsquidError::InvalidData(format!(
+            "Invalid encrypted bundle length: {}",
+            shield.encrypted_bundle.len()
+        )));
+    }
+
+    let mut packed = [FixedBytes::<32>::ZERO; 3];
+    for (i, element) in shield.encrypted_bundle.iter().enumerate() {
+        packed[i] = element.as_ref().try_into().map_err(|e| {
+            SubsquidError::InvalidData(format!("Invalid encrypted bundle element {}: {}", i, e))
+        })?;
+    }
+
+    let token_type = match shield.preimage.token.token_type {
+        commitments_query::TokenType::ERC20 => TokenType::ERC20,
+        commitments_query::TokenType::ERC721 => TokenType::ERC721,
+        commitments_query::TokenType::ERC1155 => TokenType::ERC1155,
+        commitments_query::TokenType::Other(_) => {
+            warn!("Unknown token type: {:?}", shield.preimage.token.token_type);
+            TokenType::__Invalid
+        }
+    };
+
+    let shield =
+        RailgunSmartWallet::Shield {
+            treeNumber: U256::from(c.tree_number),
+            startPosition: U256::from(c.tree_position),
+            commitments: vec![CommitmentPreimage {
+                npk: shield
+                    .preimage
+                    .npk
+                    .as_ref()
+                    .try_into()
+                    .map_err(|e| SubsquidError::InvalidData(format!("Invalid npk: {}", e)))?,
+                token: TokenData {
+                    tokenType: token_type,
+                    tokenAddress: shield
+                        .preimage
+                        .token
+                        .token_address
+                        .as_ref()
+                        .try_into()
+                        .map_err(|e| {
+                            SubsquidError::InvalidData(format!("Invalid token address: {}", e))
+                        })?,
+                    tokenSubID: shield.preimage.token.token_sub_id.parse::<U256>().map_err(
+                        |e| SubsquidError::InvalidData(format!("Invalid token sub ID: {}", e)),
+                    )?,
+                },
+                value: shield.preimage.value.0.saturating_to(),
+            }],
+            shieldCiphertext: vec![ShieldCiphertext {
+                shieldKey: shield.shield_key.as_ref().try_into().map_err(|e| {
+                    SubsquidError::InvalidData(format!("Invalid shield key: {}", e))
+                })?,
+                encryptedBundle: packed,
+            }],
+            fees: vec![],
+        };
+
+    Ok(shield)
+}
+
+fn parse_transact(
+    c: &commitments_query::CommitmentsQueryCommitments,
+    transact: &commitments_query::CommitmentsQueryCommitmentsOnTransactCommitment,
+) -> Result<RailgunSmartWallet::Transact, SubsquidError> {
+    let raw = transact.ciphertext.ciphertext.clone();
+    let mut packed = [FixedBytes::<32>::ZERO; 4];
+    let iv: [u8; 16] = raw
+        .iv
+        .as_ref()
+        .try_into()
+        .map_err(|e| SubsquidError::InvalidData(format!("Invalid IV: {}", e)))?;
+    let tag: [u8; 16] = raw
+        .tag
+        .as_ref()
+        .try_into()
+        .map_err(|e| SubsquidError::InvalidData(format!("Invalid tag: {}", e)))?;
+    packed[0][..16].copy_from_slice(&iv);
+    packed[0][16..].copy_from_slice(&tag);
+
+    if raw.data.len() != 3 {
+        return Err(SubsquidError::InvalidData(format!(
+            "Invalid ciphertext data length: {}",
+            raw.data.len()
+        )));
+    }
+
+    for (i, element) in raw.data.into_iter().enumerate() {
+        packed[i + 1] = element.as_ref().try_into().map_err(|e| {
+            SubsquidError::InvalidData(format!("Invalid ciphertext data element {}: {}", i, e))
+        })?;
+    }
+
+    let transact = RailgunSmartWallet::Transact {
+        treeNumber: U256::from(c.tree_number),
+        startPosition: U256::from(c.tree_position),
+        hash: vec![c.hash.0.into()],
+        ciphertext: vec![CommitmentCiphertext {
+            ciphertext: packed,
+            annotationData: transact.ciphertext.annotation_data.clone(),
+            memo: transact.ciphertext.memo.clone(),
+            blindedSenderViewingKey: transact
+                .ciphertext
+                .blinded_sender_viewing_key
+                .as_ref()
+                .try_into()
+                .map_err(|e| {
+                    SubsquidError::InvalidData(format!("Invalid blinded viewing key: {}", e))
+                })?,
+            blindedReceiverViewingKey: transact
+                .ciphertext
+                .blinded_receiver_viewing_key
+                .as_ref()
+                .try_into()
+                .map_err(|e| {
+                    SubsquidError::InvalidData(format!("Invalid blinded viewing key: {}", e))
+                })?,
+        }],
+    };
+    Ok(transact)
+}

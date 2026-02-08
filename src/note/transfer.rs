@@ -10,7 +10,7 @@ use crate::{
     },
     note::{
         note::{EncryptError, encrypt_note},
-        tree_transaction::{EncryptableNote, TransactNote},
+        operation::{EncryptableNote, TransactNote},
     },
     railgun::address::RailgunAddress,
 };
@@ -89,7 +89,7 @@ mod tests {
     use crate::{
         caip::AssetId,
         crypto::keys::{ByteKey, SpendingKey, ViewingKey, hex_to_fr},
-        note::{transfer::TransferNote, tree_transaction::TransactNote},
+        note::{operation::TransactNote, transfer::TransferNote},
         railgun::address::RailgunAddress,
     };
 

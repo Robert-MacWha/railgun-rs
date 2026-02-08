@@ -3,31 +3,18 @@ use ark_bn254::Fr;
 use crate::{
     abis::railgun::CommitmentCiphertext,
     note::{
-        change::ChangeNote,
         note::{EncryptError, Note},
         transfer::TransferNote,
         unshield::UnshieldNote,
     },
 };
 
-/// TreeTransactions represent a single railgun transaction's worth of notes.
-/// They include in_notes (those consumed), transfer_notes (those sent to other accounts),
-/// a optional change note (for value returned to the sender), and an optional
-/// unshield note (for value exiting the system).
-///
-/// A completely filled-out TreeTransaction should always satisfy the equation:
-/// sum(in_notes.value) = sum(transfer_notes.value) + change_note.value + unshield_note.value.
-///
-/// DEV: TreeTransactions can only unshield a single note, a limitation of railgun's
-/// smart contracts.
-///
-/// TODO: Make TreeTransaction generic over the note asset.
 #[derive(Default, Debug, Clone)]
-pub struct TreeTransaction {
-    pub notes_in: Vec<Note>,
-    pub transfers_out: Vec<TransferNote>,
-    pub change: Option<ChangeNote>,
-    pub unshield: Option<UnshieldNote>,
+pub struct Operation {
+    pub tree_index: u32,
+    pub in_notes: Vec<Note>,
+    pub out_notes: Vec<TransferNote>,
+    pub unshield_note: Option<UnshieldNote>,
 }
 
 pub trait TransactNote {
@@ -40,37 +27,33 @@ pub trait EncryptableNote: TransactNote {
     fn encrypt(&self) -> Result<CommitmentCiphertext, EncryptError>;
 }
 
-impl TreeTransaction {
+impl Operation {
     pub fn new(
-        notes_in: Vec<Note>,
-        transfers_out: Vec<TransferNote>,
-        change: Option<ChangeNote>,
+        tree_index: u32,
+        in_notes: Vec<Note>,
+        out_notes: Vec<TransferNote>,
         unshield: Option<UnshieldNote>,
     ) -> Self {
-        TreeTransaction {
-            notes_in,
-            transfers_out,
-            change,
-            unshield,
+        Operation {
+            tree_index,
+            in_notes,
+            out_notes,
+            unshield_note: unshield,
         }
     }
 
-    pub fn notes_in(&self) -> Vec<Note> {
-        self.notes_in.to_vec()
+    pub fn in_notes(&self) -> Vec<Note> {
+        self.in_notes.to_vec()
     }
 
     pub fn notes_out(&self) -> Vec<Box<dyn TransactNote>> {
         let mut notes: Vec<Box<dyn TransactNote>> = Vec::new();
 
-        if let Some(change) = &self.change {
-            notes.push(Box::new(change.clone()));
-        }
-
-        for transfer in &self.transfers_out {
+        for transfer in &self.out_notes {
             notes.push(Box::new(transfer.clone()));
         }
 
-        if let Some(unshield) = &self.unshield {
+        if let Some(unshield) = &self.unshield_note {
             notes.push(Box::new(unshield.clone()));
         }
 
@@ -80,11 +63,7 @@ impl TreeTransaction {
     pub fn encryptable_notes_out(&self) -> Vec<Box<dyn EncryptableNote>> {
         let mut notes: Vec<Box<dyn EncryptableNote>> = Vec::new();
 
-        if let Some(change) = &self.change {
-            notes.push(Box::new(change.clone()));
-        }
-
-        for transfer in &self.transfers_out {
+        for transfer in &self.out_notes {
             notes.push(Box::new(transfer.clone()));
         }
 
@@ -100,7 +79,11 @@ mod tests {
     use crate::{
         caip::AssetId,
         crypto::keys::{ByteKey, SpendingKey, ViewingKey},
-        note::{transfer::TransferNote, tree_transaction::TransactNote, unshield::UnshieldNote},
+        note::{
+            operation::{self, TransactNote},
+            transfer::TransferNote,
+            unshield::UnshieldNote,
+        },
         railgun::address::RailgunAddress,
     };
 
@@ -127,14 +110,14 @@ mod tests {
             "memo",
         );
 
-        let tree_tx = super::TreeTransaction::new(
+        let operation = operation::Operation::new(
+            1,
             Default::default(),
             vec![transfer_note.clone()],
-            Default::default(),
             Some(unshield_note.clone()),
         );
 
-        let notes_out = tree_tx.notes_out();
+        let notes_out = operation.notes_out();
         assert_eq!(notes_out.last().unwrap().hash(), unshield_note.hash());
     }
 }

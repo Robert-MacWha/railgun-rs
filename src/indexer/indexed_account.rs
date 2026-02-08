@@ -17,7 +17,7 @@ use crate::{
 /// The indexer will use the held keys to decrypt notes from shield and transact events,
 /// storing them in the notebook for reference.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct IndexerAccount {
+pub struct IndexedAccount {
     inner: RailgunAccount,
 
     /// The latest block number that has been processed for this account
@@ -25,9 +25,9 @@ pub struct IndexerAccount {
     notebooks: BTreeMap<u32, Notebook>,
 }
 
-impl IndexerAccount {
+impl IndexedAccount {
     pub fn new(inner: RailgunAccount) -> Self {
-        IndexerAccount {
+        IndexedAccount {
             inner,
             synced_block: 0,
             notebooks: BTreeMap::new(),
@@ -82,10 +82,23 @@ impl IndexerAccount {
                 preimage: event.commitments[index].clone(),
                 ciphertext: ciphertext.clone(),
             };
+
+            let is_crossing_tree = start_position as usize + index >= TOTAL_LEAVES;
+            let index = index as u32;
+            let (tree_number, note_position) = if is_crossing_tree {
+                (
+                    tree_number + 1,
+                    start_position + index - TOTAL_LEAVES as u32,
+                )
+            } else {
+                (tree_number, start_position + index)
+            };
+
             let note = Note::decrypt_shield_request(
-                shield_request,
                 self.inner.spending_key(),
                 self.inner.viewing_key(),
+                tree_number,
+                shield_request,
             );
 
             let note = match note {
@@ -101,14 +114,6 @@ impl IndexerAccount {
                 "Decrypted Shield Note: index={}, value={}, asset={:?}",
                 index, note.value, note.token
             );
-            let is_crossing_tree = start_position + index as u32 >= TOTAL_LEAVES;
-            let index = index as u32;
-            let (tree_number, note_position) = if is_crossing_tree {
-                (tree_number + 1, start_position + index - TOTAL_LEAVES)
-            } else {
-                (tree_number, start_position + index)
-            };
-
             self.notebooks
                 .entry(tree_number)
                 .or_default()
@@ -128,10 +133,22 @@ impl IndexerAccount {
         let start_position: u32 = event.startPosition.saturating_to();
 
         for (index, ciphertext) in event.ciphertext.iter().enumerate() {
+            let is_crossing_tree = start_position as usize + index >= TOTAL_LEAVES;
+            let index = index as u32;
+            let (tree_number, leaf_index) = if is_crossing_tree {
+                (
+                    tree_number + 1,
+                    start_position + index - TOTAL_LEAVES as u32,
+                )
+            } else {
+                (tree_number, start_position + index)
+            };
+
             let note = Note::decrypt(
-                ciphertext,
                 self.inner.spending_key(),
                 self.inner.viewing_key(),
+                tree_number,
+                ciphertext,
             );
 
             let note = match note {
@@ -140,18 +157,14 @@ impl IndexerAccount {
                 Ok(n) => n,
             };
 
-            let is_crossing_tree = start_position + index as u32 >= TOTAL_LEAVES;
-            let index = index as u32;
-            let (tree_number, note_position) = if is_crossing_tree {
-                (tree_number + 1, start_position + index - TOTAL_LEAVES)
-            } else {
-                (tree_number, start_position + index)
-            };
-
+            info!(
+                "Decrypted Transact Note: index={}, value={}, asset={:?}",
+                index, note.value, note.token
+            );
             self.notebooks
                 .entry(tree_number)
                 .or_default()
-                .add(note_position, note);
+                .add(leaf_index, note);
         }
 
         self.synced_block = self.synced_block.max(block_number);
@@ -175,8 +188,8 @@ impl IndexerAccount {
     }
 }
 
-impl From<&RailgunAccount> for IndexerAccount {
+impl From<&RailgunAccount> for IndexedAccount {
     fn from(account: &RailgunAccount) -> Self {
-        IndexerAccount::new(account.clone())
+        IndexedAccount::new(account.clone())
     }
 }

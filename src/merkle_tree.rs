@@ -4,7 +4,7 @@ use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use thiserror::Error;
-use tracing::{info, info_span};
+use tracing::info;
 
 use crate::crypto::{keys::fr_to_bytes, poseidon::poseidon_hash};
 
