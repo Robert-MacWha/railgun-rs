@@ -5,7 +5,6 @@ use alloy::primitives::{U256, utils::keccak256_cached};
 pub mod aes;
 pub mod keys;
 pub mod poseidon;
-pub mod railgun;
 pub mod railgun_base_37;
 
 const SNARK_SCALAR_FIELD: &str =
