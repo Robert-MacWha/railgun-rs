@@ -1,4 +1,4 @@
-use std::{array::TryFromSliceError, pin::Pin};
+use std::{array::TryFromSliceError, pin::Pin, time::Duration};
 
 use alloy::primitives::{Bytes, FixedBytes, U256, ruint::ParseError};
 use ark_bn254::Fr;
@@ -8,6 +8,7 @@ use futures::{Stream, stream};
 use graphql_client::{GraphQLQuery, Response};
 use reqwest::Client;
 use thiserror::Error;
+use tokio::time::sleep;
 use tracing::{info, warn};
 
 use crate::{
@@ -86,12 +87,71 @@ pub enum SubsquidError {
     InvalidData(String),
 }
 
+const MAX_RETRIES: u32 = 3;
+const RETRY_DELAY: Duration = Duration::from_secs(1);
+
 impl SubsquidSyncer {
     pub fn new(endpoint: &str) -> Self {
         SubsquidSyncer {
-            client: Client::new(),
+            client: Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .unwrap_or_default(),
             endpoint: endpoint.to_string(),
-            batch_size: 100000,
+            batch_size: 10000,
+        }
+    }
+
+    async fn post_graphql<V, R>(&self, op_name: &str, body: V) -> Result<R, SubsquidError>
+    where
+        V: serde::Serialize,
+        R: serde::de::DeserializeOwned,
+    {
+        // Serialize once upfront so we can retry without cloning
+        let json_body = serde_json::to_vec(&body).map_err(|e| {
+            SubsquidError::InvalidData(format!("Failed to serialize request: {}", e))
+        })?;
+
+        let mut attempts = 0;
+        loop {
+            let result: Result<Response<R>, reqwest::Error> = async {
+                self.client
+                    .post(&self.endpoint)
+                    .header("Content-Type", "application/json")
+                    .body(json_body.clone())
+                    .send()
+                    .await?
+                    .json()
+                    .await
+            }
+            .await;
+
+            match result {
+                Ok(res) => {
+                    if let Some(errs) = res.errors {
+                        return Err(SubsquidError::GraphqlErrors(errs));
+                    }
+                    match res.data {
+                        Some(data) => return Ok(data),
+                        None => return Err(SubsquidError::MissingData),
+                    }
+                }
+                Err(e) => {
+                    attempts += 1;
+                    if attempts >= MAX_RETRIES {
+                        warn!(
+                            "Failed to fetch {} after {} attempts: {}",
+                            op_name, attempts, e
+                        );
+                        return Err(e.into());
+                    }
+                    warn!(
+                        "Failed to fetch {} (attempt {}, retrying): {}",
+                        op_name, attempts, e
+                    );
+                    sleep(RETRY_DELAY).await;
+                }
+            }
         }
     }
 }
@@ -101,22 +161,8 @@ impl Syncer for SubsquidSyncer {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let request_body = BlockNumberQuery::build_query(block_number_query::Variables {});
 
-        let res: Response<block_number_query::ResponseData> = self
-            .client
-            .post(&self.endpoint)
-            .json(&request_body)
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        if let Some(errs) = res.errors {
-            return Err(Box::new(SubsquidError::GraphqlErrors(errs)));
-        }
-
-        let Some(data) = res.data else {
-            return Err(Box::new(SubsquidError::MissingData));
-        };
+        let data: block_number_query::ResponseData =
+            self.post_graphql("latest_block", request_body).await?;
 
         let block_number = data
             .transactions
@@ -133,22 +179,7 @@ impl Syncer for SubsquidSyncer {
             root: Some(Bytes::from(fr_to_bytes(&utxo_merkle_root))),
         });
 
-        let res: Response<seen_root_query::ResponseData> = self
-            .client
-            .post(&self.endpoint)
-            .json(&request_body)
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        if let Some(errs) = res.errors {
-            return Err(Box::new(SubsquidError::GraphqlErrors(errs)));
-        }
-
-        let Some(data) = res.data else {
-            return Err(Box::new(SubsquidError::MissingData));
-        };
+        let data: seen_root_query::ResponseData = self.post_graphql("seen", request_body).await?;
 
         Ok(data.transactions.into_iter().next().is_some())
     }
@@ -185,10 +216,16 @@ impl SubsquidSyncer {
         stream::unfold(String::new(), move |last_id| async move {
             info!("Fetching commitments");
 
-            let batch = self
+            let batch = match self
                 .fetch_commitment_events(from_block, to_block, &last_id)
                 .await
-                .ok()?;
+            {
+                Ok(batch) => batch,
+                Err(e) => {
+                    warn!("Failed to fetch commitments: {}", e);
+                    return None;
+                }
+            };
 
             if batch.0.is_empty() && batch.1.is_empty() && batch.2.is_empty() {
                 info!("Synced commitments up to block {}", to_block);
@@ -223,10 +260,16 @@ impl SubsquidSyncer {
         stream::unfold(String::new(), move |last_id| async move {
             info!("Fetching nullifieds");
 
-            let batch = self
+            let batch = match self
                 .fetch_nullified_events(from_block, to_block, &last_id)
                 .await
-                .ok()?;
+            {
+                Ok(batch) => batch,
+                Err(e) => {
+                    warn!("Failed to fetch nullifieds: {}", e);
+                    return None;
+                }
+            };
 
             if batch.0.is_empty() {
                 info!("Synced nullifieds up to block {}", to_block);
@@ -254,10 +297,13 @@ impl SubsquidSyncer {
         stream::unfold(String::new(), move |last_id| async move {
             info!("Fetching operations");
 
-            let batch = self
-                .fetch_operations(from_block, to_block, &last_id)
-                .await
-                .ok()?;
+            let batch = match self.fetch_operations(from_block, to_block, &last_id).await {
+                Ok(batch) => batch,
+                Err(e) => {
+                    warn!("Failed to fetch operations: {}", e);
+                    return None;
+                }
+            };
 
             if batch.0.is_empty() {
                 info!("Synced operations up to block {}", to_block);
@@ -294,22 +340,9 @@ impl SubsquidSyncer {
             limit: Some(self.batch_size as i64),
         });
 
-        let res: Response<commitments_query::ResponseData> = self
-            .client
-            .post(&self.endpoint)
-            .json(&request_body)
-            .send()
-            .await?
-            .json()
-            .await?;
+        let data: commitments_query::ResponseData =
+            self.post_graphql("commitments", request_body).await?;
 
-        if let Some(errs) = res.errors {
-            return Err(SubsquidError::GraphqlErrors(errs));
-        }
-
-        let Some(data) = res.data else {
-            return Err(SubsquidError::MissingData);
-        };
         let commitments = data.commitments;
         let last_id = commitments
             .last()
@@ -357,22 +390,8 @@ impl SubsquidSyncer {
             limit: Some(self.batch_size as i64),
         });
 
-        let res: Response<nullifiers_query::ResponseData> = self
-            .client
-            .post(&self.endpoint)
-            .json(&request_body)
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        if let Some(errs) = res.errors {
-            return Err(SubsquidError::GraphqlErrors(errs));
-        }
-
-        let Some(data) = res.data else {
-            return Err(SubsquidError::MissingData);
-        };
+        let data: nullifiers_query::ResponseData =
+            self.post_graphql("nullifiers", request_body).await?;
 
         let nullifieds = data.nullifiers;
         let last_id = nullifieds
@@ -407,22 +426,8 @@ impl SubsquidSyncer {
             limit: Some(self.batch_size as i64),
         });
 
-        let res: Response<operations_query::ResponseData> = self
-            .client
-            .post(&self.endpoint)
-            .json(&request_body)
-            .send()
-            .await?
-            .json()
-            .await?;
-
-        if let Some(errs) = res.errors {
-            return Err(SubsquidError::GraphqlErrors(errs));
-        }
-
-        let Some(data) = res.data else {
-            return Err(SubsquidError::MissingData);
-        };
+        let data: operations_query::ResponseData =
+            self.post_graphql("operations", request_body).await?;
 
         let operations_data = data.transactions;
         let last_id = operations_data
