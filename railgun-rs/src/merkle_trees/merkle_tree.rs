@@ -7,11 +7,12 @@ use std::marker::PhantomData;
 use thiserror::Error;
 use tracing::info;
 
-use crate::crypto::{
-    keys::fr_to_bytes,
-    railgun_txid::{Txid, TxidLeafHash},
-    railgun_utxo::Utxo,
-    railgun_zero::railgun_merkle_tree_zero,
+use crate::{
+    crypto::{
+        keys::fr_to_bytes, railgun_txid::TxidLeafHash, railgun_utxo::Utxo,
+        railgun_zero::railgun_merkle_tree_zero,
+    },
+    merkle_trees::merkle_proof::MerkleProof,
 };
 
 /// UTXO Trees track the state of all notes in railgun. New UTXOs are added as
@@ -85,17 +86,12 @@ pub struct MerkleTreeState {
     pub tree: Vec<Vec<[u8; 32]>>,
 }
 
-pub struct MerkleProof {
-    pub element: Fr,
-    pub elements: Vec<Fr>,
-    pub indices: u32,
-    pub root: Fr,
-}
-
 #[derive(Debug, Error)]
 pub enum MerkleTreeError {
     #[error("Element not found in tree")]
     ElementNotFound,
+    #[error("Invalid proof")]
+    InvalidProof,
 }
 
 const TREE_DEPTH: usize = 16;
@@ -229,34 +225,12 @@ impl<C: TreeConfig> MerkleTree<C> {
             index /= 2;
         }
 
-        Ok(MerkleProof {
-            element: element.into(),
-            elements,
-            indices: initial_index as u32,
-            root: self.root(),
-        })
-    }
-
-    pub fn validate_proof(proof: &MerkleProof) -> bool {
-        let mut indices_bits = Vec::new();
-        let mut idx = proof.indices;
-        for _ in 0..proof.elements.len() {
-            indices_bits.push(idx & 1);
-            idx >>= 1;
+        let proof = MerkleProof::new(element.into(), elements, initial_index as u32, self.root());
+        if !proof.verify() {
+            return Err(MerkleTreeError::InvalidProof);
         }
 
-        let mut current_hash = proof.element;
-
-        for (i, &sibling) in proof.elements.iter().enumerate() {
-            let is_left_child = indices_bits[i] == 0;
-            current_hash = if is_left_child {
-                C::hash_left_right(current_hash, sibling)
-            } else {
-                C::hash_left_right(sibling, current_hash)
-            };
-        }
-
-        current_hash == proof.root
+        Ok(proof)
     }
 
     /// Rebuild only the nodes whose descendants were modified.
@@ -349,40 +323,12 @@ mod tests {
 
         for &leaf in &leaves {
             let proof = tree.generate_proof(leaf).unwrap();
-            assert!(MerkleTree::<UtxoTreeConfig>::validate_proof(&proof));
+            assert!(proof.verify(), "Proof invalid for leaf: {:?}", leaf);
         }
 
         let tree_leaves_len = tree.leaves_len();
         assert_eq!(tree_leaves_len, leaves.len());
     }
-
-    // #[test]
-    // #[traced_test]
-    // fn test_merkle_tree_insert_txid_and_proof() {
-    //     let mut tree = MerkleTree::<TxidTreeConfig>::new(0);
-
-    //     let leaf_1 = Txid::new(
-    //         &[Fr::from(3), Fr::from(4)],
-    //         &[Fr::from(1), Fr::from(2)],
-    //         Fr::from(5),
-    //     );
-    //     let leaf_2 = Txid::new(
-    //         &[Fr::from(13), Fr::from(14)],
-    //         &[Fr::from(11), Fr::from(12)],
-    //         Fr::from(15),
-    //     );
-
-    //     info!("Inserting TxIDs into TxidMerkleTree");
-    //     info!("Leaf 1: {:?}", leaf_1);
-    //     info!("Leaf 2: {:?}", leaf_2);
-
-    //     tree.insert_leaves(&[leaf_1.clone(), leaf_2.clone()], 0);
-    //     let root = tree.root();
-
-    //     // let expected =
-    //     //     hex_to_fr("0a03b0bf8dc758a3d5dd7f6b8b1974a4b212a0080425740c92cbd0c860ebde33");
-    //     // assert_eq!(root, expected);
-    // }
 
     /// Test that the tree state can be saved and restored correctly.
     #[test]

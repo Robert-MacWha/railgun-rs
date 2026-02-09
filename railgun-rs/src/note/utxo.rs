@@ -1,7 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use poseidon_rust::poseidon_hash;
-use rand::random;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -9,31 +8,38 @@ use crate::{
     abis::railgun::{CommitmentCiphertext, ShieldRequest, TokenData, TokenDataError},
     caip::AssetId,
     crypto::{
-        aes::{AesError, Ciphertext, encrypt_ctr},
-        concat_arrays, concat_arrays_3,
+        aes::{AesError, Ciphertext},
         keys::{
-            BlindedKey, ByteKey, FieldKey, KeyError, MasterPublicKey, SpendingKey, U256Key,
-            ViewingKey, ViewingPublicKey, blind_viewing_keys, fr_to_bytes,
+            BlindedKey, ByteKey, FieldKey, KeyError, MasterPublicKey, SpendingKey, ViewingKey,
+            ViewingPublicKey,
         },
-        railgun_base_37,
         railgun_utxo::Utxo,
     },
-    railgun::address::RailgunAddress,
+    note::{IncludedNote, Note},
+    poi::client::BlindedCommitmentType,
 };
 
 /// Note represents a Railgun from the chain.
-/// TODO: Consider adding leaf_index / tree_position to Note struct,
-/// so it knows its own index in the tree
+///
+/// TODO: Pre-compute all the note's hashes at creation / decryption and
+/// store as fields.  Saves compute and makes error handling easier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Note {
-    pub spending_key: SpendingKey,
-    pub viewing_key: ViewingKey,
-    pub tree_number: u32,
-    pub leaf_index: u32,
-    pub random: [u8; 16],
-    pub value: u128,
-    pub asset: AssetId,
-    pub memo: String,
+pub struct UtxoNote {
+    spending_key: SpendingKey,
+    viewing_key: ViewingKey,
+    tree_number: u32,
+    leaf_index: u32,
+    random: [u8; 16],
+    value: u128,
+    asset: AssetId,
+    memo: String,
+    type_: UtxoType,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UtxoType {
+    Shield,
+    Transact,
 }
 
 #[derive(Debug, Error)]
@@ -46,17 +52,7 @@ pub enum NoteError {
     Key(#[from] KeyError),
 }
 
-#[derive(Debug, Error)]
-pub enum EncryptError {
-    #[error("Railgun base37 encoding error: {0}")]
-    RailgunBase37(#[from] railgun_base_37::EncodingError),
-    #[error("AES encryption error: {0}")]
-    Aes(#[from] AesError),
-    #[error("Key error: {0}")]
-    Key(#[from] KeyError),
-}
-
-impl Note {
+impl UtxoNote {
     pub fn new(
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
@@ -66,8 +62,9 @@ impl Note {
         value: u128,
         random: &[u8; 16],
         memo: &str,
+        type_: UtxoType,
     ) -> Self {
-        Note {
+        UtxoNote {
             spending_key,
             viewing_key,
             tree_number,
@@ -76,6 +73,7 @@ impl Note {
             value,
             asset,
             memo: memo.to_string(),
+            type_,
         }
     }
 
@@ -86,7 +84,7 @@ impl Note {
         tree_number: u32,
         leaf_index: u32,
         encrypted: &CommitmentCiphertext,
-    ) -> Result<Note, NoteError> {
+    ) -> Result<UtxoNote, NoteError> {
         let blinded_sender = BlindedKey::from_bytes(encrypted.blindedSenderViewingKey.into());
         let shared_key = viewing_key.derive_shared_key_blinded(blinded_sender)?;
 
@@ -114,7 +112,7 @@ impl Note {
             ""
         };
 
-        Ok(Note::new(
+        Ok(UtxoNote::new(
             spending_key,
             viewing_key,
             tree_number,
@@ -123,6 +121,7 @@ impl Note {
             value,
             &random,
             memo,
+            UtxoType::Transact,
         ))
     }
 
@@ -133,7 +132,7 @@ impl Note {
         tree_number: u32,
         leaf_index: u32,
         req: ShieldRequest,
-    ) -> Result<Note, NoteError> {
+    ) -> Result<UtxoNote, NoteError> {
         let encrypted_bundle: [[u8; 32]; 3] = [
             req.ciphertext.encryptedBundle[0].into(),
             req.ciphertext.encryptedBundle[1].into(),
@@ -151,7 +150,7 @@ impl Note {
         let decrypted = shared_key.decrypt_gcm(&ciphertext)?;
         let random: [u8; 16] = decrypted[0][0..16].try_into().unwrap();
 
-        Ok(Note::new(
+        Ok(UtxoNote::new(
             spending_key,
             viewing_key,
             tree_number,
@@ -160,29 +159,89 @@ impl Note {
             req.preimage.value.saturating_to(),
             &random,
             "",
+            UtxoType::Shield,
         ))
     }
+}
 
-    /// Encrypts the note into a CommitmentCiphertext. Uses this note's spending
-    /// and viewing keys as the receiver's information.
-    ///
-    ///  See `encrypt_note` for more details.
-    pub fn encrypt(
-        &self,
-        sender_viewing_key: ViewingKey,
-        blind: bool,
-    ) -> Result<CommitmentCiphertext, EncryptError> {
-        //? Encryption doesn't depend on the chain ID, so it can be arbitrary
-        let receiver = RailgunAddress::from_private_keys(self.spending_key, self.viewing_key, 1);
-        encrypt_note(
-            &receiver,
-            &self.random,
-            self.value,
-            &self.asset,
-            &self.memo,
-            sender_viewing_key,
-            blind,
-        )
+// impl EncryptableNote for UtxoNote {
+//     /// Encrypts the note into a CommitmentCiphertext. Uses this note's spending
+//     /// and viewing keys as the receiver's information.
+//     ///
+//     ///  See `encrypt_note` for more details.
+//     fn encrypt(
+//         &self,
+//         sender_viewing_key: ViewingKey,
+//         blind: bool,
+//     ) -> Result<CommitmentCiphertext, EncryptError> {
+//         //? Encryption doesn't depend on the chain ID, so it can be arbitrary
+//         let receiver = RailgunAddress::from_private_keys(self.spending_key, self.viewing_key, 1);
+//         encrypt_note(
+//             &receiver,
+//             &self.random,
+//             self.value,
+//             &self.asset,
+//             &self.memo,
+//             sender_viewing_key,
+//             blind,
+//         )
+//     }
+// }
+
+impl Note for UtxoNote {
+    fn asset(&self) -> AssetId {
+        self.asset
+    }
+
+    fn value(&self) -> u128 {
+        self.value
+    }
+
+    fn memo(&self) -> String {
+        self.memo.clone()
+    }
+
+    fn hash(&self) -> Utxo {
+        poseidon_hash(&[
+            self.note_public_key(),
+            self.asset.hash(),
+            Fr::from(self.value),
+        ])
+        .unwrap()
+        .into()
+    }
+
+    fn note_public_key(&self) -> Fr {
+        let master_key = MasterPublicKey::new(
+            self.spending_key.public_key(),
+            self.viewing_key.nullifying_key(),
+        );
+
+        poseidon_hash(&[
+            master_key.to_fr(),
+            Fr::from_be_bytes_mod_order(&self.random),
+        ])
+        .unwrap()
+    }
+}
+
+impl IncludedNote for UtxoNote {
+    fn tree_number(&self) -> u32 {
+        self.tree_number
+    }
+
+    fn leaf_index(&self) -> u32 {
+        self.leaf_index
+    }
+}
+
+impl UtxoNote {
+    pub fn random(&self) -> [u8; 16] {
+        self.random
+    }
+
+    pub fn utxo_type(&self) -> UtxoType {
+        self.type_.clone()
     }
 
     pub fn sign_circuit_inputs(
@@ -205,19 +264,6 @@ impl Note {
         [signature.r8_x, signature.r8_y, signature.s]
     }
 
-    /// Returns the note's hash. Also known as the commitment hash.
-    ///
-    /// Hash of (note_public_key, token_id, value)
-    pub fn hash(&self) -> Utxo {
-        poseidon_hash(&[
-            self.note_public_key(),
-            self.asset.hash(),
-            Fr::from(self.value),
-        ])
-        .unwrap()
-        .into()
-    }
-
     /// Returns the note's spending public key
     pub fn spending_public_key(&self) -> (Fr, Fr) {
         let pubkey = self.spending_key.public_key();
@@ -231,98 +277,28 @@ impl Note {
         poseidon_hash(&[self.nullifying_key(), Fr::from(leaf_index)]).unwrap()
     }
 
-    /// Returns the note's public key
-    ///
-    /// Hash of (master_public_key, random_seed)
-    pub fn note_public_key(&self) -> Fr {
-        let master_key = MasterPublicKey::new(
-            self.spending_key.public_key(),
-            self.viewing_key.nullifying_key(),
-        );
-
-        poseidon_hash(&[
-            master_key.to_fr(),
-            Fr::from_be_bytes_mod_order(&self.random),
-        ])
-        .unwrap()
-    }
-
     /// Returns the note's nullifying key
     ///
     /// Hash of (viewing_private_key)
     pub fn nullifying_key(&self) -> Fr {
         poseidon_hash(&[self.viewing_key.to_fr()]).unwrap()
     }
-}
 
-/// Encrypts a note into a CommitmentCiphertext
-///
-/// TODO: Add details on blind
-pub fn encrypt_note(
-    receiver: &RailgunAddress,
-    shared_random: &[u8; 16],
-    value: u128,
-    asset: &AssetId,
-    memo: &str,
-    viewing_key: ViewingKey,
-    blind: bool,
-) -> Result<CommitmentCiphertext, EncryptError> {
-    let output_type = 0;
-    let application_identifier = railgun_base_37::encode("railgun rs")?;
-    let sender_random: [u8; 15] = if blind { random() } else { [0u8; 15] };
-
-    let (blinded_sender, blinded_receiver) = blind_viewing_keys(
-        viewing_key.public_key(),
-        receiver.viewing_pubkey(),
-        &concat_arrays(shared_random, &[0u8; 16]),
-        &concat_arrays(&sender_random, &[0u8; 17]),
-    )?;
-
-    let shared_key = viewing_key.derive_shared_key_blinded(blinded_receiver)?;
-    let gcm = shared_key.encrypt_gcm(&[
-        receiver.master_key().as_bytes(),
-        &concat_arrays::<16, 16, 32>(shared_random, &value.to_be_bytes()),
-        &fr_to_bytes(&asset.hash()),
-        memo.as_bytes(),
-    ])?;
-
-    let ctr = encrypt_ctr(
-        &[&concat_arrays_3::<1, 15, 16, 32>(
-            &[output_type],
-            &sender_random,
-            &application_identifier,
-        )],
-        viewing_key.public_key().as_bytes(),
-    );
-
-    let bundle_1: [u8; 32] = gcm.data[0].clone().try_into().unwrap();
-    let bundle_2: [u8; 32] = gcm.data[1].clone().try_into().unwrap();
-    let bundle_3: [u8; 32] = gcm.data[2].clone().try_into().unwrap();
-
-    Ok(CommitmentCiphertext {
-        // iv (16) | tag (16)
-        // master_public_key (32)
-        // random (16) | value (16)
-        // token_hash (32)
-        ciphertext: [
-            concat_arrays(&gcm.iv, &gcm.tag).into(),
-            bundle_1.into(),
-            bundle_2.into(),
-            bundle_3.into(),
-        ],
-        blindedSenderViewingKey: blinded_sender.to_u256().into(),
-        blindedReceiverViewingKey: blinded_receiver.to_u256().into(),
-        // ctr_iv (16) | encrypted_sender_bundle (any)
-        annotationData: [ctr.iv.as_slice(), &ctr.data[0]].concat().into(),
-        memo: gcm.data[3].clone().into(),
-    })
+    pub fn blinded_commitment(&self) -> Fr {
+        poseidon_hash(&[
+            self.hash().into(),
+            self.note_public_key(),
+            Fr::from((self.tree_number as u64) * 65536 + (self.leaf_index as u64)),
+        ])
+        .unwrap()
+    }
 }
 
 #[cfg(test)]
-impl Note {
+impl UtxoNote {
     /// Creates a test note with fixed parameters
     pub fn new_test_note(spending_key: SpendingKey, viewing_key: ViewingKey) -> Self {
-        Note::new(
+        UtxoNote::new(
             spending_key,
             viewing_key,
             1,
@@ -333,13 +309,22 @@ impl Note {
             100u128,
             &[3u8; 16],
             "test memo",
+            UtxoType::Transact,
         )
+    }
+}
+
+impl From<UtxoType> for BlindedCommitmentType {
+    fn from(utxo_type: UtxoType) -> Self {
+        match utxo_type {
+            UtxoType::Shield => BlindedCommitmentType::Shield,
+            UtxoType::Transact => BlindedCommitmentType::Transact,
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use alloy::primitives::address;
     use tracing_test::traced_test;
 
     use crate::crypto::keys::{bytes_to_fr, hex_to_fr};
@@ -424,65 +409,8 @@ mod tests {
         assert_eq!(pub_key, expected);
     }
 
-    #[test]
-    #[traced_test]
-    fn test_encrypt_decrypt_note() {
-        let chain_id = 1;
-
-        // Sender keys
-        let sender_viewing_key = ViewingKey::from_bytes([2u8; 32]);
-
-        // Receiver keys
-        let receiver_spending_key = SpendingKey::from_bytes([3u8; 32]);
-        let receiver_viewing_key = ViewingKey::from_bytes([4u8; 32]);
-        let receiver = RailgunAddress::from_private_keys(
-            receiver_spending_key,
-            receiver_viewing_key,
-            chain_id,
-        );
-
-        let shared_random = [5u8; 16];
-        let value = 1000u128;
-        let asset = AssetId::Erc20(address!("0x1234567890123456789012345678901234567890"));
-        let memo = "test memo";
-
-        let encrypted = encrypt_note(
-            &receiver,
-            &shared_random,
-            value,
-            &asset,
-            memo,
-            sender_viewing_key,
-            false,
-        )
-        .unwrap();
-
-        // Receiver decrypts with their own keys
-        let decrypted = Note::decrypt(
-            receiver_spending_key,
-            receiver_viewing_key,
-            1,
-            0,
-            &encrypted,
-        )
-        .unwrap();
-
-        let expected = Note::new(
-            receiver_spending_key,
-            receiver_viewing_key,
-            1,
-            0,
-            asset,
-            value,
-            &shared_random,
-            memo,
-        );
-
-        assert_eq!(expected, decrypted);
-    }
-
-    fn test_note() -> Note {
-        Note::new_test_note(
+    fn test_note() -> UtxoNote {
+        UtxoNote::new_test_note(
             SpendingKey::from_bytes([1u8; 32]),
             ViewingKey::from_bytes([2u8; 32]),
         )

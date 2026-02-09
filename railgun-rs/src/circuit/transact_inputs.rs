@@ -6,7 +6,7 @@ use num_bigint::{BigInt, Sign};
 use crate::{
     crypto::keys::fr_to_bigint,
     merkle_trees::merkle_tree::UtxoMerkleTree,
-    note::{note::Note, operation::TransactNote},
+    note::{Note, utxo::UtxoNote},
 };
 
 #[derive(Debug, Clone)]
@@ -34,8 +34,8 @@ impl TransactCircuitInputs {
     pub fn from_inputs(
         merkle_tree: &mut UtxoMerkleTree,
         bound_params_hash: Fr,
-        notes_in: &[Note],
-        notes_out: &[Box<dyn TransactNote>],
+        notes_in: &[UtxoNote],
+        notes_out: &[Box<dyn Note>],
     ) -> Result<Self, ()> {
         if notes_in.is_empty() || notes_out.is_empty() {
             return Err(());
@@ -53,10 +53,10 @@ impl TransactCircuitInputs {
             .zip(merkle_proofs.iter())
             .map(|(note, proof)| note.nullifier(proof.indices))
             .collect::<Vec<Fr>>();
-        let commitments: Vec<Fr> = notes_out.iter().map(|note| note.hash()).collect();
+        let commitments: Vec<Fr> = notes_out.iter().map(|note| note.hash().into()).collect();
 
         let note_zero = &notes_in[0];
-        let token = fr_to_bigint(&note_zero.asset.hash());
+        let token = fr_to_bigint(&note_zero.asset().hash());
         let public_key = note_zero.spending_public_key();
         let public_key = [fr_to_bigint(&public_key.0), fr_to_bigint(&public_key.1)];
         let signature = note_zero.sign_circuit_inputs(
@@ -73,12 +73,12 @@ impl TransactCircuitInputs {
 
         let random_in = notes_in
             .iter()
-            .map(|note| BigInt::from_bytes_be(Sign::Plus, &note.random))
+            .map(|note| BigInt::from_bytes_be(Sign::Plus, &note.random()))
             .collect();
 
         let value_in: Vec<BigInt> = notes_in
             .iter()
-            .map(|note| BigInt::from(note.value))
+            .map(|note| BigInt::from(note.value()))
             .collect();
 
         let path_elements = merkle_proofs

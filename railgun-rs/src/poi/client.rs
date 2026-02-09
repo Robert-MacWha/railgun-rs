@@ -5,6 +5,8 @@ use alloy::{
     serde::quantity::vec,
 };
 use ark_bn254::Fr;
+use ark_ff::PrimeField;
+use thiserror::Error;
 
 pub use crate::poi::{
     inner_client::ClientError,
@@ -15,7 +17,7 @@ use crate::{
         keys::{fr_to_bytes, hex_to_fr},
         railgun_txid::Txid,
     },
-    poi::inner_types::MerkleProof,
+    merkle_trees::merkle_proof::MerkleProof,
 };
 
 pub struct PoiClient {
@@ -36,6 +38,14 @@ pub struct ValidatedRailgunTxidStatus {
     pub merkleroot: Txid,
 }
 
+#[derive(Debug, Error)]
+pub enum PoiMerkleProofError {
+    #[error("Hex decoding error: {0}")]
+    HexDecode(#[from] hex::FromHexError),
+    #[error("Integer parsing error: {0}")]
+    ParseInt(#[from] std::num::ParseIntError),
+}
+
 impl PoiClient {
     pub async fn new(url: impl Into<String>, chain: ChainId) -> Result<Self, ClientError> {
         let inner = crate::poi::inner_client::InnerPoiClient::new(url);
@@ -54,6 +64,10 @@ impl PoiClient {
             Ok(status) if status.to_lowercase() == "ok" => true,
             _ => false,
         }
+    }
+
+    pub fn list_keys(&self) -> Vec<ListKey> {
+        self.list_keys.clone()
     }
 
     /// Returns a map of list keys to their corresponding POIs for the given blinded for all list
@@ -100,6 +114,11 @@ impl PoiClient {
                     blinded_commitments: blinded_commitments.clone(),
                 })
                 .await?;
+
+            let list_key_proofs = list_key_proofs
+                .into_iter()
+                .map(|proof| proof.try_into())
+                .collect::<Result<Vec<_>, PoiMerkleProofError>>()?;
 
             proofs.insert(list_key.clone(), list_key_proofs);
         }
@@ -159,5 +178,25 @@ impl PoiClient {
             chain_id: self.chain.to_string(),
             txid_version: crate::poi::inner_types::TxidVersion::V2PoseidonMerkle,
         }
+    }
+}
+
+impl TryFrom<crate::poi::inner_types::MerkleProof> for MerkleProof {
+    type Error = PoiMerkleProofError;
+
+    fn try_from(proof: crate::poi::inner_types::MerkleProof) -> Result<MerkleProof, Self::Error> {
+        Ok(MerkleProof {
+            element: Fr::from_be_bytes_mod_order(&hex::decode(proof.leaf)?),
+            elements: proof
+                .elements
+                .into_iter()
+                .map(|e| hex::decode(e))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .map(|e| Fr::from_be_bytes_mod_order(&e))
+                .collect(),
+            indices: proof.indices.parse::<u32>()?,
+            root: Fr::from_be_bytes_mod_order(&hex::decode(proof.root)?),
+        })
     }
 }

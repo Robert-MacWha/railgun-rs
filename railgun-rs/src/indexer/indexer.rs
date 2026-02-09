@@ -30,7 +30,7 @@ use crate::{
     merkle_trees::merkle_tree::{
         MerkleTree, MerkleTreeState, TreeConfig, TxidMerkleTree, UtxoMerkleTree,
     },
-    note::note::NoteError,
+    note::utxo::{NoteError, UtxoNote},
     railgun::address::RailgunAddress,
 };
 
@@ -44,8 +44,8 @@ pub struct Indexer {
     chain: ChainConfig,
     /// The latest block number that has been synced
     synced_block: u64,
-    utxo_trees: BTreeMap<u32, UtxoMerkleTree>,
-    txid_trees: BTreeMap<u32, TxidMerkleTree>,
+    pub utxo_trees: BTreeMap<u32, UtxoMerkleTree>,
+    pub txid_trees: BTreeMap<u32, TxidMerkleTree>,
 
     /// List of accounts being tracked by the indexer
     accounts: Vec<IndexedAccount>,
@@ -137,18 +137,20 @@ impl Indexer {
         self.synced_block
     }
 
-    pub fn utxo_trees(&mut self) -> &mut BTreeMap<u32, UtxoMerkleTree> {
-        &mut self.utxo_trees
-    }
-
-    pub fn txid_trees(&mut self) -> &mut BTreeMap<u32, TxidMerkleTree> {
-        &mut self.txid_trees
-    }
-
     pub fn notebooks(&self, address: RailgunAddress) -> Option<BTreeMap<u32, Notebook>> {
         for account in self.accounts.iter() {
             if account.address() == address {
                 return Some(account.notebooks());
+            }
+        }
+
+        None
+    }
+
+    pub fn unspent(&self, address: RailgunAddress) -> Option<Vec<UtxoNote>> {
+        for account in self.accounts.iter() {
+            if account.address() == address {
+                return Some(account.unspent());
             }
         }
 

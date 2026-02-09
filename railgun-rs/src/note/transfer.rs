@@ -5,10 +5,13 @@ use poseidon_rust::poseidon_hash;
 use crate::{
     abis::railgun::CommitmentCiphertext,
     caip::AssetId,
-    crypto::keys::{FieldKey, ViewingKey},
+    crypto::{
+        keys::{FieldKey, ViewingKey},
+        railgun_utxo::Utxo,
+    },
     note::{
-        note::{EncryptError, encrypt_note},
-        operation::{EncryptableNote, TransactNote},
+        EncryptableNote, Note,
+        encrypt::{EncryptError, encrypt_note},
     },
     railgun::address::RailgunAddress,
 };
@@ -58,14 +61,27 @@ impl EncryptableNote for TransferNote {
     }
 }
 
-impl TransactNote for TransferNote {
-    fn hash(&self) -> Fr {
+impl Note for TransferNote {
+    fn asset(&self) -> AssetId {
+        self.asset
+    }
+
+    fn value(&self) -> u128 {
+        self.value
+    }
+
+    fn memo(&self) -> String {
+        self.memo.clone()
+    }
+
+    fn hash(&self) -> Utxo {
         poseidon_hash(&[
             self.note_public_key(),
             self.asset.hash(),
             Fr::from(self.value),
         ])
         .unwrap()
+        .into()
     }
 
     fn note_public_key(&self) -> Fr {
@@ -74,10 +90,6 @@ impl TransactNote for TransferNote {
             Fr::from_be_bytes_mod_order(&self.random),
         ])
         .unwrap()
-    }
-
-    fn value(&self) -> u128 {
-        self.value
     }
 }
 
@@ -88,8 +100,11 @@ mod tests {
 
     use crate::{
         caip::AssetId,
-        crypto::keys::{ByteKey, SpendingKey, ViewingKey, hex_to_fr},
-        note::{operation::TransactNote, transfer::TransferNote},
+        crypto::{
+            keys::{ByteKey, SpendingKey, ViewingKey, hex_to_fr},
+            railgun_utxo::Utxo,
+        },
+        note::{Note, transfer::TransferNote},
         railgun::address::RailgunAddress,
     };
 
@@ -108,10 +123,10 @@ mod tests {
             [2u8; 16],
             "memo",
         );
-        let hash = note.hash();
+        let hash: Utxo = note.hash();
 
-        let expected =
-            hex_to_fr("0x0238d33eb654c483bb7beb8dc44f2d364ee415414af794adf3cc40018d1412c1");
+        let expected: Utxo =
+            hex_to_fr("0x0238d33eb654c483bb7beb8dc44f2d364ee415414af794adf3cc40018d1412c1").into();
         assert_eq!(hash, expected);
     }
 }

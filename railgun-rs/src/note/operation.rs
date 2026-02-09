@@ -1,13 +1,6 @@
-use ark_bn254::Fr;
-
 use crate::{
-    abis::railgun::CommitmentCiphertext,
     caip::AssetId,
-    note::{
-        note::{EncryptError, Note},
-        transfer::TransferNote,
-        unshield::UnshieldNote,
-    },
+    note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote, utxo::UtxoNote},
 };
 
 /// An Operation represents a single "operation" within a railgun transaction.
@@ -28,8 +21,8 @@ use crate::{
 ///      token/value pair for unshielding.
 #[derive(Debug, Clone)]
 pub struct Operation<N> {
-    /// The number of the tree this operation is spending notes from.
-    tree_number: u32,
+    /// The UTXO tree number that the in_notes being spent are from
+    utxo_tree_number: u32,
 
     /// The asset this operation is spending.
     asset: AssetId,
@@ -39,17 +32,7 @@ pub struct Operation<N> {
     unshield_note: Option<UnshieldNote>,
 }
 
-pub trait TransactNote {
-    fn hash(&self) -> Fr;
-    fn note_public_key(&self) -> Fr;
-    fn value(&self) -> u128;
-}
-
-pub trait EncryptableNote: TransactNote {
-    fn encrypt(&self) -> Result<CommitmentCiphertext, EncryptError>;
-}
-
-impl Operation<Note> {
+impl<N: Note> Operation<N> {
     /// TODO: Add error checking to ensure that the operation is valid.
     ///
     /// - Spending and viewing keys are the same for all notes in
@@ -60,14 +43,14 @@ impl Operation<Note> {
     /// - notes_out.len() + unshield_note.is_some() <= 13
     pub fn new(
         tree_number: u32,
-        in_notes: Vec<Note>,
+        in_notes: Vec<N>,
         out_notes: Vec<TransferNote>,
         unshield: Option<UnshieldNote>,
     ) -> Self {
-        let asset = in_notes.first().unwrap().asset;
+        let asset = in_notes.first().unwrap().asset();
 
         Operation {
-            tree_number,
+            utxo_tree_number: tree_number,
             asset,
             in_notes,
             out_notes,
@@ -77,12 +60,12 @@ impl Operation<Note> {
 }
 
 impl<N> Operation<N> {
-    /// Tree number for the in_notes in this operation.
-    pub fn tree_number(&self) -> u32 {
-        self.tree_number
+    /// UTXO tree number for these in_notes
+    pub fn utxo_tree_number(&self) -> u32 {
+        self.utxo_tree_number
     }
 
-    /// Asset ID for the notes in this operation.
+    /// Asset ID for these notes
     pub fn asset(&self) -> AssetId {
         self.asset
     }
@@ -92,8 +75,8 @@ impl<N> Operation<N> {
     }
 
     // TODO: Convert me to return &[Box] if possible
-    pub fn out_notes(&self) -> Vec<Box<dyn TransactNote>> {
-        let mut notes: Vec<Box<dyn TransactNote>> = Vec::new();
+    pub fn out_notes(&self) -> Vec<Box<dyn Note>> {
+        let mut notes: Vec<Box<dyn Note>> = Vec::new();
 
         for transfer in &self.out_notes {
             notes.push(Box::new(transfer.clone()));
@@ -124,15 +107,18 @@ impl<N> Operation<N> {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::address;
+    use rand::random;
     use tracing_test::traced_test;
 
     use crate::{
         caip::AssetId,
         crypto::keys::{ByteKey, SpendingKey, ViewingKey},
         note::{
-            operation::{self, TransactNote},
+            Note,
+            operation::{self},
             transfer::TransferNote,
             unshield::UnshieldNote,
+            utxo::{UtxoNote, UtxoType},
         },
         railgun::address::RailgunAddress,
     };
@@ -142,10 +128,16 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_last_commitment_is_unshield() {
-        let unshield_note = UnshieldNote::new(
-            address!("0x1234567890123456789012345678901234567890"),
-            AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
+        let in_note = UtxoNote::new(
+            random(),
+            random(),
+            0,
+            0,
+            AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
             10,
+            &random(),
+            "",
+            UtxoType::Transact,
         );
         let transfer_note = TransferNote::new(
             ViewingKey::from_bytes([3u8; 32]),
@@ -159,11 +151,16 @@ mod tests {
             [2u8; 16],
             "memo",
         );
+        let unshield_note = UnshieldNote::new(
+            address!("0x1234567890123456789012345678901234567890"),
+            AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
+            10,
+        );
 
         let operation = operation::Operation::new(
             1,
-            Default::default(),
-            vec![transfer_note.clone()],
+            vec![in_note],
+            vec![transfer_note],
             Some(unshield_note.clone()),
         );
 

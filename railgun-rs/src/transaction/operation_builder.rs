@@ -21,7 +21,10 @@ use tracing::warn;
 use crate::{
     account::RailgunAccount,
     caip::AssetId,
-    note::{note::Note, operation::Operation, transfer::TransferNote, unshield::UnshieldNote},
+    note::{
+        IncludedNote, Note, operation::Operation, transfer::TransferNote, unshield::UnshieldNote,
+        utxo::UtxoNote,
+    },
     railgun::address::RailgunAddress,
 };
 
@@ -97,7 +100,7 @@ impl OperationBuilder {
     ///
     /// Preserves the ordering of transfers within and across operations. Does not
     /// guarantee any particular ordering of unshield operations relative to transfers.
-    pub fn build(self, in_notes: Vec<Note>) -> Result<Vec<Operation<Note>>, GroupError> {
+    pub fn build<N: IncludedNote>(self, in_notes: Vec<N>) -> Result<Vec<Operation<N>>, GroupError> {
         let unshield_note = if self.unshields.len() > 1 {
             return Err(GroupError::MultipleUnshields);
         } else if self.unshields.len() == 1 {
@@ -124,7 +127,12 @@ impl OperationBuilder {
         let unshield_note = unshield_note.map(|u| UnshieldNote::new(u.to, u.asset, u.value));
 
         // TODO: Implement an actual algorithm
-        let group = Operation::new(in_notes[0].tree_number, in_notes, out_notes, unshield_note);
+        let group = Operation::new(
+            in_notes[0].tree_number(),
+            in_notes,
+            out_notes,
+            unshield_note,
+        );
         Ok(vec![group])
     }
 }

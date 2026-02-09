@@ -9,6 +9,8 @@ use tracing::info;
 use crate::abis::railgun::{BoundParams, RailgunSmartWallet};
 use crate::circuit::prover::TransactProver;
 use crate::merkle_trees::merkle_tree::UtxoMerkleTree;
+use crate::note::Note;
+use crate::note::encrypt::EncryptError;
 use crate::transaction::tx_data::TxData;
 use crate::{
     abis::railgun::{
@@ -19,11 +21,7 @@ use crate::{
     chain_config::ChainConfig,
     circuit::transact_inputs::TransactCircuitInputs,
     crypto::keys::{bigint_to_fr, fr_to_u256},
-    merkle_trees::merkle_tree::MerkleTree,
-    note::{
-        note::{EncryptError, Note},
-        operation::{Operation, TransactNote},
-    },
+    note::{operation::Operation, utxo::UtxoNote},
 };
 
 pub fn create_txdata(
@@ -33,7 +31,7 @@ pub fn create_txdata(
     chain: ChainConfig,
     adapt_contract: Address,
     adapt_input: &[u8; 32],
-    operations: Vec<Operation<Note>>,
+    operations: Vec<Operation<UtxoNote>>,
 ) -> Result<TxData, EncryptError> {
     let transactions = create_transactions(
         prover,
@@ -63,12 +61,12 @@ pub fn create_transactions(
     chain: ChainConfig,
     adapt_contract: Address,
     adapt_input: &[u8; 32],
-    operations: Vec<Operation<Note>>,
+    operations: Vec<Operation<UtxoNote>>,
 ) -> Result<Vec<Transaction>, EncryptError> {
     let mut transactions = Vec::new();
     for operation in operations {
-        info!("Processing tree {}", operation.tree_number());
-        let merkle_tree = merkle_trees.get_mut(&operation.tree_number()).unwrap();
+        info!("Processing tree {}", operation.utxo_tree_number());
+        let merkle_tree = merkle_trees.get_mut(&operation.utxo_tree_number()).unwrap();
 
         let unshield = if operation.unshield_note().is_some() {
             UnshieldType::NORMAL
@@ -135,7 +133,7 @@ pub fn create_transactions(
                         fr_to_u256(&unshield.asset.hash())
                     );
                     info!("Unshield value: {:?}", unshield.value);
-                    info!("Unshield hash: {:?}", fr_to_u256(&unshield.hash()));
+                    info!("Unshield hash: {:?}", fr_to_u256(&unshield.hash().into()));
                     info!("Last commitment_out: {:?}", &inputs.commitments_out.last());
                     CommitmentPreimage {
                         npk: fr_to_u256(&unshield.note_public_key()).into(),

@@ -1,7 +1,11 @@
 //! Raw types for POI RPC requests and responses.
 
+use ark_bn254::Fr;
+use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use crate::crypto::keys::bytes_to_fr;
 
 pub type ListKey = String;
 /// Hex string

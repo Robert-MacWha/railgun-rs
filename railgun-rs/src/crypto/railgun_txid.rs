@@ -158,21 +158,19 @@ mod tests {
 
     #[test]
     fn test_txid_leaf_hash() {
-        let txid = Txid(hex_to_fr(
-            "0x24355ef25433d028ebcc75110e233021e80f6c5fa04bd1b42cdb40c35d8396e8",
-        ));
+        let txid = Txid(Fr::from(0));
         let leaf_hash = TxidLeafHash::new(
             txid,
-            0,
+            1,
             UtxoTreeOut::Included {
-                tree_number: 1,
-                start_index: 2,
+                tree_number: 2,
+                start_index: 3,
             },
         );
 
         assert_eq!(
             hex::encode(fr_to_bytes(&leaf_hash.0)),
-            "1a9b3c4d5e6f7890123456789abcdef0123456789abcdef0123456789abcdef"
+            "0ee9fe920d14d2b4ccc7911b02a4b3cfed2b06a0ca499592285658880880d330"
         );
     }
 }

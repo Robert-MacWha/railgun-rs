@@ -6,21 +6,21 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
 };
-use ark_bn254::Fr;
-use poseidon_rust::poseidon_hash;
 use tracing::info;
 
 use railgun_rs::{
-    abis::erc20::ERC20,
+    abis::{
+        erc20::ERC20,
+        railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
+    },
     account::RailgunAccount,
     caip::AssetId,
-    chain_config::{ChainConfig, MAINNET_CONFIG, SEPOLIA_CONFIG},
-    circuit::native_prover::NativeProver,
-    crypto::keys::{HexKey, SpendingKey, ViewingKey, fr_to_bytes},
+    chain_config::{ChainConfig, SEPOLIA_CONFIG},
+    circuit::{native_prover::NativeProver, poi_inputs::PoiCircuitInputs},
+    crypto::keys::{HexKey, SpendingKey, ViewingKey},
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
     merkle_trees::merkle_tree::TxidMerkleTree,
-    note::{note::Note, transact::create_txdata},
-    poi::client::{BlindedCommitmentData, BlindedCommitmentType, PoiClient},
+    poi::{client::PoiClient, poi_note::PoiNote},
     railgun::address::RailgunAddress,
     transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
 };
@@ -74,50 +74,64 @@ async fn main() {
 
     info!("Balance: {:?}", indexer.balance(account.address()));
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
-    verify_trees(indexer.txid_trees(), &poi_client).await;
+    verify_trees(&mut indexer.txid_trees, &poi_client).await;
 
-    let mut notes: Vec<Note> = Vec::new();
+    let notes = indexer.unspent(account.address()).unwrap();
+    let notes = PoiNote::from_utxo_notes(notes, &poi_client).await.unwrap();
 
-    let notebooks = indexer.notebooks(account.address()).unwrap();
-    for (tree_index, notebook) in notebooks {
-        for (leaf_index, note) in notebook.unspent() {
-            info!("Unspent note [{}, {}]: {:?}", tree_index, leaf_index, note);
+    let builder_address = RailgunAddress::from_str("0zk1qyqhtwaa9zj3ug9dmxhfedappvm509w7dr5lgadaehxz38w9u457mrv7j6fe3z53layes62mktxj5kd6reh2kxd39ds2gnpf6wphtw39y5g36lsvukeywfqa8y0").unwrap();
+    let builder_fee_asset = USDC;
+    let builder_fee_per_gas = 1;
+    let builder_fee = builder_fee_per_gas * 100;
 
-            let commitment_hash = note.hash().into();
-            let npk = note.note_public_key();
-            let global_tree_position = Fr::from(tree_index * 65536 + leaf_index);
-            let blinded_commitment =
-                poseidon_hash(&[commitment_hash, npk, global_tree_position]).unwrap();
+    let operation = &OperationBuilder::new()
+        .transfer(
+            account.clone(),
+            builder_address,
+            builder_fee_asset,
+            builder_fee,
+            "",
+        )
+        .build(notes.clone())
+        .unwrap()[0];
 
-            let pois = poi_client
-                .pois(vec![BlindedCommitmentData {
-                    blinded_commitment: fr_to_bytes(&blinded_commitment),
-                    commitment_type: BlindedCommitmentType::Shield,
-                }])
-                .await
-                .unwrap();
+    let commitment_ciphertexts: Vec<CommitmentCiphertext> = operation
+        .out_encryptable_notes()
+        .iter()
+        .map(|n| n.encrypt())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
 
-            let merkle_proofs = poi_client
-                .merkle_proofs(vec![fr_to_bytes(&blinded_commitment)])
-                .await
-                .unwrap();
+    let bound_params = BoundParams::new(
+        2,
+        0,
+        UnshieldType::NONE,
+        CHAIN.id,
+        Address::ZERO,
+        &[0u8; 32],
+        commitment_ciphertexts,
+    );
+    let bound_params_hash = bound_params.hash();
 
-            info!("POIs: {:?}", pois);
-            info!("Merkle Proofs: {:?}", merkle_proofs);
+    let prover = Box::new(NativeProver::new());
+    let list_keys = poi_client.list_keys();
+    for key in list_keys {
+        let poi_inputs = PoiCircuitInputs::from_inputs(
+            account.spending_key().public_key(),
+            account.viewing_key().nullifying_key(),
+            &mut indexer.utxo_trees.get_mut(&2).unwrap(),
+            &mut indexer.txid_trees.get_mut(&0).unwrap(),
+            bound_params_hash,
+            operation,
+            key.clone(),
+        )
+        .unwrap();
 
-            notes.push(note.clone());
-        }
+        info!("POI Inputs for list key {}: {:#?}", key, poi_inputs);
     }
-
-    // let prover = Box::new(NativeProver::new());
-    // let merkle_trees = indexer.utxo_trees();
 
     // // Creates a transaction builder for our desired set of operations.
     // let tx = TxBuilder::new().set_unshield(address, USDC, 1_000);
-
-    // let builder_address = RailgunAddress::from_str("0zk1qyqhtwaa9zj3ug9dmxhfedappvm509w7dr5lgadaehxz38w9u457mrv7j6fe3z53layes62mktxj5kd6reh2kxd39ds2gnpf6wphtw39y5g36lsvukeywfqa8y0").unwrap();
-    // let builder_fee_asset = USDC;
-    // let builder_fee_per_gas = 1;
 
     // // Build a new transaction group with the builder's fee
     // let mut estimated_gas = 100;

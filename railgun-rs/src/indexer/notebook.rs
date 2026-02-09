@@ -2,19 +2,19 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{crypto::keys::bytes_to_fr, note::note::Note};
+use crate::{crypto::keys::bytes_to_fr, note::utxo::UtxoNote};
 
 /// Notebook holds a collection of spent and unspent notes for a Railgun account,
 /// on a single tree.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Notebook {
-    pub unspent: BTreeMap<u32, Note>,
-    pub spent: BTreeMap<u32, Note>,
+    pub unspent: BTreeMap<u32, UtxoNote>,
+    pub spent: BTreeMap<u32, UtxoNote>,
 }
 
 #[derive(Clone, Debug)]
 pub struct SpentNote {
-    inner: Note,
+    inner: UtxoNote,
     nullifier: [u8; 32],
     /// Unix timestamp
     timestamp: u64,
@@ -29,7 +29,7 @@ impl Notebook {
     }
 
     /// Adds an unspent note to the notebook.
-    pub fn add(&mut self, note_position: u32, note: Note) {
+    pub fn add(&mut self, note_position: u32, note: UtxoNote) {
         self.unspent.insert(note_position, note);
     }
 
@@ -65,18 +65,18 @@ impl Notebook {
     }
 
     /// Returns a reference to the unspent notes.
-    pub fn unspent(&self) -> &BTreeMap<u32, Note> {
+    pub fn unspent(&self) -> &BTreeMap<u32, UtxoNote> {
         &self.unspent
     }
 
     /// Returns a reference to the spent notes.
-    pub fn spent(&self) -> &BTreeMap<u32, Note> {
+    pub fn spent(&self) -> &BTreeMap<u32, UtxoNote> {
         &self.spent
     }
 
     /// Returns all notes, both spent and unspent, organized by tree number and
     /// note position.
-    pub fn all(&self) -> BTreeMap<u32, Note> {
+    pub fn all(&self) -> BTreeMap<u32, UtxoNote> {
         let mut all_notes = BTreeMap::new();
 
         for (note_position, note) in &self.unspent {

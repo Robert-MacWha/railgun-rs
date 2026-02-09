@@ -72,7 +72,7 @@ mod tests {
     use crate::{
         caip::AssetId,
         crypto::keys::{SpendingKey, ViewingKey},
-        note::{note::Note, shield::create_shield_request},
+        note::{Note, shield::create_shield_request, utxo::UtxoNote},
         railgun::address::RailgunAddress,
     };
 
@@ -90,11 +90,11 @@ mod tests {
 
         // Decrypt the note
         let decrypted =
-            Note::decrypt_shield_request(spending_key, viewing_key, 1, 0, shield_request)
+            UtxoNote::decrypt_shield_request(spending_key, viewing_key, 1, 0, shield_request)
                 .expect("Failed to decrypt shield note");
 
-        assert_eq!(decrypted.value, value);
-        assert_eq!(decrypted.asset, asset);
-        assert_eq!(decrypted.memo, "");
+        assert_eq!(decrypted.value(), value);
+        assert_eq!(decrypted.asset(), asset);
+        assert_eq!(decrypted.memo(), "");
     }
 }

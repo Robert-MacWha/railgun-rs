@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::info;
 
-use crate::poi::inner_types::*;
+use crate::poi::{client::PoiMerkleProofError, inner_types::*};
 
 #[derive(Debug, Serialize)]
 struct JsonRpcRequest<P: Serialize> {
@@ -48,6 +48,8 @@ pub enum ClientError {
     NullResult,
     #[error("Unexpected response: {0}")]
     UnexpectedResponse(String),
+    #[error("Merkle proof error: {0}")]
+    MerkleProof(#[from] PoiMerkleProofError),
 }
 
 // TODO: Replace me with jsonrpsee or jsonrpc_client! macros. Would be much

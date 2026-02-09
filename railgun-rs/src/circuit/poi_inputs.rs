@@ -7,13 +7,18 @@ use crate::{
         keys::{BigIntKey, NullifyingKey, SpendingPublicKey, bytes_to_bigint, fr_to_bigint},
         railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
     },
-    merkle_trees::merkle_tree::{MerkleTreeError, TxidMerkleTree, UtxoMerkleTree},
-    note::operation::Operation,
+    merkle_trees::{
+        merkle_proof::MerkleProof,
+        merkle_tree::{MerkleTreeError, TxidMerkleTree, UtxoMerkleTree},
+    },
+    note::{IncludedNote, Note, operation::Operation},
     poi::{client::ListKey, poi_note::PoiNote},
 };
 
+#[derive(Debug)]
 pub struct PoiCircuitInputs {
     // Public Inputs
+    /// A merkle root from the txid merkle tree after this note's
     pub railgun_txid_merkle_root_after_transaction: BigInt,
     pub poi_merkle_roots: Vec<BigInt>,
 
@@ -67,7 +72,7 @@ impl PoiCircuitInputs {
         utxo_merkle_tree: &mut UtxoMerkleTree,
         txid_merkle_tree: &mut TxidMerkleTree,
         bound_params_hash: Fr,
-        operation: Operation<PoiNote>,
+        operation: &Operation<PoiNote>,
         list_key: ListKey,
     ) -> Result<Self, PoiCircuitInputsError> {
         let utxo_proofs: Vec<_> = operation
@@ -85,19 +90,16 @@ impl PoiCircuitInputs {
         let commitments: Vec<Fr> = operation
             .out_notes()
             .iter()
-            .map(|note| note.hash())
+            .map(|note| note.hash().into())
             .collect();
 
         let txid = Txid::new(&nullifiers, &commitments, bound_params_hash);
         let txid = TxidLeafHash::new(
             txid,
-            operation.tree_number(),
+            operation.utxo_tree_number(),
             crate::crypto::railgun_txid::UtxoTreeOut::PreInclusion,
         );
-
-        txid_merkle_tree.push_leaf(txid);
-        let txid_merkle_root_after_transaction = txid_merkle_tree.root();
-        txid_merkle_tree.pop_leaf();
+        let txid_merkle_root_after_transaction = MerkleProof::new_pre_inclusion(txid.into()).root;
 
         // Per-note POI proofs
         let poi_proofs = operation
@@ -139,7 +141,7 @@ impl PoiCircuitInputs {
             .iter()
             .map(|n| BigInt::from(n.leaf_index()))
             .collect();
-        let utxo_tree_in = BigInt::from(operation.tree_number());
+        let utxo_tree_in = BigInt::from(operation.utxo_tree_number());
 
         //? Only include output note data for commitment notes. Unshield note
         //? data is included separately.

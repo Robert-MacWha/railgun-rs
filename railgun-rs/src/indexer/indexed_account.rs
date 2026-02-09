@@ -8,7 +8,10 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     indexer::{indexer::TOTAL_LEAVES, notebook::Notebook},
-    note::note::{Note, NoteError},
+    note::{
+        Note,
+        utxo::{NoteError, UtxoNote},
+    },
     railgun::address::RailgunAddress,
 };
 
@@ -42,18 +45,26 @@ impl IndexedAccount {
         self.notebooks.clone()
     }
 
+    pub fn unspent(&self) -> Vec<UtxoNote> {
+        let mut unspent = Vec::new();
+        for notebook in self.notebooks.values() {
+            unspent.extend(notebook.unspent().values().cloned());
+        }
+        unspent
+    }
+
     /// Calculates the balance of the account by summing up the values of all its notes.
     pub fn balance(&self) -> HashMap<AssetId, u128> {
         let mut balances: HashMap<AssetId, u128> = HashMap::new();
 
         for (_, notebook) in self.notebooks.iter() {
             for (_, note) in notebook.unspent().iter() {
-                match note.asset {
+                match note.asset() {
                     AssetId::Erc20(address) => {
                         balances
                             .entry(AssetId::Erc20(address))
-                            .and_modify(|e| *e += note.value)
-                            .or_insert(note.value);
+                            .and_modify(|e| *e += note.value())
+                            .or_insert(note.value());
                     }
                     _ => todo!(),
                 }
@@ -88,7 +99,7 @@ impl IndexedAccount {
                 (tree_number, start_position + index)
             };
 
-            let note = Note::decrypt_shield_request(
+            let note = UtxoNote::decrypt_shield_request(
                 self.inner.spending_key(),
                 self.inner.viewing_key(),
                 tree_number,
@@ -106,7 +117,9 @@ impl IndexedAccount {
 
             info!(
                 "Decrypted Shield Note: index={}, value={}, asset={:?}",
-                index, note.value, note.asset
+                index,
+                note.value(),
+                note.asset()
             );
             self.notebooks
                 .entry(tree_number)
@@ -138,7 +151,7 @@ impl IndexedAccount {
                 (tree_number, start_position + index)
             };
 
-            let note = Note::decrypt(
+            let note = UtxoNote::decrypt(
                 self.inner.spending_key(),
                 self.inner.viewing_key(),
                 tree_number,
@@ -154,7 +167,9 @@ impl IndexedAccount {
 
             info!(
                 "Decrypted Transact Note: index={}, value={}, asset={:?}",
-                index, note.value, note.asset
+                index,
+                note.value(),
+                note.asset()
             );
             self.notebooks
                 .entry(tree_number)
