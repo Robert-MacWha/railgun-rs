@@ -8,7 +8,7 @@ use tracing::info;
 
 use crate::abis::railgun::{BoundParams, RailgunSmartWallet};
 use crate::circuit::prover::TransactProver;
-use crate::merkle_tree::UtxoMerkleTree;
+use crate::merkle_trees::merkle_tree::UtxoMerkleTree;
 use crate::transaction::tx_data::TxData;
 use crate::{
     abis::railgun::{
@@ -19,7 +19,7 @@ use crate::{
     chain_config::ChainConfig,
     circuit::transact_inputs::TransactCircuitInputs,
     crypto::keys::{bigint_to_fr, fr_to_u256},
-    merkle_tree::MerkleTree,
+    merkle_trees::merkle_tree::MerkleTree,
     note::{
         note::{EncryptError, Note},
         operation::{Operation, TransactNote},

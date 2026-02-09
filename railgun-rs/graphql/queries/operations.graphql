@@ -1,13 +1,14 @@
-query OperationsQuery($blockNumber_gt: BigInt, $blockNumber_lt: BigInt, $id_gt: String, $limit: Int) {
+query OperationsQuery($blockNumber_gte: BigInt, $blockNumber_lte: BigInt, $id_gt: String, $limit: Int) {
   transactions(
     orderBy: id_ASC, 
-    where: {blockNumber_gt: $blockNumber_gte, blockNumber_lt: $blockNumber_lte, id_gt: $id_gt}, 
+    where: {blockNumber_gte: $blockNumber_gte, blockNumber_lte: $blockNumber_lte, id_gt: $id_gt}, 
     limit: $limit
   ) {
     id
     nullifiers
     commitments
     boundParamsHash
+    utxoTreeIn
     utxoTreeOut
     utxoBatchStartPositionOut
   }

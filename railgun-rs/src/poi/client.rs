@@ -1,14 +1,20 @@
 use std::collections::HashMap;
 
-use alloy::primitives::{ChainId, FixedBytes};
+use alloy::{
+    primitives::{ChainId, FixedBytes},
+    serde::quantity::vec,
+};
 use ark_bn254::Fr;
 
 pub use crate::poi::{
     inner_client::ClientError,
-    inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap, ValidatedRailgunTxidStatus},
+    inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap},
 };
 use crate::{
-    crypto::{keys::fr_to_bytes, railgun_txid::Txid},
+    crypto::{
+        keys::{fr_to_bytes, hex_to_fr},
+        railgun_txid::Txid,
+    },
     poi::inner_types::MerkleProof,
 };
 
@@ -23,15 +29,24 @@ pub struct BlindedCommitmentData {
     pub blinded_commitment: [u8; 32],
 }
 
+#[derive(Debug, Clone)]
+pub struct ValidatedRailgunTxidStatus {
+    pub tree: u32,
+    pub index: u32,
+    pub merkleroot: Txid,
+}
+
 impl PoiClient {
     pub async fn new(url: impl Into<String>, chain: ChainId) -> Result<Self, ClientError> {
         let inner = crate::poi::inner_client::InnerPoiClient::new(url);
-        let status = inner.node_status().await?;
+        // let status = inner.node_status().await?;
+        // let list_keys = status.list_keys;
+        let list_keys = vec![];
 
         Ok(Self {
             inner,
             chain,
-            list_keys: status.list_keys,
+            list_keys,
         })
     }
 
@@ -95,7 +110,29 @@ impl PoiClient {
 
     /// Returns the current validated txid status from the POI node.
     pub async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, ClientError> {
-        self.inner.validated_txid(self.chain()).await
+        let resp: crate::poi::inner_types::ValidatedRailgunTxidStatus =
+            self.inner.validated_txid(self.chain()).await?;
+
+        let Some(merkle_root) = resp.validated_merkleroot else {
+            return Err(ClientError::UnexpectedResponse(
+                "validated_merkleroot is None".to_string(),
+            ));
+        };
+
+        let Some(global_index) = resp.validated_txid_index else {
+            return Err(ClientError::UnexpectedResponse(
+                "validated_txid_index is None".to_string(),
+            ));
+        };
+
+        let tree = (global_index >> 16) as u32;
+        let index = (global_index & 0xFFFF) as u32;
+
+        Ok(ValidatedRailgunTxidStatus {
+            tree,
+            index,
+            merkleroot: hex_to_fr(&merkle_root).into(),
+        })
     }
 
     /// Validates a txid merkle root against the POI node.
@@ -112,7 +149,7 @@ impl PoiClient {
                 chain: self.chain(),
                 tree: tree as u64,
                 index,
-                merkleroot: FixedBytes::<32>::from(fr_to_bytes(&txid)),
+                merkleroot: hex::encode(fr_to_bytes(&txid)),
             })
             .await
     }

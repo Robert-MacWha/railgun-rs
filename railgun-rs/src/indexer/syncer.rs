@@ -19,8 +19,9 @@ pub struct Operation {
     pub nullifiers: Vec<Fr>,
     pub commitment_hashes: Vec<Fr>,
     pub bound_params_hash: Fr,
-    pub utxo_batch_tree_number: u32,
-    pub utxo_batch_start_index: u32,
+    pub utxo_tree_in: u32,
+    pub utxo_tree_out: u32,
+    pub utxo_out_start_index: u32,
 }
 
 // TODO: Handle legacy commitments properly, so the indexer can be used for legacy events.

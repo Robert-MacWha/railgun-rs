@@ -3,13 +3,14 @@ use std::collections::BTreeMap;
 use railgun_rs::{
     chain_config::{ChainConfig, MAINNET_CONFIG},
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
-    merkle_tree::TxidMerkleTree,
+    merkle_trees::merkle_tree::TxidMerkleTree,
     poi::client::PoiClient,
 };
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 const CHAIN: ChainConfig = MAINNET_CONFIG;
+const FORK_BLOCK: u64 = 24378760;
 
 #[tokio::test]
 #[serial_test::serial]
@@ -26,9 +27,6 @@ async fn test_sync() {
         .await
         .unwrap();
 
-    let validated_txid = poi_client.validated_txid().await.unwrap();
-    info!("Validated txid: {:?}", validated_txid);
-
     info!("Setting up indexer");
     let endpoint = CHAIN
         .subsquid_endpoint
@@ -36,23 +34,16 @@ async fn test_sync() {
     let syncer = Box::new(SubsquidSyncer::new(endpoint));
     let mut indexer = Indexer::new(syncer, CHAIN);
 
-    let zero_tree = TxidMerkleTree::new(0);
-    let mut trees = BTreeMap::from([(0, zero_tree)]);
-    verify_trees(&mut trees, &poi_client).await;
-
     info!("Syncing indexer");
-    indexer.sync().await.unwrap();
-
-    info!("Validating indexer");
-    indexer.validate().await.unwrap();
-
+    indexer.sync_to(FORK_BLOCK).await.unwrap();
     verify_trees(&mut indexer.txid_trees(), &poi_client).await;
 
-    // let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
-    // std::fs::write("./tests/fixtures/indexer_state.bincode", indexer_state).unwrap();
+    let state = bitcode::serialize(&indexer.state()).unwrap();
+    std::fs::write("./tests/fixtures/indexer_state.bincode", state).unwrap();
 }
 
 async fn verify_trees(trees: &mut BTreeMap<u32, TxidMerkleTree>, poi_client: &PoiClient) {
+    info!("Verifying trees: {}", trees.len());
     for (tree_number, tree) in trees.iter_mut() {
         let root = tree.root();
         let leaves = tree.leaves_len();
@@ -62,9 +53,9 @@ async fn verify_trees(trees: &mut BTreeMap<u32, TxidMerkleTree>, poi_client: &Po
         );
 
         let valid = poi_client
-            .validate_txid_merkleroot(*tree_number, leaves as u64, root.into())
+            .validate_txid_merkleroot(*tree_number, leaves as u64 - 1, root.into())
             .await
             .unwrap();
-        info!("Tree validation {}: {:?}", tree_number, valid);
+        assert!(valid, "Tree number {} failed validation", tree_number);
     }
 }

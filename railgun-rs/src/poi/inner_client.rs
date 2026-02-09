@@ -46,6 +46,8 @@ pub enum ClientError {
     Rpc(JsonRpcError),
     #[error("Null result from RPC")]
     NullResult,
+    #[error("Unexpected response: {0}")]
+    UnexpectedResponse(String),
 }
 
 // TODO: Replace me with jsonrpsee or jsonrpc_client! macros. Would be much
@@ -92,8 +94,8 @@ impl InnerPoiClient {
             params,
         };
 
-        // info!("Calling RPC method: {}", method);
-        // info!("Request: {}", serde_json::to_string(&req).unwrap());
+        info!("Calling RPC method: {}", method);
+        info!("Request: {}", serde_json::to_string(&req).unwrap());
 
         let resp: JsonRpcResponse<R> = self
             .http

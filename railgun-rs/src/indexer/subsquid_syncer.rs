@@ -96,7 +96,7 @@ impl SubsquidSyncer {
             client: Client::builder()
                 .timeout(Duration::from_secs(30))
                 .build()
-                .unwrap_or_default(),
+                .unwrap(),
             endpoint: endpoint.to_string(),
             batch_size: 50000,
         }
@@ -196,12 +196,12 @@ impl Syncer for SubsquidSyncer {
         );
 
         let commitment_stream = self.commitment_stream(from_block, to_block);
-        // let nullified_stream = self.nullified_stream(from_block, to_block);
-        // let operation_stream = self.operation_stream(from_block, to_block);
+        let nullified_stream = self.nullified_stream(from_block, to_block);
+        let operation_stream = self.operation_stream(from_block, to_block);
 
-        let stream = commitment_stream;
-        // .chain(nullified_stream)
-        // .chain(operation_stream);
+        let stream = commitment_stream
+            .chain(nullified_stream)
+            .chain(operation_stream);
 
         Ok(Box::pin(stream))
     }
@@ -238,7 +238,6 @@ impl SubsquidSyncer {
                 batch.1.len(),
                 batch.2.len()
             );
-
             let events: Vec<SyncEvent> = batch
                 .0
                 .into_iter()
@@ -277,7 +276,6 @@ impl SubsquidSyncer {
             }
 
             info!("Fetched batch of nullifieds: {}", batch.0.len());
-
             let events: Vec<SyncEvent> = batch
                 .0
                 .into_iter()
@@ -311,7 +309,6 @@ impl SubsquidSyncer {
             }
 
             info!("Fetched batch of operations: {}", batch.0.len());
-
             let events: Vec<SyncEvent> = batch.0.into_iter().map(SyncEvent::Operation).collect();
 
             Some((stream::iter(events), batch.1))
@@ -335,8 +332,8 @@ impl SubsquidSyncer {
     > {
         let request_body = CommitmentsQuery::build_query(commitments_query::Variables {
             id_gt: Some(after_id.to_string()),
-            block_number_gt: Some(U256::from(from_block).into()),
-            block_number_lt: Some(U256::from(to_block).into()),
+            block_number_gte: Some(U256::from(from_block).into()),
+            block_number_lte: Some(U256::from(to_block).into()),
             limit: Some(self.batch_size as i64),
         });
 
@@ -385,8 +382,8 @@ impl SubsquidSyncer {
     ) -> Result<(Vec<(RailgunSmartWallet::Nullified, u64)>, String), SubsquidError> {
         let request_body = NullifiersQuery::build_query(nullifiers_query::Variables {
             id_gt: Some(after_id.to_string()),
-            block_number_gt: Some(U256::from(from_block).into()),
-            block_number_lt: Some(U256::from(to_block).into()),
+            block_number_gte: Some(U256::from(from_block).into()),
+            block_number_lte: Some(U256::from(to_block).into()),
             limit: Some(self.batch_size as i64),
         });
 
@@ -404,7 +401,7 @@ impl SubsquidSyncer {
             let nullified = RailgunSmartWallet::Nullified {
                 treeNumber: n.tree_number as u16,
                 nullifier: vec![n.nullifier.as_ref().try_into().map_err(|e| {
-                    SubsquidError::InvalidData(format!("Invalid nullifier: {}", e))
+                    SubsquidError::InvalidData(format!("Invalid nullifier {}: {}", n.nullifier, e))
                 })?],
             };
             nullified_events.push((nullified, n.block_number.0.saturating_to::<u64>()));
@@ -421,8 +418,8 @@ impl SubsquidSyncer {
     ) -> Result<(Vec<Operation>, String), SubsquidError> {
         let request_body = OperationsQuery::build_query(operations_query::Variables {
             id_gt: Some(after_id.to_string()),
-            block_number_gt: Some(U256::from(from_block).into()),
-            block_number_lt: Some(U256::from(to_block).into()),
+            block_number_gte: Some(U256::from(from_block).into()),
+            block_number_lte: Some(U256::from(to_block).into()),
             limit: Some(self.batch_size as i64),
         });
 
@@ -449,8 +446,9 @@ impl SubsquidSyncer {
                     .map(|h| Fr::from_be_bytes_mod_order(h.as_ref()))
                     .collect(),
                 bound_params_hash: Fr::from_be_bytes_mod_order(op.bound_params_hash.as_ref()),
-                utxo_batch_tree_number: op.utxo_tree_out.0.saturating_to(),
-                utxo_batch_start_index: op.utxo_batch_start_position_out.0.saturating_to(),
+                utxo_tree_in: op.utxo_tree_in.0.saturating_to(),
+                utxo_tree_out: op.utxo_tree_out.0.saturating_to(),
+                utxo_out_start_index: op.utxo_batch_start_position_out.0.saturating_to(),
             };
             operations.push(operation);
         }

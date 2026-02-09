@@ -5,7 +5,7 @@ use num_bigint::{BigInt, Sign};
 
 use crate::{
     crypto::keys::fr_to_bigint,
-    merkle_tree::UtxoMerkleTree,
+    merkle_trees::merkle_tree::UtxoMerkleTree,
     note::{note::Note, operation::TransactNote},
 };
 

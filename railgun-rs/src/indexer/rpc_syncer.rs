@@ -1,18 +1,20 @@
+use std::pin::Pin;
+
 use alloy::{
+    primitives::{FixedBytes, U256},
     providers::{DynProvider, Provider},
     rpc::types::Filter,
 };
 use alloy_sol_types::SolEvent;
 use ark_bn254::Fr;
-use ark_ff::PrimeField;
+use futures::{Stream, StreamExt, stream};
 use tracing::{info, warn};
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
-    caip::AssetId,
     chain_config::ChainConfig,
-    crypto::poseidon::poseidon_hash,
-    indexer::syncer::{self, Syncer},
+    crypto::keys::fr_to_bytes,
+    indexer::syncer::{SyncEvent, Syncer},
 };
 
 pub struct RpcSyncer {
@@ -25,138 +27,142 @@ pub struct RpcSyncer {
 pub enum RpcSyncerError {
     #[error("Error decoding log: {0}")]
     LogDecodeError(#[from] alloy_sol_types::Error),
+    #[error("RPC error: {0}")]
+    RpcError(String),
 }
 
-impl Syncer for RpcSyncer {
-    async fn sync<OS, OT, ON>(
+impl RpcSyncer {
+    pub fn new(provider: DynProvider, chain: ChainConfig) -> Self {
+        Self {
+            provider,
+            batch_size: 10000,
+            chain,
+        }
+    }
+
+    pub fn with_batch_size(mut self, batch_size: u64) -> Self {
+        self.batch_size = batch_size;
+        self
+    }
+
+    fn event_stream(
         &self,
         from_block: u64,
         to_block: u64,
-        on_shield: OS,
-        on_transact: OT,
-        on_nullified: ON,
-    ) -> Result<(), Box<dyn std::error::Error>>
-    where
-        OS: Fn(crate::abis::railgun::RailgunSmartWallet::Shield, u64) + 'static,
-        OT: Fn(crate::abis::railgun::RailgunSmartWallet::Transact, u64) + 'static,
-        ON: Fn(crate::abis::railgun::RailgunSmartWallet::Nullified, u64) + 'static,
-    {
-        let mut from_block = from_block;
-        while from_block <= to_block {
-            let to_block = std::cmp::min(from_block + self.batch_size, to_block);
+    ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        // State for batch fetching: current_block position
+        stream::unfold(from_block, move |current_block| async move {
+            // If we've processed all blocks, we're done
+            if current_block > to_block {
+                return None;
+            }
+
+            // Fetch the next batch of logs
+            let batch_end = std::cmp::min(current_block + self.batch_size - 1, to_block);
             let filter = Filter::new()
                 .address(self.chain.railgun_smart_wallet)
-                .from_block(from_block)
-                .to_block(to_block);
-            let logs = self.provider.get_logs(&filter).await.unwrap();
+                .from_block(current_block)
+                .to_block(batch_end);
+
+            let logs = match self.provider.get_logs(&filter).await {
+                Ok(logs) => logs,
+                Err(e) => {
+                    warn!(
+                        "Failed to fetch logs from blocks {} to {}: {}",
+                        current_block, batch_end, e
+                    );
+                    return None;
+                }
+            };
+
             info!(
                 "Fetched {} logs from blocks {} to {}",
                 logs.len(),
-                from_block,
-                to_block
+                current_block,
+                batch_end
             );
 
+            // Decode logs into events
+            let mut events = Vec::new();
             for log in logs {
                 let topic0 = log.topics()[0];
-                let block_number = log.block_number.unwrap();
-                let block_timestamp = log.block_timestamp.unwrap();
+                let block_number = log.block_number.unwrap_or(0);
+                let block_timestamp = log.block_timestamp.unwrap_or(0);
 
                 match topic0 {
                     RailgunSmartWallet::Shield::SIGNATURE_HASH => {
-                        let event = RailgunSmartWallet::Shield::decode_log(&log.inner)?;
-                        on_shield(event.data, block_number);
+                        match RailgunSmartWallet::Shield::decode_log(&log.inner) {
+                            Ok(event) => events.push(SyncEvent::Shield(event.data, block_number)),
+                            Err(e) => warn!("Failed to decode Shield event: {}", e),
+                        }
                     }
                     RailgunSmartWallet::Transact::SIGNATURE_HASH => {
-                        let event = RailgunSmartWallet::Transact::decode_log(&log.inner)?;
-                        on_transact(event.data, block_timestamp);
+                        match RailgunSmartWallet::Transact::decode_log(&log.inner) {
+                            Ok(event) => {
+                                events.push(SyncEvent::Transact(event.data, block_timestamp))
+                            }
+                            Err(e) => warn!("Failed to decode Transact event: {}", e),
+                        }
                     }
                     RailgunSmartWallet::Nullified::SIGNATURE_HASH => {
-                        let event = RailgunSmartWallet::Nullified::decode_log(&log.inner)?;
-                        on_nullified(event.data, block_timestamp);
+                        match RailgunSmartWallet::Nullified::decode_log(&log.inner) {
+                            Ok(event) => {
+                                events.push(SyncEvent::Nullified(event.data, block_timestamp))
+                            }
+                            Err(e) => warn!("Failed to decode Nullified event: {}", e),
+                        }
                     }
                     RailgunSmartWallet::Unshield::SIGNATURE_HASH => {
                         // Unshield events are not needed for indexing. Spent notes are
                         // already tracked via Nullified events.
                     }
                     _ => {
-                        warn!("Unknown event: {:?}", topic0);
+                        // Unknown event, skip
                     }
                 }
             }
 
-            // Advance the from_block for the next iteration
-            from_block = to_block + 1;
-        }
-        Ok(())
+            // TODO: Operation events are not implemented for RPC syncer.
+            // Constructing Operations requires call tracing to correlate which events
+            // belong to which Railgun transaction within a block.
+
+            // Update state for next iteration
+            let next_block = batch_end + 1;
+
+            // Return the events as a stream and the next block to fetch
+            Some((stream::iter(events), next_block))
+        })
+        .flatten()
+    }
+}
+
+#[async_trait::async_trait]
+impl Syncer for RpcSyncer {
+    async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        let block_number = self.provider.get_block_number().await?;
+        Ok(block_number)
     }
 
-    async fn quick_sync<OC>(
+    async fn seen(&self, utxo_merkle_root: Fr) -> Result<bool, Box<dyn std::error::Error>> {
+        let root_bytes: FixedBytes<32> = fr_to_bytes(&utxo_merkle_root).into();
+        let contract = RailgunSmartWallet::new(self.chain.railgun_smart_wallet, &self.provider);
+
+        // Query rootHistory mapping with tree_number = 0
+        let seen = contract.rootHistory(U256::ZERO, root_bytes).call().await?;
+        Ok(seen)
+    }
+
+    async fn sync(
         &self,
         from_block: u64,
         to_block: u64,
-        on_commitment: OC,
-    ) -> Result<(), Box<dyn std::error::Error>>
-    where
-        OC: Fn(syncer::Commitment) + 'static,
+    ) -> Result<Pin<Box<dyn Stream<Item = SyncEvent> + Send + '_>>, Box<dyn std::error::Error>>
     {
-        let mut from_block = from_block;
-        while from_block <= to_block {
-            let to_block = std::cmp::min(from_block + self.batch_size, to_block);
-            let filter = Filter::new()
-                .address(self.chain.railgun_smart_wallet)
-                .from_block(from_block)
-                .to_block(to_block);
-            let logs = self.provider.get_logs(&filter).await.unwrap();
-            info!(
-                "Fetched {} logs from blocks {} to {} for quick sync",
-                logs.len(),
-                from_block,
-                to_block
-            );
+        info!(
+            "Starting RPC sync from block {} to block {}",
+            from_block, to_block
+        );
 
-            for log in logs {
-                let topic0 = log.topics()[0];
-
-                match topic0 {
-                    RailgunSmartWallet::Shield::SIGNATURE_HASH => {
-                        let event = RailgunSmartWallet::Shield::decode_log(&log.inner)?;
-                        for (i, c) in event.data.commitments.iter().enumerate() {
-                            let npk = Fr::from_be_bytes_mod_order(c.npk.as_slice());
-                            let token_id: AssetId = c.token.clone().into();
-                            let token_id = token_id.hash();
-                            let value: u128 = c.value.saturating_to();
-                            let value = Fr::from(value);
-
-                            let commitment_hash = poseidon_hash(&[npk, token_id, value]);
-                            on_commitment(syncer::Commitment {
-                                hash: commitment_hash,
-                                tree_number: event.data.treeNumber.saturating_to(),
-                                leaf_index: event.data.startPosition.saturating_to::<u32>()
-                                    + i as u32,
-                            });
-                        }
-                    }
-                    RailgunSmartWallet::Transact::SIGNATURE_HASH => {
-                        let event = RailgunSmartWallet::Transact::decode_log(&log.inner)?;
-                        for (i, c) in event.data.hash.iter().enumerate() {
-                            let commitment_hash = Fr::from_be_bytes_mod_order(c.as_slice());
-                            on_commitment(syncer::Commitment {
-                                hash: commitment_hash,
-                                tree_number: event.data.treeNumber.saturating_to(),
-                                leaf_index: event.data.startPosition.saturating_to::<u32>()
-                                    + i as u32,
-                            });
-                        }
-                    }
-                    _ => {
-                        // For quick sync, we only care about commitments
-                    }
-                }
-            }
-
-            from_block = to_block + 1;
-        }
-
-        Ok(())
+        Ok(Box::pin(self.event_stream(from_block, to_block)))
     }
 }

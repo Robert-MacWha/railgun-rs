@@ -17,13 +17,19 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    crypto::{keys::fr_to_u256, railgun_txid::Txid, railgun_utxo::Utxo},
+    crypto::{
+        keys::{fr_to_bytes, fr_to_u256},
+        railgun_txid::{Txid, TxidLeafHash},
+        railgun_utxo::Utxo,
+    },
     indexer::{
         indexed_account::IndexedAccount,
         notebook::Notebook,
         syncer::{self, SyncEvent, Syncer},
     },
-    merkle_tree::{MerkleTree, MerkleTreeState, TreeConfig, TxidMerkleTree, UtxoMerkleTree},
+    merkle_trees::merkle_tree::{
+        MerkleTree, MerkleTreeState, TreeConfig, TxidMerkleTree, UtxoMerkleTree,
+    },
     note::note::NoteError,
     railgun::address::RailgunAddress,
 };
@@ -182,12 +188,18 @@ impl Indexer {
     }
 
     pub async fn sync(&mut self) -> Result<(), SyncError> {
-        let start_block = self.synced_block + 1;
         let end_block = self
             .syncer
             .latest_block()
             .await
             .map_err(SyncError::SyncerError)?;
+
+        self.sync_to(end_block).await
+    }
+
+    pub async fn sync_to(&mut self, block_number: u64) -> Result<(), SyncError> {
+        let start_block = self.synced_block + 1;
+        let end_block = block_number;
 
         info!("Syncing from block {} to {}", start_block, end_block);
         let syncer = self.syncer.clone();
@@ -196,7 +208,13 @@ impl Indexer {
             .await
             .map_err(SyncError::SyncerError)?;
 
+        let mut i = 0;
         while let Some(event) = stream.next().await {
+            i += 1;
+            if i % 1_000 == 0 {
+                info!("Processing event #{}", i);
+            }
+
             match event {
                 SyncEvent::Shield(shield, block) => self.handle_shield(&shield, block)?,
                 SyncEvent::Transact(transact, block) => self.handle_transact(&transact, block)?,
@@ -206,7 +224,7 @@ impl Indexer {
             }
         }
 
-        self.validate().await?;
+        // self.validate().await?;
         self.synced_block = end_block;
         Ok(())
     }
@@ -232,8 +250,6 @@ impl Indexer {
                     root: fr_to_u256(&root),
                 });
             }
-
-            info!("Validated tree {}", i);
         }
 
         Ok(())
@@ -311,11 +327,29 @@ impl Indexer {
             event.bound_params_hash,
         );
 
+        let txid_leaf_hash = TxidLeafHash::new(
+            txid,
+            event.utxo_tree_in,
+            event.utxo_tree_out,
+            event.utxo_out_start_index,
+        );
+
+        // TODO: Consider making a wrapper around a BTreeMap of txid trees that
+        // handles this and abstracts away the tree number logic, since it's not as
+        // relevant.
+        // Position is global sequential based on the tree number and leaf index
+        let tree_number = (self.txid_trees.len() as u32).saturating_sub(1);
+        let start_position = self
+            .txid_trees
+            .last_entry()
+            .map(|e| e.get().leaves_len())
+            .unwrap_or(0);
+
         insert_leaves(
             &mut self.txid_trees,
-            event.utxo_batch_tree_number as u32,
-            event.utxo_batch_start_index as usize,
-            &[txid.into()],
+            tree_number,
+            start_position,
+            &[txid_leaf_hash],
         );
     }
 
@@ -338,7 +372,7 @@ fn insert_leaves<C: TreeConfig>(
     tree_number: u32,
     start_position: usize,
     leaves: &[C::LeafType],
-) -> MerkleTree<C> {
+) {
     let mut remaining = leaves;
     let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
     let mut position = start_position % TOTAL_LEAVES;
@@ -356,6 +390,4 @@ fn insert_leaves<C: TreeConfig>(
         current_tree += 1;
         position = 0;
     }
-
-    trees.get(&tree_number).unwrap().clone()
 }
