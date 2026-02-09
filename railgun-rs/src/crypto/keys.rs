@@ -223,6 +223,14 @@ impl SpendingPublicKey {
     pub fn y_hex(&self) -> String {
         hex::encode(self.y)
     }
+
+    pub fn x_bigint(&self) -> BigInt {
+        bytes_to_bigint(&self.x)
+    }
+
+    pub fn y_bigint(&self) -> BigInt {
+        bytes_to_bigint(&self.y)
+    }
 }
 
 impl ViewingKey {
@@ -358,6 +366,10 @@ pub fn fr_to_bytes(value: &Fr) -> [u8; 32] {
 
 pub fn bytes_to_fr(bytes: &[u8; 32]) -> Fr {
     Fr::from_be_bytes_mod_order(bytes)
+}
+
+pub fn bytes_to_bigint(bytes: &[u8]) -> BigInt {
+    BigInt::from_bytes_be(Sign::Plus, bytes)
 }
 
 pub fn fr_to_bigint(fr: &Fr) -> BigInt {

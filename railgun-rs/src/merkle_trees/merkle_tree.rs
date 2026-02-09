@@ -172,6 +172,22 @@ impl<C: TreeConfig> MerkleTree<C> {
         }
     }
 
+    pub fn push_leaf(&mut self, leaf: C::LeafType) {
+        let index = self.tree[0].len();
+        self.insert_leaves(&[leaf], index);
+    }
+
+    pub fn pop_leaf(&mut self) -> Option<C::LeafType> {
+        let index = self.tree[0].len() - 1;
+        if index == 0 {
+            return None;
+        }
+
+        let leaf = self.tree[0].pop().map(Into::into);
+        self.dirty_parents.insert(index / 2);
+        leaf
+    }
+
     pub fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
         if leaves.is_empty() {
             return;

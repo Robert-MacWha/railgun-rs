@@ -29,9 +29,10 @@ pub struct Note {
     pub spending_key: SpendingKey,
     pub viewing_key: ViewingKey,
     pub tree_number: u32,
-    pub random_seed: [u8; 16],
+    pub leaf_index: u32,
+    pub random: [u8; 16],
     pub value: u128,
-    pub token: AssetId,
+    pub asset: AssetId,
     pub memo: String,
 }
 
@@ -60,18 +61,20 @@ impl Note {
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
         tree_number: u32,
-        token: AssetId,
+        leaf_index: u32,
+        asset: AssetId,
         value: u128,
-        random_seed: &[u8; 16],
+        random: &[u8; 16],
         memo: &str,
     ) -> Self {
         Note {
             spending_key,
             viewing_key,
             tree_number,
-            random_seed: *random_seed,
+            leaf_index,
+            random: *random,
             value,
-            token,
+            asset,
             memo: memo.to_string(),
         }
     }
@@ -81,6 +84,7 @@ impl Note {
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
         tree_number: u32,
+        leaf_index: u32,
         encrypted: &CommitmentCiphertext,
     ) -> Result<Note, NoteError> {
         let blinded_sender = BlindedKey::from_bytes(encrypted.blindedSenderViewingKey.into());
@@ -114,6 +118,7 @@ impl Note {
             spending_key,
             viewing_key,
             tree_number,
+            leaf_index,
             asset_id,
             value,
             &random,
@@ -126,6 +131,7 @@ impl Note {
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
         tree_number: u32,
+        leaf_index: u32,
         req: ShieldRequest,
     ) -> Result<Note, NoteError> {
         let encrypted_bundle: [[u8; 32]; 3] = [
@@ -149,6 +155,7 @@ impl Note {
             spending_key,
             viewing_key,
             tree_number,
+            leaf_index,
             req.preimage.token.clone().into(),
             req.preimage.value.saturating_to(),
             &random,
@@ -169,9 +176,9 @@ impl Note {
         let receiver = RailgunAddress::from_private_keys(self.spending_key, self.viewing_key, 1);
         encrypt_note(
             &receiver,
-            &self.random_seed,
+            &self.random,
             self.value,
-            &self.token,
+            &self.asset,
             &self.memo,
             sender_viewing_key,
             blind,
@@ -204,7 +211,7 @@ impl Note {
     pub fn hash(&self) -> Utxo {
         poseidon_hash(&[
             self.note_public_key(),
-            self.token.hash(),
+            self.asset.hash(),
             Fr::from(self.value),
         ])
         .unwrap()
@@ -235,7 +242,7 @@ impl Note {
 
         poseidon_hash(&[
             master_key.to_fr(),
-            Fr::from_be_bytes_mod_order(&self.random_seed),
+            Fr::from_be_bytes_mod_order(&self.random),
         ])
         .unwrap()
     }
@@ -319,6 +326,7 @@ impl Note {
             spending_key,
             viewing_key,
             1,
+            0,
             AssetId::Erc20(alloy::primitives::address!(
                 "0x1234567890123456789012345678901234567890"
             )),
@@ -450,13 +458,20 @@ mod tests {
         .unwrap();
 
         // Receiver decrypts with their own keys
-        let decrypted =
-            Note::decrypt(receiver_spending_key, receiver_viewing_key, 1, &encrypted).unwrap();
+        let decrypted = Note::decrypt(
+            receiver_spending_key,
+            receiver_viewing_key,
+            1,
+            0,
+            &encrypted,
+        )
+        .unwrap();
 
         let expected = Note::new(
             receiver_spending_key,
             receiver_viewing_key,
             1,
+            0,
             asset,
             value,
             &shared_random,

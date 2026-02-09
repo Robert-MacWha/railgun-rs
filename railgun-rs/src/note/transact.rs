@@ -33,7 +33,7 @@ pub fn create_txdata(
     chain: ChainConfig,
     adapt_contract: Address,
     adapt_input: &[u8; 32],
-    operations: Vec<Operation>,
+    operations: Vec<Operation<Note>>,
 ) -> Result<TxData, EncryptError> {
     let transactions = create_transactions(
         prover,
@@ -63,25 +63,25 @@ pub fn create_transactions(
     chain: ChainConfig,
     adapt_contract: Address,
     adapt_input: &[u8; 32],
-    operations: Vec<Operation>,
+    operations: Vec<Operation<Note>>,
 ) -> Result<Vec<Transaction>, EncryptError> {
     let mut transactions = Vec::new();
     for operation in operations {
-        info!("Processing tree {}", operation.tree_index);
-        let merkle_tree = merkle_trees.get_mut(&operation.tree_index).unwrap();
+        info!("Processing tree {}", operation.tree_number());
+        let merkle_tree = merkle_trees.get_mut(&operation.tree_number()).unwrap();
 
-        let unshield = if operation.unshield_note.is_some() {
+        let unshield = if operation.unshield_note().is_some() {
             UnshieldType::NORMAL
         } else {
             UnshieldType::NONE
         };
 
-        let notes_in: Vec<Note> = operation.in_notes().clone();
-        let notes_out = operation.notes_out();
+        let notes_in = operation.in_notes();
+        let notes_out = operation.out_notes();
 
         info!("Constructing circuit inputs");
         let commitment_ciphertexts: Vec<CommitmentCiphertext> = operation
-            .encryptable_notes_out()
+            .out_encryptable_notes()
             .iter()
             .map(|n| n.encrypt())
             .collect::<Result<Vec<_>, _>>()?;
@@ -99,7 +99,7 @@ pub fn create_transactions(
             merkle_tree,
             bound_params.hash(),
             notes_in,
-            notes_out,
+            &notes_out,
         )
         .unwrap();
 
@@ -124,7 +124,7 @@ pub fn create_transactions(
             nullifiers: inputs.nullifiers.iter().map(bigint_to_bytes).collect(),
             commitments: inputs.commitments_out.iter().map(bigint_to_bytes).collect(),
             boundParams: bound_params,
-            unshieldPreimage: match operation.unshield_note {
+            unshieldPreimage: match operation.unshield_note() {
                 Some(unshield) => {
                     info!(
                         "Unshield npk: {:?}",

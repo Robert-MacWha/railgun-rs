@@ -14,7 +14,7 @@ use crate::{
     abis::railgun::RailgunSmartWallet,
     chain_config::ChainConfig,
     crypto::keys::fr_to_bytes,
-    indexer::syncer::{SyncEvent, Syncer},
+    indexer::syncer::{RootVerifier, SyncEvent, Syncer},
 };
 
 pub struct RpcSyncer {
@@ -133,6 +133,24 @@ impl RpcSyncer {
             Some((stream::iter(events), next_block))
         })
         .flatten()
+    }
+}
+
+#[async_trait::async_trait]
+impl RootVerifier for RpcSyncer {
+    async fn seen(
+        &self,
+        tree_number: u32,
+        utxo_merkle_root: Fr,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let root_bytes: FixedBytes<32> = fr_to_bytes(&utxo_merkle_root).into();
+        let contract = RailgunSmartWallet::new(self.chain.railgun_smart_wallet, &self.provider);
+
+        let seen = contract
+            .rootHistory(U256::from(tree_number), root_bytes)
+            .call()
+            .await?;
+        Ok(seen)
     }
 }
 

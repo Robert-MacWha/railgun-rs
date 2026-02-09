@@ -19,7 +19,7 @@ use crate::{
     chain_config::{ChainConfig, get_chain_config},
     crypto::{
         keys::{fr_to_bytes, fr_to_u256},
-        railgun_txid::{Txid, TxidLeafHash},
+        railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
         railgun_utxo::Utxo,
     },
     indexer::{
@@ -201,6 +201,11 @@ impl Indexer {
         let start_block = self.synced_block + 1;
         let end_block = block_number;
 
+        if start_block > end_block {
+            info!("Already synced to block {}, no need to sync", end_block);
+            return Ok(());
+        }
+
         info!("Syncing from block {} to {}", start_block, end_block);
         let syncer = self.syncer.clone();
         let mut stream = syncer
@@ -211,7 +216,7 @@ impl Indexer {
         let mut i = 0;
         while let Some(event) = stream.next().await {
             i += 1;
-            if i % 1_000 == 0 {
+            if i % 100 == 0 {
                 info!("Processing event #{}", i);
             }
 
@@ -224,7 +229,7 @@ impl Indexer {
             }
         }
 
-        // self.validate().await?;
+        self.validate().await?;
         self.synced_block = end_block;
         Ok(())
     }
@@ -255,7 +260,6 @@ impl Indexer {
         Ok(())
     }
 
-    // TODO: Combine handle_shield and handle_transact's shared logic
     fn handle_shield(
         &mut self,
         event: &RailgunSmartWallet::Shield,
@@ -294,6 +298,8 @@ impl Indexer {
         event: &RailgunSmartWallet::Transact,
         block_number: u64,
     ) -> Result<(), SyncError> {
+        // info!("Handling transact: {:#?}", event);
+
         let leaves: Vec<Utxo> = event
             .hash
             .iter()
@@ -330,8 +336,7 @@ impl Indexer {
         let txid_leaf_hash = TxidLeafHash::new(
             txid,
             event.utxo_tree_in,
-            event.utxo_tree_out,
-            event.utxo_out_start_index,
+            UtxoTreeOut::included(event.utxo_tree_out, event.utxo_out_start_index),
         );
 
         // TODO: Consider making a wrapper around a BTreeMap of txid trees that

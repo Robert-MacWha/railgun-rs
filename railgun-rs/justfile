@@ -25,3 +25,9 @@ snapshot:
 
 integration:
     RUST_LOG=info cargo test -- --ignored --nocapture
+
+integration-sync:
+    RUST_LOG=info cargo test -- test_sync --ignored --nocapture
+
+integration-transact:
+    RUST_LOG=info cargo test -- test_transact --ignored --nocapture

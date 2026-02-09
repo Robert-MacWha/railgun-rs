@@ -45,7 +45,9 @@ pub const SEPOLIA_CONFIG: ChainConfig = ChainConfig {
     railgun_smart_wallet: address!("0xeCFCf3b4eC647c4Ca6D49108b311b7a7C9543fea"),
     deployment_block: 5784774,
     poi_start_block: 5944700,
-    subsquid_endpoint: Some("https://rail-squid.squids.live/squid-railgun-eth-sepolia-v2/graphql"),
+    subsquid_endpoint: Some(
+        "https://rail-squid.squids.live/squid-railgun-eth-sepolia-v2/v/v1/graphql",
+    ),
     poi_endpoint: Some("https://ppoi-agg.horsewithsixlegs.xyz/"),
 };
 

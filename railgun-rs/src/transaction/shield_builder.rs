@@ -10,6 +10,7 @@ use crate::{
     transaction::tx_data::TxData,
 };
 
+/// Basic builder for constructing shield transactions.
 pub struct ShieldBuilder {
     chain: ChainConfig,
     shields: Vec<(RailgunAddress, AssetId, u128)>,
@@ -29,6 +30,7 @@ impl ShieldBuilder {
         self
     }
 
+    /// Builds the shield transaction. Shield txns must be self-broadcast.
     pub fn build(self) -> Result<TxData, ShieldError> {
         let shields = self
             .shields

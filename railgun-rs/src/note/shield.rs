@@ -89,11 +89,12 @@ mod tests {
         let shield_request = create_shield_request(recipient, asset, value).unwrap();
 
         // Decrypt the note
-        let decrypted = Note::decrypt_shield_request(spending_key, viewing_key, 1, shield_request)
-            .expect("Failed to decrypt shield note");
+        let decrypted =
+            Note::decrypt_shield_request(spending_key, viewing_key, 1, 0, shield_request)
+                .expect("Failed to decrypt shield note");
 
         assert_eq!(decrypted.value, value);
-        assert_eq!(decrypted.token, asset);
+        assert_eq!(decrypted.asset, asset);
         assert_eq!(decrypted.memo, "");
     }
 }

@@ -34,8 +34,8 @@ impl TransactCircuitInputs {
     pub fn from_inputs(
         merkle_tree: &mut UtxoMerkleTree,
         bound_params_hash: Fr,
-        notes_in: Vec<Note>,
-        notes_out: Vec<Box<dyn TransactNote>>,
+        notes_in: &[Note],
+        notes_out: &[Box<dyn TransactNote>],
     ) -> Result<Self, ()> {
         if notes_in.is_empty() || notes_out.is_empty() {
             return Err(());
@@ -55,8 +55,8 @@ impl TransactCircuitInputs {
             .collect::<Vec<Fr>>();
         let commitments: Vec<Fr> = notes_out.iter().map(|note| note.hash()).collect();
 
-        let note_zero = notes_in[0].clone();
-        let token = fr_to_bigint(&note_zero.token.hash());
+        let note_zero = &notes_in[0];
+        let token = fr_to_bigint(&note_zero.asset.hash());
         let public_key = note_zero.spending_public_key();
         let public_key = [fr_to_bigint(&public_key.0), fr_to_bigint(&public_key.1)];
         let signature = note_zero.sign_circuit_inputs(
@@ -73,7 +73,7 @@ impl TransactCircuitInputs {
 
         let random_in = notes_in
             .iter()
-            .map(|note| BigInt::from_bytes_be(Sign::Plus, &note.random_seed))
+            .map(|note| BigInt::from_bytes_be(Sign::Plus, &note.random))
             .collect();
 
         let value_in: Vec<BigInt> = notes_in

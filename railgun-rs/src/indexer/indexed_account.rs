@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, trace};
 
 use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
@@ -48,7 +48,7 @@ impl IndexedAccount {
 
         for (_, notebook) in self.notebooks.iter() {
             for (_, note) in notebook.unspent().iter() {
-                match note.token {
+                match note.asset {
                     AssetId::Erc20(address) => {
                         balances
                             .entry(AssetId::Erc20(address))
@@ -71,12 +71,6 @@ impl IndexedAccount {
         let tree_number: u32 = event.treeNumber.saturating_to();
         let start_position: u32 = event.startPosition.saturating_to();
 
-        info!(
-            "Handling Shield Event: tree_number={}, start_position={}, commitments={}",
-            tree_number,
-            start_position,
-            event.commitments.len()
-        );
         for (index, ciphertext) in event.shieldCiphertext.iter().enumerate() {
             let shield_request = ShieldRequest {
                 preimage: event.commitments[index].clone(),
@@ -85,7 +79,7 @@ impl IndexedAccount {
 
             let is_crossing_tree = start_position as usize + index >= TOTAL_LEAVES;
             let index = index as u32;
-            let (tree_number, note_position) = if is_crossing_tree {
+            let (tree_number, leaf_index) = if is_crossing_tree {
                 (
                     tree_number + 1,
                     start_position + index - TOTAL_LEAVES as u32,
@@ -98,12 +92,12 @@ impl IndexedAccount {
                 self.inner.spending_key(),
                 self.inner.viewing_key(),
                 tree_number,
+                leaf_index,
                 shield_request,
             );
 
             let note = match note {
-                Err(NoteError::Aes(e)) => {
-                    info!("Failed to decrypt shield note at index {}: {:?}", index, e);
+                Err(NoteError::Aes(_e)) => {
                     continue;
                 }
                 Err(e) => return Err(e),
@@ -112,12 +106,12 @@ impl IndexedAccount {
 
             info!(
                 "Decrypted Shield Note: index={}, value={}, asset={:?}",
-                index, note.value, note.token
+                index, note.value, note.asset
             );
             self.notebooks
                 .entry(tree_number)
                 .or_default()
-                .add(note_position, note);
+                .add(leaf_index, note);
         }
 
         self.synced_block = self.synced_block.max(block_number);
@@ -148,6 +142,7 @@ impl IndexedAccount {
                 self.inner.spending_key(),
                 self.inner.viewing_key(),
                 tree_number,
+                leaf_index,
                 ciphertext,
             );
 
@@ -159,7 +154,7 @@ impl IndexedAccount {
 
             info!(
                 "Decrypted Transact Note: index={}, value={}, asset={:?}",
-                index, note.value, note.token
+                index, note.value, note.asset
             );
             self.notebooks
                 .entry(tree_number)

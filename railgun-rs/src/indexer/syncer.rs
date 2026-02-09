@@ -33,8 +33,19 @@ pub struct LegacyCommitment {
     pub leaf_index: u32,
 }
 
+/// Verifies merkle roots against on-chain state.
 #[async_trait::async_trait]
-pub trait Syncer {
+pub trait RootVerifier: Send + Sync {
+    /// Check if a UTXO merkle root has been seen on-chain for a specific tree.
+    async fn seen(
+        &self,
+        tree_number: u32,
+        utxo_merkle_root: Fr,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+#[async_trait::async_trait]
+pub trait Syncer: Send + Sync {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>>;
     async fn seen(&self, utxo_merkle_root: Fr) -> Result<bool, Box<dyn std::error::Error>>;
 

@@ -39,9 +39,8 @@ pub struct ValidatedRailgunTxidStatus {
 impl PoiClient {
     pub async fn new(url: impl Into<String>, chain: ChainId) -> Result<Self, ClientError> {
         let inner = crate::poi::inner_client::InnerPoiClient::new(url);
-        // let status = inner.node_status().await?;
-        // let list_keys = status.list_keys;
-        let list_keys = vec![];
+        let status = inner.node_status().await?;
+        let list_keys = status.list_keys;
 
         Ok(Self {
             inner,

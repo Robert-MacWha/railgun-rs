@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::BTreeMap, str::FromStr};
 
 use alloy::{
     network::Ethereum,
@@ -14,14 +14,15 @@ use railgun_rs::{
     abis::erc20::ERC20,
     account::RailgunAccount,
     caip::AssetId,
-    chain_config::{ChainConfig, SEPOLIA_CONFIG},
+    chain_config::{ChainConfig, MAINNET_CONFIG, SEPOLIA_CONFIG},
     circuit::native_prover::NativeProver,
     crypto::keys::{HexKey, SpendingKey, ViewingKey, fr_to_bytes},
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
+    merkle_trees::merkle_tree::TxidMerkleTree,
     note::{note::Note, transact::create_txdata},
     poi::client::{BlindedCommitmentData, BlindedCommitmentType, PoiClient},
     railgun::address::RailgunAddress,
-    transaction::{shield_builder::ShieldBuilder, tx_builder::TxBuilder},
+    transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
 };
 
 const CHAIN: ChainConfig = SEPOLIA_CONFIG;
@@ -58,25 +59,22 @@ async fn main() {
     let account = RailgunAccount::new(spending_key, viewing_key, CHAIN.id);
 
     info!("Creating indexer");
-    // let mut indexer = Indexer::new(provider.clone(), CHAIN);
-    // indexer.sync_from_subsquid(Some(10213177)).await.unwrap();
-    // let state = indexer.state();
-    // std::fs::write(INDEXER_STATE, bitcode::serialize(&state).unwrap()).unwrap();
-    let indexer_state = std::fs::read(INDEXER_STATE).unwrap();
-    let indexer_state = bitcode::deserialize(&indexer_state).unwrap();
-    let subsquid = Box::new(SubsquidSyncer::new(PPOI_URL));
+    let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
+    // let mut indexer = Indexer::new(subsquid, CHAIN);
+    let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
     let mut indexer = Indexer::new_with_state(subsquid, indexer_state).unwrap();
     indexer.add_account(&account);
 
     info!("Syncing indexer");
-    // indexer.sync().await.unwrap();
+    indexer.sync_to(10217000).await.unwrap();
+
+    // info!("Saving indexer");
+    // let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
+    // std::fs::write("./indexer_state_11155111.bincode", indexer_state).unwrap();
+
     info!("Balance: {:?}", indexer.balance(account.address()));
-
-    info!("Saving indexer");
-    let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
-    std::fs::write("./indexer_state_11155111.bincode", indexer_state).unwrap();
-
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
+    verify_trees(indexer.txid_trees(), &poi_client).await;
 
     let mut notes: Vec<Note> = Vec::new();
 
@@ -111,61 +109,61 @@ async fn main() {
         }
     }
 
-    let prover = Box::new(NativeProver::new());
-    let merkle_trees = indexer.utxo_trees();
+    // let prover = Box::new(NativeProver::new());
+    // let merkle_trees = indexer.utxo_trees();
 
-    // Creates a transaction builder for our desired set of operations.
-    let tx = TxBuilder::new().set_unshield(address, USDC, 1_000);
+    // // Creates a transaction builder for our desired set of operations.
+    // let tx = TxBuilder::new().set_unshield(address, USDC, 1_000);
 
-    let builder_address = RailgunAddress::from_str("0zk1qyqhtwaa9zj3ug9dmxhfedappvm509w7dr5lgadaehxz38w9u457mrv7j6fe3z53layes62mktxj5kd6reh2kxd39ds2gnpf6wphtw39y5g36lsvukeywfqa8y0").unwrap();
-    let builder_fee_asset = USDC;
-    let builder_fee_per_gas = 1;
+    // let builder_address = RailgunAddress::from_str("0zk1qyqhtwaa9zj3ug9dmxhfedappvm509w7dr5lgadaehxz38w9u457mrv7j6fe3z53layes62mktxj5kd6reh2kxd39ds2gnpf6wphtw39y5g36lsvukeywfqa8y0").unwrap();
+    // let builder_fee_asset = USDC;
+    // let builder_fee_per_gas = 1;
 
-    // Build a new transaction group with the builder's fee
-    let mut estimated_gas = 100;
+    // // Build a new transaction group with the builder's fee
+    // let mut estimated_gas = 100;
 
-    while true {
-        let builder_fee = builder_fee_per_gas * (estimated_gas as u128);
-        let mut builder_tx = TxBuilder::new().transfer(
-            account.clone(),
-            builder_address,
-            builder_fee_asset,
-            builder_fee,
-            "",
-        );
+    // loop {
+    //     let builder_fee = builder_fee_per_gas * (estimated_gas as u128);
+    //     let mut builder_tx = TxBuilder::new().transfer(
+    //         account.clone(),
+    //         builder_address,
+    //         builder_fee_asset,
+    //         builder_fee,
+    //         "",
+    //     );
 
-        for transfer in tx.transfers.iter() {
-            builder_tx = builder_tx.transfer(
-                transfer.from.clone(),
-                transfer.to,
-                transfer.asset,
-                transfer.value,
-                &transfer.memo,
-            );
-        }
-        for unshield in tx.unshields.values() {
-            builder_tx = builder_tx.set_unshield(unshield.to, unshield.asset, unshield.value);
-        }
+    //     for transfer in tx.transfers.iter() {
+    //         builder_tx = builder_tx.transfer(
+    //             transfer.from.clone(),
+    //             transfer.to,
+    //             transfer.asset,
+    //             transfer.value,
+    //             &transfer.memo,
+    //         );
+    //     }
+    //     for unshield in tx.unshields.values() {
+    //         builder_tx = builder_tx.set_unshield(unshield.to, unshield.asset, unshield.value);
+    //     }
 
-        let operations = builder_tx.build(notes.clone()).unwrap();
-        let tx_data = create_txdata(
-            prover.as_ref(),
-            merkle_trees,
-            0,
-            CHAIN,
-            Address::ZERO,
-            &[0u8; 32],
-            operations,
-        )
-        .unwrap();
+    //     let operations = builder_tx.build(notes.clone()).unwrap();
+    //     let tx_data = create_txdata(
+    //         prover.as_ref(),
+    //         merkle_trees,
+    //         0,
+    //         CHAIN,
+    //         Address::ZERO,
+    //         &[0u8; 32],
+    //         operations,
+    //     )
+    //     .unwrap();
 
-        let new_estimated_gas = provider.estimate_gas(tx_data.into()).await.unwrap();
-        if new_estimated_gas == estimated_gas {
-            break;
-        }
+    //     let new_estimated_gas = provider.estimate_gas(tx_data.into()).await.unwrap();
+    //     if new_estimated_gas == estimated_gas {
+    //         break;
+    //     }
 
-        estimated_gas = new_estimated_gas;
-    }
+    //     estimated_gas = new_estimated_gas;
+    // }
 }
 
 async fn shield_usdc(provider: DynProvider, to: RailgunAddress, amount: u128) {
@@ -194,4 +192,23 @@ async fn shield_usdc(provider: DynProvider, to: RailgunAddress, amount: u128) {
         .unwrap();
 
     info!("Shielded");
+}
+
+async fn verify_trees(trees: &mut BTreeMap<u32, TxidMerkleTree>, poi_client: &PoiClient) {
+    info!("Verifying TXID trees: {}", trees.len());
+    for (tree_number, tree) in trees.iter_mut() {
+        let root = tree.root();
+        let leaves = tree.leaves_len();
+        info!(
+            "Tree number: {}, leaves: {}, tree root: {:?}",
+            tree_number, leaves, root
+        );
+
+        let valid = poi_client
+            .validate_txid_merkleroot(*tree_number, leaves as u64 - 1, root.into())
+            .await
+            .unwrap();
+        assert!(valid, "Tree number {} failed validation", tree_number);
+        info!("TXID tree {} is valid", tree_number);
+    }
 }

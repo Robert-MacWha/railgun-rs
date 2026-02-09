@@ -19,7 +19,7 @@ use crate::{
     crypto::keys::fr_to_bytes,
     indexer::{
         graphql_bigint,
-        syncer::{LegacyCommitment, Operation, SyncEvent, Syncer},
+        syncer::{LegacyCommitment, Operation, RootVerifier, SyncEvent, Syncer},
     },
 };
 
@@ -77,6 +77,8 @@ pub enum SubsquidError {
     HttpRequestError(#[from] reqwest::Error),
     #[error("Graphql Errors: {0:?}")]
     GraphqlErrors(Vec<graphql_client::Error>),
+    #[error("Server error {0}: {1}")]
+    ServerError(reqwest::StatusCode, String),
     #[error("Missing data in response")]
     MissingData,
     #[error("TryFromSlice error: {0}")]
@@ -107,22 +109,30 @@ impl SubsquidSyncer {
         V: serde::Serialize,
         R: serde::de::DeserializeOwned,
     {
-        // Serialize once upfront so we can retry without cloning
         let json_body = serde_json::to_vec(&body).map_err(|e| {
             SubsquidError::InvalidData(format!("Failed to serialize request: {}", e))
         })?;
 
+        //? Retry request to handle transient errors
         let mut attempts = 0;
         loop {
-            let result: Result<Response<R>, reqwest::Error> = async {
-                self.client
+            let result: Result<Response<R>, SubsquidError> = async {
+                let response = self
+                    .client
                     .post(&self.endpoint)
                     .header("Content-Type", "application/json")
                     .body(json_body.clone())
                     .send()
-                    .await?
-                    .json()
-                    .await
+                    .await?;
+
+                if !response.status().is_success() {
+                    return Err(SubsquidError::ServerError(
+                        response.status(),
+                        response.text().await.unwrap_or_default(),
+                    ));
+                }
+
+                Ok(response.json().await?)
             }
             .await;
 
@@ -138,21 +148,31 @@ impl SubsquidSyncer {
                 }
                 Err(e) => {
                     attempts += 1;
+                    warn!("Failed to fetch {}: {}", op_name, e);
                     if attempts >= MAX_RETRIES {
-                        warn!(
-                            "Failed to fetch {} after {} attempts: {}",
-                            op_name, attempts, e
-                        );
                         return Err(e.into());
                     }
-                    warn!(
-                        "Failed to fetch {} (attempt {}, retrying): {}",
-                        op_name, attempts, e
-                    );
                     sleep(RETRY_DELAY).await;
                 }
             }
         }
+    }
+}
+
+#[async_trait::async_trait]
+impl RootVerifier for SubsquidSyncer {
+    async fn seen(
+        &self,
+        _tree_number: u32,
+        utxo_merkle_root: Fr,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        let request_body = SeenRootQuery::build_query(seen_root_query::Variables {
+            root: Some(Bytes::from(fr_to_bytes(&utxo_merkle_root))),
+        });
+
+        let data: seen_root_query::ResponseData = self.post_graphql("seen", request_body).await?;
+
+        Ok(data.transactions.into_iter().next().is_some())
     }
 }
 

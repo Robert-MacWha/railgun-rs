@@ -2,6 +2,7 @@ use ark_bn254::Fr;
 
 use crate::{
     abis::railgun::CommitmentCiphertext,
+    caip::AssetId,
     note::{
         note::{EncryptError, Note},
         transfer::TransferNote,
@@ -9,12 +10,33 @@ use crate::{
     },
 };
 
-#[derive(Default, Debug, Clone)]
-pub struct Operation {
-    pub tree_index: u32,
-    pub in_notes: Vec<Note>,
-    pub out_notes: Vec<TransferNote>,
-    pub unshield_note: Option<UnshieldNote>,
+/// An Operation represents a single "operation" within a railgun transaction.
+/// Otherwise known as the `RailgunSmartWallet::Transaction` struct in solidity.
+///
+/// - An operation MUST only spend notes from a single tree.
+/// - An operation MUST have fewer than to 12 out_notes (13 including unshield),
+///   which can be to arbitrary addresses.
+/// - An operation MUST only spend a single asset.
+///   - The POI proof circuit inputs are designed around this assumption, since the token
+///     of the spent notes is a private input.
+/// - An operation MUST only spend notes from a single address.
+///   - The POI proof circuit inputs are designed around this assumption, since the
+///     spender's public and nullifying key are private inputs to the circuit.
+/// - An operation MUST only have a single unshield note.
+///   - The railgun smart contracts are designed around this assumption, since the
+///     `RailgunSmartWallet::Transaction` struct only supports defining a single
+///      token/value pair for unshielding.
+#[derive(Debug, Clone)]
+pub struct Operation<N> {
+    /// The number of the tree this operation is spending notes from.
+    tree_number: u32,
+
+    /// The asset this operation is spending.
+    asset: AssetId,
+
+    in_notes: Vec<N>,
+    out_notes: Vec<TransferNote>,
+    unshield_note: Option<UnshieldNote>,
 }
 
 pub trait TransactNote {
@@ -27,26 +49,50 @@ pub trait EncryptableNote: TransactNote {
     fn encrypt(&self) -> Result<CommitmentCiphertext, EncryptError>;
 }
 
-impl Operation {
+impl Operation<Note> {
+    /// TODO: Add error checking to ensure that the operation is valid.
+    ///
+    /// - Spending and viewing keys are the same for all notes in
+    /// - Tree number is the same for all notes in
+    /// - AssetID is the same for all notes
+    /// - notes_in.value = notes_out.value + unshield_note.value
+    /// - notes_in.len() <= 13
+    /// - notes_out.len() + unshield_note.is_some() <= 13
     pub fn new(
-        tree_index: u32,
+        tree_number: u32,
         in_notes: Vec<Note>,
         out_notes: Vec<TransferNote>,
         unshield: Option<UnshieldNote>,
     ) -> Self {
+        let asset = in_notes.first().unwrap().asset;
+
         Operation {
-            tree_index,
+            tree_number,
+            asset,
             in_notes,
             out_notes,
             unshield_note: unshield,
         }
     }
+}
 
-    pub fn in_notes(&self) -> Vec<Note> {
-        self.in_notes.to_vec()
+impl<N> Operation<N> {
+    /// Tree number for the in_notes in this operation.
+    pub fn tree_number(&self) -> u32 {
+        self.tree_number
     }
 
-    pub fn notes_out(&self) -> Vec<Box<dyn TransactNote>> {
+    /// Asset ID for the notes in this operation.
+    pub fn asset(&self) -> AssetId {
+        self.asset
+    }
+
+    pub fn in_notes(&self) -> &[N] {
+        &self.in_notes
+    }
+
+    // TODO: Convert me to return &[Box] if possible
+    pub fn out_notes(&self) -> Vec<Box<dyn TransactNote>> {
         let mut notes: Vec<Box<dyn TransactNote>> = Vec::new();
 
         for transfer in &self.out_notes {
@@ -60,7 +106,11 @@ impl Operation {
         notes.into_iter().filter(|n| n.value() > 0).collect()
     }
 
-    pub fn encryptable_notes_out(&self) -> Vec<Box<dyn EncryptableNote>> {
+    pub fn unshield_note(&self) -> Option<UnshieldNote> {
+        self.unshield_note.clone()
+    }
+
+    pub fn out_encryptable_notes(&self) -> Vec<Box<dyn EncryptableNote>> {
         let mut notes: Vec<Box<dyn EncryptableNote>> = Vec::new();
 
         for transfer in &self.out_notes {
@@ -117,7 +167,7 @@ mod tests {
             Some(unshield_note.clone()),
         );
 
-        let notes_out = operation.notes_out();
+        let notes_out = operation.out_notes();
         assert_eq!(notes_out.last().unwrap().hash(), unshield_note.hash());
     }
 }

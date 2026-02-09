@@ -107,12 +107,14 @@ sol! {
     #[sol(rpc)]
     contract RailgunSmartWallet {
         // Events
+        #[derive(Debug)]
         event Transact(
             uint256 treeNumber,
             uint256 startPosition,
             bytes32[] hash,
             CommitmentCiphertext[] ciphertext
         );
+        #[derive(Debug)]
         event Shield(
             uint256 treeNumber,
             uint256 startPosition,
@@ -133,6 +135,7 @@ sol! {
         function transact(Transaction[] calldata _transactions) external;
     }
 
+    #[derive(Debug)]
     struct ShieldRequest {
         CommitmentPreimage preimage;
         ShieldCiphertext ciphertext;
@@ -161,6 +164,7 @@ sol! {
         bytes memo; // Added to note ciphertext for decryption
     }
 
+    #[derive(Debug)]
     struct ShieldCiphertext {
         bytes32[3] encryptedBundle; // IV shared (16 bytes), tag (16 bytes), random (16 bytes), IV sender (16 bytes), receiver viewing public key (32 bytes)
         bytes32 shieldKey; // Public key to generate shared key from
@@ -195,6 +199,7 @@ sol! {
         CommitmentPreimage unshieldPreimage;
     }
 
+    #[derive(Debug)]
     struct CommitmentPreimage {
         bytes32 npk; // Poseidon(Poseidon(spending public key, nullifying key), random)
         TokenData token; // Token field

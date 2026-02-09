@@ -11,7 +11,7 @@
 //     account::RailgunAccount,
 //     caip::AssetId,
 //     chain_config::{ChainConfig, MAINNET_CONFIG},
-//     indexer::indexer::Indexer,
+//     indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
 //     transaction::{shield_builder::ShieldBuilder, tx_builder::TxBuilder},
 // };
 // use rand::random;
@@ -40,7 +40,7 @@
 //         .ok();
 
 //     info!("Starting test");
-//     let fork_url = std::env::var("FORK_URL").expect("Fork URL Must be set");
+//     let fork_url = std::env::var("FORK_URL_MAINNET").expect("Fork URL Must be set");
 //     let _anvil =
 //         common::anvil::AnvilInstance::fork_with_state(&fork_url, FORK_BLOCK, STATE_PATH).await;
 
@@ -61,8 +61,9 @@
 //     let usdc_contract = ERC20::new(USDC_ADDRESS, provider.clone());
 
 //     info!("Setting up indexer");
+//     let rpc_syncer = Box::new(RpcSyncer::new(provider.clone(), CHAIN));
 //     let indexer_state = bitcode::deserialize(INDEXER_STATE).unwrap();
-//     let mut indexer = Indexer::new_with_state(provider.clone(), indexer_state).unwrap();
+//     let mut indexer = Indexer::new_with_state(rpc_syncer, indexer_state).unwrap();
 
 //     info!("Setting up accounts");
 //     let account_1 = RailgunAccount::new(random(), random(), CHAIN.id);
@@ -84,40 +85,45 @@
 //         .await
 //         .unwrap();
 
-//     // indexer.sync().await.unwrap();
+//     indexer.sync().await.unwrap();
 //     let balance_1 = indexer.balance(account_1.address());
 //     let balance_2 = indexer.balance(account_2.address());
 
 //     assert_eq!(balance_1.get(&USDC), Some(&997_500));
 //     assert_eq!(balance_2.get(&USDC), None);
 
-//     // // Test Transfer
-//     // info!("Testing transfer");
-//     // let transfer_tx = TxBuilder::new(&mut indexer)
-//     //     .transfer(
-//     //         &account_1,
-//     //         account_2.address(),
-//     //         USDC,
-//     //         5_000,
-//     //         "test transfer",
-//     //     )
-//     //     .unwrap()
-//     //     .build()
-//     //     .unwrap();
-//     // provider
-//     //     .send_transaction(transfer_tx.into())
-//     //     .await
-//     //     .unwrap()
-//     //     .get_receipt()
-//     //     .await
-//     //     .unwrap();
+//     let notebook = indexer
+//         .notebooks(account_1.address())
+//         .unwrap()
+//         .get(&2)
+//         .unwrap();
+//     let notes = notebook.unspent().iter().collect();
 
-//     // indexer.sync().await.unwrap();
-//     // let balance_1 = indexer.balance(account_1.address());
-//     // let balance_2 = indexer.balance(account_2.address());
+//     // Test Transfer
+//     info!("Testing transfer");
+//     let transfer_tx = TxBuilder::new()
+//         .transfer(
+//             account_1.clone(),
+//             account_2.address(),
+//             USDC,
+//             5_000,
+//             "test transfer",
+//         )
+//         .build(notebook.unspent().iter().map(|n| n.1).cloned().collect());
+//     provider
+//         .send_transaction(transfer_tx.into())
+//         .await
+//         .unwrap()
+//         .get_receipt()
+//         .await
+//         .unwrap();
 
-//     // assert_eq!(balance_1.get(&USDC), Some(&992500));
-//     // assert_eq!(balance_2.get(&USDC), Some(&5000));
+//     indexer.sync().await.unwrap();
+//     let balance_1 = indexer.balance(account_1.address());
+//     let balance_2 = indexer.balance(account_2.address());
+
+//     assert_eq!(balance_1.get(&USDC), Some(&992500));
+//     assert_eq!(balance_2.get(&USDC), Some(&5000));
 
 //     // // Test Unshielding
 //     // info!("Testing unshielding");
