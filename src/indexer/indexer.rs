@@ -16,13 +16,13 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    crypto::{keys::fr_to_u256, poseidon::poseidon_hash},
+    crypto::{keys::fr_to_u256, poseidon::poseidon_hash, railgun_txid::Txid, railgun_utxo::Utxo},
     indexer::{
         indexed_account::IndexedAccount,
         notebook::Notebook,
         syncer::{self, SyncEvent, Syncer},
     },
-    merkle_tree::{MerkleTree, MerkleTreeState, UtxoMerkleTree},
+    merkle_tree::{MerkleTree, MerkleTreeState, TreeConfig, TxidMerkleTree, UtxoMerkleTree},
     note::note::NoteError,
     railgun::address::RailgunAddress,
 };
@@ -30,13 +30,15 @@ use crate::{
 pub type CommitmentHash = Fr;
 pub type TxIdLeafHash = Fr;
 
+/// The indexer is responsible for syncing the state of the Railgun protocol by
+/// consuming events from a Syncer.
 pub struct Indexer {
     syncer: Arc<dyn Syncer>,
     chain: ChainConfig,
     /// The latest block number that has been synced
     synced_block: u64,
-    /// UTXO trees are merkle trees that track all railgun commitments.
     utxo_trees: BTreeMap<u32, UtxoMerkleTree>,
+    txid_trees: BTreeMap<u32, TxidMerkleTree>,
 
     /// List of accounts being tracked by the indexer
     accounts: Vec<IndexedAccount>,
@@ -47,6 +49,7 @@ pub struct IndexerState {
     pub chain_id: ChainId,
     pub synced_block: u64,
     pub utxo_trees: BTreeMap<u32, MerkleTreeState>,
+    pub txid_trees: BTreeMap<u32, MerkleTreeState>,
     pub accounts: Vec<IndexedAccount>,
 }
 
@@ -85,14 +88,21 @@ impl Indexer {
             chain,
             synced_block: chain.deployment_block,
             utxo_trees: BTreeMap::new(),
+            txid_trees: BTreeMap::new(),
             accounts: Vec::new(),
         }
     }
 
     pub fn new_with_state(syncer: Box<dyn Syncer>, state: IndexerState) -> Option<Self> {
         let chain = get_chain_config(state.chain_id)?;
-        let trees = state
+        let utxo_trees = state
             .utxo_trees
+            .into_iter()
+            .map(|(k, v)| (k, MerkleTree::new_from_state(v)))
+            .collect();
+
+        let txid_trees = state
+            .txid_trees
             .into_iter()
             .map(|(k, v)| (k, MerkleTree::new_from_state(v)))
             .collect();
@@ -101,7 +111,8 @@ impl Indexer {
             syncer: Arc::from(syncer),
             chain,
             synced_block: state.synced_block,
-            utxo_trees: trees,
+            utxo_trees,
+            txid_trees,
             accounts: state.accounts,
         })
     }
@@ -119,8 +130,12 @@ impl Indexer {
         self.synced_block
     }
 
-    pub fn merkle_trees(&mut self) -> &mut BTreeMap<u32, UtxoMerkleTree> {
+    pub fn utxo_trees(&mut self) -> &mut BTreeMap<u32, UtxoMerkleTree> {
         &mut self.utxo_trees
+    }
+
+    pub fn txid_trees(&mut self) -> &mut BTreeMap<u32, TxidMerkleTree> {
+        &mut self.txid_trees
     }
 
     pub fn notebooks(&self, address: RailgunAddress) -> Option<BTreeMap<u32, Notebook>> {
@@ -144,14 +159,23 @@ impl Indexer {
     }
 
     pub fn state(&mut self) -> IndexerState {
+        let utxo_trees = self
+            .utxo_trees
+            .iter_mut()
+            .map(|(k, v)| (*k, v.state()))
+            .collect();
+
+        let txid_trees = self
+            .txid_trees
+            .iter_mut()
+            .map(|(k, v)| (*k, v.state()))
+            .collect();
+
         IndexerState {
             chain_id: self.chain.id,
             synced_block: self.synced_block,
-            utxo_trees: self
-                .utxo_trees
-                .iter_mut()
-                .map(|(k, v)| (*k, v.state()))
-                .collect(),
+            utxo_trees,
+            txid_trees,
             accounts: self.accounts.clone(),
         }
     }
@@ -220,7 +244,7 @@ impl Indexer {
         event: &RailgunSmartWallet::Shield,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let leaves: Vec<Fr> = event
+        let leaves: Vec<Utxo> = event
             .commitments
             .iter()
             .map(|c| {
@@ -230,11 +254,12 @@ impl Indexer {
                 let value: u128 = c.value.saturating_to();
                 let value = Fr::from(value);
 
-                poseidon_hash(&[npk, token_id, value])
+                poseidon_hash(&[npk, token_id, value]).into()
             })
             .collect();
 
-        self.insert_leaves(
+        insert_leaves(
+            &mut self.utxo_trees,
             event.treeNumber.saturating_to(),
             event.startPosition.saturating_to(),
             &leaves,
@@ -252,13 +277,14 @@ impl Indexer {
         event: &RailgunSmartWallet::Transact,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let leaves = event
+        let leaves: Vec<Utxo> = event
             .hash
             .iter()
-            .map(|h| Fr::from_be_bytes_mod_order(h.as_slice()))
-            .collect::<Vec<Fr>>();
+            .map(|h| Fr::from_be_bytes_mod_order(h.as_slice()).into())
+            .collect();
 
-        self.insert_leaves(
+        insert_leaves(
+            &mut self.utxo_trees,
             event.treeNumber.saturating_to(),
             event.startPosition.saturating_to(),
             &leaves,
@@ -277,39 +303,58 @@ impl Indexer {
         }
     }
 
-    fn handle_operation(&mut self, _event: &syncer::Operation) {
-        // TODO
+    fn handle_operation(&mut self, event: &syncer::Operation) {
+        let txid = Txid::new(
+            &event.nullifiers,
+            &event.commitment_hashes,
+            event.bound_params_hash,
+        );
+
+        insert_leaves(
+            &mut self.txid_trees,
+            event.utxo_batch_tree_number as u32,
+            event.utxo_batch_start_index as usize,
+            &[txid.into()],
+        );
     }
 
     fn handle_legacy(&mut self, event: syncer::LegacyCommitment, _block_number: u64) {
-        self.insert_leaves(event.tree_number, event.leaf_index as usize, &[event.hash]);
+        insert_leaves(
+            &mut self.utxo_trees,
+            event.tree_number,
+            event.leaf_index as usize,
+            &[event.hash.into()],
+        );
+    }
+}
+
+/// Inserts leaves into the appropriate Merkle Tree, handling tree boundaries.
+///
+/// If the leaves cross a tree boundary, it will fill the first tree, then
+/// insert the remaining leaves into the next tree.
+fn insert_leaves<C: TreeConfig>(
+    trees: &mut BTreeMap<u32, MerkleTree<C>>,
+    tree_number: u32,
+    start_position: usize,
+    leaves: &[C::LeafType],
+) -> MerkleTree<C> {
+    let mut remaining = leaves;
+    let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
+    let mut position = start_position % TOTAL_LEAVES;
+
+    while !remaining.is_empty() {
+        let space_in_tree = TOTAL_LEAVES - position;
+        let to_insert = remaining.len().min(space_in_tree);
+
+        trees
+            .entry(current_tree)
+            .or_insert_with(|| MerkleTree::new(current_tree))
+            .insert_leaves(&remaining[..to_insert], position);
+
+        remaining = &remaining[to_insert..];
+        current_tree += 1;
+        position = 0;
     }
 
-    /// Inserts leaves into the appropriate Merkle Tree, handling tree boundaries.
-    ///
-    /// If the leaves cross a tree boundary, it will fill the first tree, then
-    /// insert the remaining leaves into the next tree.
-    fn insert_leaves(&mut self, tree_number: u32, start_position: usize, leaves: &[Fr]) {
-        if leaves.is_empty() {
-            return;
-        }
-
-        let mut remaining = leaves;
-        let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
-        let mut position = start_position % TOTAL_LEAVES;
-
-        while !remaining.is_empty() {
-            let space_in_tree = TOTAL_LEAVES - position;
-            let to_insert = remaining.len().min(space_in_tree);
-
-            self.utxo_trees
-                .entry(current_tree)
-                .or_insert_with(|| MerkleTree::new(current_tree))
-                .insert_leaves(&remaining[..to_insert], position);
-
-            remaining = &remaining[to_insert..];
-            current_tree += 1;
-            position = 0;
-        }
-    }
+    trees.get(&tree_number).unwrap().clone()
 }

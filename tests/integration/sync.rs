@@ -29,6 +29,10 @@ async fn test_sync() {
 
     info!("Validating indexer");
     indexer.validate().await.unwrap();
+
+    let txid_trees = indexer.txid_trees();
+    for (tree_number, tree) in txid_trees {}
+
     // let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
     // std::fs::write("./tests/fixtures/indexer_state.bincode", indexer_state).unwrap();
 }

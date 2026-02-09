@@ -16,6 +16,7 @@ use crate::{
         },
         poseidon::poseidon_hash,
         railgun_base_37,
+        railgun_utxo::Utxo,
     },
     railgun::address::RailgunAddress,
 };
@@ -200,12 +201,13 @@ impl Note {
     /// Returns the note's hash. Also known as the commitment hash.
     ///
     /// Hash of (note_public_key, token_id, value)
-    pub fn hash(&self) -> Fr {
+    pub fn hash(&self) -> Utxo {
         poseidon_hash(&[
             self.note_public_key(),
             self.token.hash(),
             Fr::from(self.value),
         ])
+        .into()
     }
 
     /// Returns the note's spending public key
@@ -341,7 +343,7 @@ mod tests {
     #[traced_test]
     fn test_note_hash() {
         let note = test_note();
-        let hash = note.hash();
+        let hash: Fr = note.hash().into();
 
         let expected =
             hex_to_fr("0x229b1db0c6706d18ff9ce36673185530465d4575d2572b2cfc277262289b18b9");

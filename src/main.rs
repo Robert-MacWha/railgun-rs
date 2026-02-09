@@ -20,10 +20,7 @@ use railgun_rs::{
         poseidon::poseidon_hash,
     },
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
-    note::{
-        note::Note,
-        transact::{create_transactions, create_txdata},
-    },
+    note::{note::Note, transact::create_txdata},
     poi::client::{BlindedCommitmentData, BlindedCommitmentType, PoiClient},
     railgun::address::RailgunAddress,
     transaction::{shield_builder::ShieldBuilder, tx_builder::TxBuilder},
@@ -90,7 +87,7 @@ async fn main() {
         for (leaf_index, note) in notebook.unspent() {
             info!("Unspent note [{}, {}]: {:?}", tree_index, leaf_index, note);
 
-            let commitment_hash = note.hash();
+            let commitment_hash = note.hash().into();
             let npk = note.note_public_key();
             let global_tree_position = Fr::from(tree_index * 65536 + leaf_index);
             let blinded_commitment = poseidon_hash(&[commitment_hash, npk, global_tree_position]);
@@ -116,7 +113,7 @@ async fn main() {
     }
 
     let prover = Box::new(NativeProver::new());
-    let merkle_trees = indexer.merkle_trees();
+    let merkle_trees = indexer.utxo_trees();
 
     // Creates a transaction builder for our desired set of operations.
     let tx = TxBuilder::new().set_unshield(address, USDC, 1_000);

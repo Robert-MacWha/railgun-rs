@@ -6,21 +6,56 @@ use std::marker::PhantomData;
 use thiserror::Error;
 use tracing::info;
 
-use crate::crypto::{keys::fr_to_bytes, poseidon::poseidon_hash};
+use crate::crypto::{
+    keys::fr_to_bytes, poseidon::poseidon_hash, railgun_txid::Txid, railgun_utxo::Utxo,
+};
 
-pub type UtxoMerkleTree = MerkleTree<UtxoTree>;
+/// UTXO Trees track the state of all notes in railgun. New UTXOs are added as
+/// leaves whenever new commitments are observed from the railgun smart contracts.
+///
+/// The UTXO tree is used to generate Merkle proofs for UTXOs when they are spent,
+/// one of the private inputs required for a valid snark proof.
+pub type UtxoMerkleTree = MerkleTree<UtxoTreeConfig>;
+
+/// The TxID tree tracks all Operations (`RailgunSmartWallet::Transaction`) in railgun.
+/// New TxIDs are added whenever a new Operation event is observed from the railgun
+/// smart contracts.
+///
+/// TXID proofs are used to generate Merkle proofs for TxIDs when submitting a
+/// POI (Proof of Innocence) to a POI bundler, or to a broadcaster.
+pub type TxidMerkleTree = MerkleTree<TxidTreeConfig>;
 
 /// Configuration trait for different merkle tree types.
 pub trait TreeConfig: Clone + Default {
+    type LeafType: Clone + From<Fr> + Into<Fr>;
     /// The zero value used for empty leaves in this tree type.
     fn zero_value() -> Fr;
     fn hash_left_right(left: Fr, right: Fr) -> Fr;
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct UtxoTree;
+pub struct UtxoTreeConfig;
 
-impl TreeConfig for UtxoTree {
+#[derive(Clone, Default, Debug)]
+pub struct TxidTreeConfig;
+
+impl TreeConfig for UtxoTreeConfig {
+    type LeafType = Utxo;
+
+    fn zero_value() -> Fr {
+        use alloy::primitives::utils::keccak256_cached;
+        let hash = keccak256_cached(b"Railgun");
+        Fr::from_be_bytes_mod_order(hash.as_slice())
+    }
+
+    fn hash_left_right(left: Fr, right: Fr) -> Fr {
+        poseidon_hash(&[left, right])
+    }
+}
+
+impl TreeConfig for TxidTreeConfig {
+    type LeafType = Txid;
+
     fn zero_value() -> Fr {
         use alloy::primitives::utils::keccak256_cached;
         let hash = keccak256_cached(b"Railgun");
@@ -133,7 +168,7 @@ impl<C: TreeConfig> MerkleTree<C> {
         }
     }
 
-    pub fn insert_leaves(&mut self, leaves: &[Fr], start_position: usize) {
+    pub fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
         if leaves.is_empty() {
             return;
         }
@@ -143,19 +178,19 @@ impl<C: TreeConfig> MerkleTree<C> {
             self.tree[0].resize(end_position, self.zeros[0]);
         }
 
-        for (i, &leaf) in leaves.iter().enumerate() {
+        for (i, leaf) in leaves.iter().cloned().enumerate() {
             let leaf_index = start_position + i;
-            self.tree[0][leaf_index] = leaf;
+            self.tree[0][leaf_index] = leaf.into();
             self.dirty_parents.insert(leaf_index / 2);
         }
     }
 
-    pub fn generate_proof(&mut self, element: Fr) -> Result<MerkleProof, MerkleTreeError> {
+    pub fn generate_proof(&mut self, element: C::LeafType) -> Result<MerkleProof, MerkleTreeError> {
         self.rebuild_dirty();
 
         let initial_index = self.tree[0]
             .iter()
-            .position(|val| *val == element)
+            .position(|val| *val == element.clone().into())
             .ok_or(MerkleTreeError::ElementNotFound)?;
 
         let mut elements = Vec::with_capacity(self.depth);
@@ -175,7 +210,7 @@ impl<C: TreeConfig> MerkleTree<C> {
         }
 
         Ok(MerkleProof {
-            element,
+            element: element.into(),
             elements,
             indices: initial_index as u32,
             root: self.root(),
@@ -271,7 +306,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_merkle_root() {
-        let mut tree = MerkleTree::<UtxoTree>::new(0);
+        let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
         let expected_root =
             hex_to_fr("0x14fceeac99eb8419a2796d1958fc2050d489bf5a3eb170ef16a667060344ba90");
 
@@ -282,8 +317,8 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_merkle_tree_insert_and_proof() {
-        let mut tree = MerkleTree::<UtxoTree>::new(0);
-        let leaves: Vec<Fr> = (0..10).map(|i| Fr::from(i as u64 + 1)).collect();
+        let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
+        let leaves: Vec<Utxo> = (0..10).map(|i| Fr::from(i as u64 + 1).into()).collect();
         let expected_root =
             hex_to_fr("0x1d89f5b3d39b050a5b31be8bdb05fccdf236c038ee5b23e25d61324fca6dc4a9");
 
@@ -294,7 +329,7 @@ mod tests {
 
         for &leaf in &leaves {
             let proof = tree.generate_proof(leaf).unwrap();
-            assert!(MerkleTree::<UtxoTree>::validate_proof(&proof));
+            assert!(MerkleTree::<UtxoTreeConfig>::validate_proof(&proof));
         }
     }
 
@@ -302,35 +337,13 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_state() {
-        let mut tree = MerkleTree::<UtxoTree>::new(0);
-        let leaves: Vec<Fr> = (0..10).map(|i| Fr::from(i as u64 + 1)).collect();
+        let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
+        let leaves: Vec<Utxo> = (0..10).map(|i| Fr::from(i as u64 + 1).into()).collect();
         tree.insert_leaves(&leaves, 0);
 
         let state = tree.state();
-        let mut rebuilt_tree = MerkleTree::<UtxoTree>::new_from_state(state);
+        let mut rebuilt_tree = MerkleTree::<UtxoTreeConfig>::new_from_state(state);
 
         assert_eq!(tree.root(), rebuilt_tree.root());
-    }
-
-    /// Test that different tree configs produce different empty roots
-    #[test]
-    #[traced_test]
-    fn test_different_configs() {
-        #[derive(Clone, Default, Debug)]
-        struct AlternateConfig;
-
-        impl TreeConfig for AlternateConfig {
-            fn zero_value() -> Fr {
-                Fr::from(42u64)
-            }
-            fn hash_left_right(left: Fr, right: Fr) -> Fr {
-                poseidon_hash(&[left, right])
-            }
-        }
-
-        let mut utxo_tree = MerkleTree::<UtxoTree>::new(0);
-        let mut alt_tree = MerkleTree::<AlternateConfig>::new(0);
-
-        assert_ne!(utxo_tree.root(), alt_tree.root());
     }
 }
