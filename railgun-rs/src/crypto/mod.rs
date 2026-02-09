@@ -8,6 +8,7 @@ pub mod poseidon;
 pub mod railgun_base_37;
 pub mod railgun_txid;
 pub mod railgun_utxo;
+pub mod railgun_zero;
 
 const SNARK_SCALAR_FIELD: &str =
     "21888242871839275222246405745257275088548364400416034343698204186575808495617";

@@ -7,6 +7,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use ark_bn254::Fr;
+use poseidon_rust::poseidon_hash;
 use tracing::info;
 
 use railgun_rs::{
@@ -15,10 +16,7 @@ use railgun_rs::{
     caip::AssetId,
     chain_config::{ChainConfig, SEPOLIA_CONFIG},
     circuit::native_prover::NativeProver,
-    crypto::{
-        keys::{HexKey, SpendingKey, ViewingKey, fr_to_bytes},
-        poseidon::poseidon_hash,
-    },
+    crypto::keys::{HexKey, SpendingKey, ViewingKey, fr_to_bytes},
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
     note::{note::Note, transact::create_txdata},
     poi::client::{BlindedCommitmentData, BlindedCommitmentType, PoiClient},
@@ -90,7 +88,8 @@ async fn main() {
             let commitment_hash = note.hash().into();
             let npk = note.note_public_key();
             let global_tree_position = Fr::from(tree_index * 65536 + leaf_index);
-            let blinded_commitment = poseidon_hash(&[commitment_hash, npk, global_tree_position]);
+            let blinded_commitment =
+                poseidon_hash(&[commitment_hash, npk, global_tree_position]).unwrap();
 
             let pois = poi_client
                 .pois(vec![BlindedCommitmentData {

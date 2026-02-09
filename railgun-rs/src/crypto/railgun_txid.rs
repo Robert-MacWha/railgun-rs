@@ -1,8 +1,10 @@
 use ark_bn254::Fr;
+use poseidon_rust::poseidon_hash;
+use tracing::info;
 
-use crate::crypto::poseidon::poseidon_hash;
+use crate::crypto::railgun_zero::railgun_merkle_tree_zero;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Txid(Fr);
 
 impl Txid {
@@ -10,8 +12,8 @@ impl Txid {
         let max_nullifiers = 13; // Max circuit inputs
         let max_commitments = 13; // Max circuit outputs
 
-        let mut nullifiers_padded = [Fr::from(0); 13];
-        let mut commitments_padded = [Fr::from(0); 13];
+        let mut nullifiers_padded = [railgun_merkle_tree_zero(); 13];
+        let mut commitments_padded = [railgun_merkle_tree_zero(); 13];
 
         for (i, &nullifier) in nullifiers.iter().take(max_nullifiers).enumerate() {
             nullifiers_padded[i] = nullifier;
@@ -20,10 +22,12 @@ impl Txid {
             commitments_padded[i] = commitment;
         }
 
-        let nullifiers_hash = poseidon_hash(&nullifiers_padded);
-        let commitments_hash = poseidon_hash(&commitments_padded);
+        let nullifiers_hash = poseidon_hash(&nullifiers_padded).unwrap();
+        let commitments_hash = poseidon_hash(&commitments_padded).unwrap();
 
-        poseidon_hash(&[nullifiers_hash, commitments_hash, bound_params_hash]).into()
+        poseidon_hash(&[nullifiers_hash, commitments_hash, bound_params_hash])
+            .unwrap()
+            .into()
     }
 }
 

@@ -5,8 +5,8 @@ use ark_serialize::CanonicalSerialize;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::{EdwardsPoint, Scalar};
 use ed25519_dalek::SigningKey;
-// use light_poseidon::PoseidonHasher;
 use num_bigint::{BigInt, Sign};
+use poseidon_rust::poseidon_hash;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
@@ -14,7 +14,7 @@ use thiserror::Error;
 use crate::crypto::aes::{
     AesError, Ciphertext, CiphertextCtr, decrypt_ctr, decrypt_gcm, encrypt_ctr, encrypt_gcm,
 };
-use crate::crypto::poseidon::{poseidon_fr_to_arkworks, poseidon_hash};
+use crate::crypto::poseidon::poseidon_fr_to_arkworks;
 
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -306,17 +306,20 @@ impl SharedKey {
 
 impl MasterPublicKey {
     pub fn new(spending_pubkey: SpendingPublicKey, nullifying_key: NullifyingKey) -> Self {
-        MasterPublicKey::from_fr(&poseidon_hash(&[
-            spending_pubkey.x_fr(),
-            spending_pubkey.y_fr(),
-            nullifying_key.to_fr(),
-        ]))
+        MasterPublicKey::from_fr(
+            &poseidon_hash(&[
+                spending_pubkey.x_fr(),
+                spending_pubkey.y_fr(),
+                nullifying_key.to_fr(),
+            ])
+            .unwrap(),
+        )
     }
 }
 
 impl NullifyingKey {
     pub fn new(viewing_key: ViewingKey) -> Self {
-        NullifyingKey::from_fr(&poseidon_hash(&[viewing_key.to_fr()]))
+        NullifyingKey::from_fr(&poseidon_hash(&[viewing_key.to_fr()]).unwrap())
     }
 }
 

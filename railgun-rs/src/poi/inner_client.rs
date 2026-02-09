@@ -92,8 +92,8 @@ impl InnerPoiClient {
             params,
         };
 
-        info!("Calling RPC method: {}", method);
-        info!("Request: {}", serde_json::to_string(&req).unwrap());
+        // info!("Calling RPC method: {}", method);
+        // info!("Request: {}", serde_json::to_string(&req).unwrap());
 
         let resp: JsonRpcResponse<R> = self
             .http

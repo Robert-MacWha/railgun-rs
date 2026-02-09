@@ -1,6 +1,6 @@
 use ark_bn254::Fr;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Utxo(Fr);
 
 impl From<Fr> for Utxo {

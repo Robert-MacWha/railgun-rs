@@ -1,5 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use poseidon_rust::poseidon_hash;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
@@ -7,7 +8,8 @@ use thiserror::Error;
 use tracing::info;
 
 use crate::crypto::{
-    keys::fr_to_bytes, poseidon::poseidon_hash, railgun_txid::Txid, railgun_utxo::Utxo,
+    keys::fr_to_bytes, railgun_txid::Txid, railgun_utxo::Utxo,
+    railgun_zero::railgun_merkle_tree_zero,
 };
 
 /// UTXO Trees track the state of all notes in railgun. New UTXOs are added as
@@ -43,13 +45,11 @@ impl TreeConfig for UtxoTreeConfig {
     type LeafType = Utxo;
 
     fn zero_value() -> Fr {
-        use alloy::primitives::utils::keccak256_cached;
-        let hash = keccak256_cached(b"Railgun");
-        Fr::from_be_bytes_mod_order(hash.as_slice())
+        railgun_merkle_tree_zero()
     }
 
     fn hash_left_right(left: Fr, right: Fr) -> Fr {
-        poseidon_hash(&[left, right])
+        poseidon_hash(&[left, right]).unwrap()
     }
 }
 
@@ -57,13 +57,11 @@ impl TreeConfig for TxidTreeConfig {
     type LeafType = Txid;
 
     fn zero_value() -> Fr {
-        use alloy::primitives::utils::keccak256_cached;
-        let hash = keccak256_cached(b"Railgun");
-        Fr::from_be_bytes_mod_order(hash.as_slice())
+        railgun_merkle_tree_zero()
     }
 
     fn hash_left_right(left: Fr, right: Fr) -> Fr {
-        poseidon_hash(&[left, right])
+        poseidon_hash(&[left, right]).unwrap()
     }
 }
 
@@ -146,6 +144,10 @@ impl<C: TreeConfig> MerkleTree<C> {
     pub fn root(&mut self) -> Fr {
         self.rebuild_dirty();
         self.tree[self.depth][0]
+    }
+
+    pub fn leaves_len(&self) -> usize {
+        self.tree[0].len()
     }
 
     pub fn state(&self) -> MerkleTreeState {
@@ -331,6 +333,37 @@ mod tests {
             let proof = tree.generate_proof(leaf).unwrap();
             assert!(MerkleTree::<UtxoTreeConfig>::validate_proof(&proof));
         }
+
+        let tree_leaves_len = tree.leaves_len();
+        assert_eq!(tree_leaves_len, leaves.len());
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_merkle_tree_insert_txid_and_proof() {
+        let mut tree = MerkleTree::<TxidTreeConfig>::new(0);
+
+        let leaf_1 = Txid::new(
+            &[Fr::from(3), Fr::from(4)],
+            &[Fr::from(1), Fr::from(2)],
+            Fr::from(5),
+        );
+        let leaf_2 = Txid::new(
+            &[Fr::from(13), Fr::from(14)],
+            &[Fr::from(11), Fr::from(12)],
+            Fr::from(15),
+        );
+
+        info!("Inserting TxIDs into TxidMerkleTree");
+        info!("Leaf 1: {:?}", leaf_1);
+        info!("Leaf 2: {:?}", leaf_2);
+
+        tree.insert_leaves(&[leaf_1.clone(), leaf_2.clone()], 0);
+        let root = tree.root();
+
+        let expected =
+            hex_to_fr("0a03b0bf8dc758a3d5dd7f6b8b1974a4b212a0080425740c92cbd0c860ebde33");
+        assert_eq!(root, expected);
     }
 
     /// Test that the tree state can be saved and restored correctly.

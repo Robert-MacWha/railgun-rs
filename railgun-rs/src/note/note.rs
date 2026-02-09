@@ -1,5 +1,6 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use poseidon_rust::poseidon_hash;
 use rand::random;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -14,7 +15,6 @@ use crate::{
             BlindedKey, ByteKey, FieldKey, KeyError, MasterPublicKey, SpendingKey, U256Key,
             ViewingKey, ViewingPublicKey, blind_viewing_keys, fr_to_bytes,
         },
-        poseidon::poseidon_hash,
         railgun_base_37,
         railgun_utxo::Utxo,
     },
@@ -193,7 +193,7 @@ impl Note {
     }
 
     pub fn sign(&self, inputs: &[Fr]) -> [Fr; 3] {
-        let sig_hash = poseidon_hash(inputs);
+        let sig_hash = poseidon_hash(inputs).unwrap();
         let signature = self.spending_key.sign(sig_hash);
         [signature.r8_x, signature.r8_y, signature.s]
     }
@@ -207,6 +207,7 @@ impl Note {
             self.token.hash(),
             Fr::from(self.value),
         ])
+        .unwrap()
         .into()
     }
 
@@ -220,7 +221,7 @@ impl Note {
     ///
     /// Hash of (nullifying_key, leaf_index)
     pub fn nullifier(&self, leaf_index: u32) -> Fr {
-        poseidon_hash(&[self.nullifying_key(), Fr::from(leaf_index)])
+        poseidon_hash(&[self.nullifying_key(), Fr::from(leaf_index)]).unwrap()
     }
 
     /// Returns the note's public key
@@ -236,13 +237,14 @@ impl Note {
             master_key.to_fr(),
             Fr::from_be_bytes_mod_order(&self.random_seed),
         ])
+        .unwrap()
     }
 
     /// Returns the note's nullifying key
     ///
     /// Hash of (viewing_private_key)
     pub fn nullifying_key(&self) -> Fr {
-        poseidon_hash(&[self.viewing_key.to_fr()])
+        poseidon_hash(&[self.viewing_key.to_fr()]).unwrap()
     }
 }
 

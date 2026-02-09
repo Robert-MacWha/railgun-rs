@@ -1,11 +1,15 @@
 use std::collections::HashMap;
 
-use alloy::primitives::ChainId;
+use alloy::primitives::{ChainId, FixedBytes};
+use ark_bn254::Fr;
 
-use crate::poi::inner_types::MerkleProof;
 pub use crate::poi::{
     inner_client::ClientError,
-    inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap},
+    inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap, ValidatedRailgunTxidStatus},
+};
+use crate::{
+    crypto::{keys::fr_to_bytes, railgun_txid::Txid},
+    poi::inner_types::MerkleProof,
 };
 
 pub struct PoiClient {
@@ -87,6 +91,30 @@ impl PoiClient {
         }
 
         Ok(proofs)
+    }
+
+    /// Returns the current validated txid status from the POI node.
+    pub async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, ClientError> {
+        self.inner.validated_txid(self.chain()).await
+    }
+
+    /// Validates a txid merkle root against the POI node.
+    pub async fn validate_txid_merkleroot(
+        &self,
+        tree: u32,
+        index: u64,
+        merkleroot: Txid,
+    ) -> Result<bool, ClientError> {
+        let txid: Fr = merkleroot.into();
+
+        self.inner
+            .validate_txid_merkleroot(crate::poi::inner_types::ValidateTxidMerklerootParams {
+                chain: self.chain(),
+                tree: tree as u64,
+                index,
+                merkleroot: FixedBytes::<32>::from(fr_to_bytes(&txid)),
+            })
+            .await
     }
 
     fn chain(&self) -> crate::poi::inner_types::ChainParams {

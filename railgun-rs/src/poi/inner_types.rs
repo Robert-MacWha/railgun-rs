@@ -1,5 +1,6 @@
 //! Raw types for POI RPC requests and responses.
 
+use alloy::primitives::{Bytes, FixedBytes};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -192,7 +193,7 @@ pub struct RailgunTxidStatus {
 #[serde(rename_all = "camelCase")]
 pub struct ValidatedRailgunTxidStatus {
     pub validated_txid_index: Option<u64>,
-    pub validated_merkleroot: Option<String>,
+    pub validated_merkleroot: Option<FixedBytes<32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,7 +306,7 @@ pub struct ValidateTxidMerklerootParams {
     pub chain: ChainParams,
     pub tree: u64,
     pub index: u64,
-    pub merkleroot: String,
+    pub merkleroot: FixedBytes<32>,
 }
 
 // -- POI events query (shape inferred from method name) ---

@@ -7,6 +7,7 @@ use alloy::primitives::{ChainId, U256};
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use futures::StreamExt;
+use poseidon_rust::poseidon_hash;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
@@ -16,7 +17,7 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    crypto::{keys::fr_to_u256, poseidon::poseidon_hash, railgun_txid::Txid, railgun_utxo::Utxo},
+    crypto::{keys::fr_to_u256, railgun_txid::Txid, railgun_utxo::Utxo},
     indexer::{
         indexed_account::IndexedAccount,
         notebook::Notebook,
@@ -254,7 +255,7 @@ impl Indexer {
                 let value: u128 = c.value.saturating_to();
                 let value = Fr::from(value);
 
-                poseidon_hash(&[npk, token_id, value]).into()
+                poseidon_hash(&[npk, token_id, value]).unwrap().into()
             })
             .collect();
 

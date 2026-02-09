@@ -7,7 +7,7 @@ let
         ];
       };
 
-  rustToolchain = pkgs.rust-bin.stable."1.87.0".default.override {
+  rustToolchain = pkgs.rust-bin.stable."1.88.0".default.override {
     extensions = [ "rust-src" ];
     targets = [ "wasm32-unknown-unknown" ];
   };
@@ -24,6 +24,7 @@ pkgs.mkShell {
     pkgs.foundry
 
     pkgs.cargo-bloat
+    pkgs.cargo-machete
     pkgs.binaryen
   ];
 }

@@ -1,13 +1,11 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use poseidon_rust::poseidon_hash;
 
 use crate::{
     abis::railgun::CommitmentCiphertext,
     caip::AssetId,
-    crypto::{
-        keys::{FieldKey, ViewingKey},
-        poseidon::poseidon_hash,
-    },
+    crypto::keys::{FieldKey, ViewingKey},
     note::{
         note::{EncryptError, encrypt_note},
         operation::{EncryptableNote, TransactNote},
@@ -67,6 +65,7 @@ impl TransactNote for TransferNote {
             self.asset.hash(),
             Fr::from(self.value),
         ])
+        .unwrap()
     }
 
     fn note_public_key(&self) -> Fr {
@@ -74,6 +73,7 @@ impl TransactNote for TransferNote {
             self.to.master_key().to_fr(),
             Fr::from_be_bytes_mod_order(&self.random),
         ])
+        .unwrap()
     }
 
     fn value(&self) -> u128 {

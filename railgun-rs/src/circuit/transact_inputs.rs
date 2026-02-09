@@ -60,7 +60,7 @@ impl TransactCircuitInputs {
         let public_key = note_zero.spending_public_key();
         let public_key = [fr_to_bigint(&public_key.0), fr_to_bigint(&public_key.1)];
         let signature = note_zero.sign_circuit_inputs(
-            merkle_root,
+            merkle_root.into(),
             bound_params_hash,
             &nullifiers,
             &commitments,
@@ -108,7 +108,7 @@ impl TransactCircuitInputs {
             .collect();
 
         Ok(TransactCircuitInputs {
-            merkle_root: fr_to_bigint(&merkle_root),
+            merkle_root: fr_to_bigint(&merkle_root.into()),
             bound_params_hash: fr_to_bigint(&bound_params_hash),
             nullifiers: nullifiers.iter().map(fr_to_bigint).collect(),
             commitments_out: commitments.iter().map(fr_to_bigint).collect(),

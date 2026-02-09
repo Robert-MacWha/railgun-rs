@@ -98,7 +98,7 @@ impl SubsquidSyncer {
                 .build()
                 .unwrap_or_default(),
             endpoint: endpoint.to_string(),
-            batch_size: 10000,
+            batch_size: 50000,
         }
     }
 

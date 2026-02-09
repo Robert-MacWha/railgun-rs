@@ -1,6 +1,7 @@
 use alloy::primitives::Uint;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use poseidon_rust::poseidon_hash;
 use rand::random;
 use thiserror::Error;
 
@@ -10,7 +11,6 @@ use crate::{
     crypto::{
         concat_arrays,
         keys::{ByteKey, FieldKey, U256Key, ViewingKey},
-        poseidon::poseidon_hash,
     },
     note::ark_to_solidity_bytes,
     railgun::address::RailgunAddress,
@@ -30,10 +30,13 @@ pub fn create_shield_request(
         .unwrap();
 
     let random_seed: [u8; 16] = random();
-    let npk = ark_to_solidity_bytes(poseidon_hash(&[
-        recipient.master_key().to_fr(),
-        Fr::from_be_bytes_mod_order(&random_seed),
-    ]));
+    let npk = ark_to_solidity_bytes(
+        poseidon_hash(&[
+            recipient.master_key().to_fr(),
+            Fr::from_be_bytes_mod_order(&random_seed),
+        ])
+        .unwrap(),
+    );
     let gcm = shared_key.encrypt_gcm(&[&random_seed]).unwrap();
     let ctr = shield_private_key.encrypt_ctr(&[recipient.viewing_pubkey().as_bytes()]);
 

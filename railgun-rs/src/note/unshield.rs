@@ -1,8 +1,9 @@
 use alloy::primitives::Address;
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
+use poseidon_rust::poseidon_hash;
 
-use crate::{caip::AssetId, crypto::poseidon::poseidon_hash, note::operation::TransactNote};
+use crate::{caip::AssetId, note::operation::TransactNote};
 
 /// Unshield notes represent value exiting the Railgun system to an external address.
 #[derive(Debug, Clone)]
@@ -29,6 +30,7 @@ impl TransactNote for UnshieldNote {
             self.asset.hash(),
             Fr::from(self.value),
         ])
+        .unwrap()
     }
 
     fn note_public_key(&self) -> Fr {
