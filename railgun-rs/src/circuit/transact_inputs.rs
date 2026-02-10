@@ -4,10 +4,13 @@ use ark_bn254::Fr;
 use num_bigint::{BigInt, Sign};
 
 use crate::{
+    circuit_inputs,
     crypto::keys::fr_to_bigint,
     merkle_trees::merkle_tree::UtxoMerkleTree,
     note::{Note, utxo::UtxoNote},
 };
+
+use crate::circuit::circuit_input::IntoSignalVec;
 
 #[derive(Debug, Clone)]
 pub struct TransactCircuitInputs {
@@ -125,31 +128,24 @@ impl TransactCircuitInputs {
         })
     }
 
-    /// Flattens the circuit inputs into a HashMap suitable for use as zk-SNARK inputs.
-    pub fn as_flat_map(&self) -> HashMap<String, Vec<BigInt>> {
-        let mut m = HashMap::new();
-
-        m.insert("merkleRoot".into(), vec![self.merkle_root.clone()]);
-        m.insert(
-            "boundParamsHash".into(),
-            vec![self.bound_params_hash.clone()],
-        );
-        m.insert("nullifiers".into(), self.nullifiers.clone());
-        m.insert("commitmentsOut".into(), self.commitments_out.clone());
-        m.insert("token".into(), vec![self.token.clone()]);
-        m.insert("publicKey".into(), self.public_key.to_vec());
-        m.insert("signature".into(), self.signature.to_vec());
-        m.insert("randomIn".into(), self.random_in.clone());
-        m.insert("valueIn".into(), self.value_in.clone());
-        m.insert(
-            "pathElements".into(),
-            self.path_elements.iter().flatten().cloned().collect(),
-        );
-        m.insert("leavesIndices".into(), self.leaves_indices.clone());
-        m.insert("nullifyingKey".into(), vec![self.nullifying_key.clone()]);
-        m.insert("npkOut".into(), self.npk_out.clone());
-        m.insert("valueOut".into(), self.value_out.clone());
-
-        m
-    }
+    circuit_inputs!(
+        merkle_root => "merkleRoot",
+        bound_params_hash => "boundParamsHash",
+        nullifiers => "nullifiers",
+        commitments_out => "commitmentsOut",
+        token => "token",
+        public_key => "publicKey",
+        signature => "signature",
+        random_in => "randomIn",
+        value_in => "valueIn",
+        path_elements => "pathElements",
+        leaves_indices => "leavesIndices",
+        nullifying_key => "nullifyingKey",
+        npk_out => "npkOut",
+        value_out => "valueOut"
+    );
 }
+
+/// TODO: Add test to verify POI inputs are correctly generated
+#[cfg(test)]
+mod tests {}

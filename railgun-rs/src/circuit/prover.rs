@@ -1,6 +1,6 @@
 use alloy::primitives::U256;
 
-use crate::circuit::transact_inputs::TransactCircuitInputs;
+use crate::circuit::{poi_inputs::PoiCircuitInputs, transact_inputs::TransactCircuitInputs};
 
 pub struct Proof {
     pub a: G1Affine,
@@ -23,4 +23,8 @@ pub trait TransactProver {
         &self,
         inputs: &TransactCircuitInputs,
     ) -> Result<Proof, Box<dyn std::error::Error>>;
+}
+
+pub trait PoiProver {
+    fn prove_poi(&self, inputs: &PoiCircuitInputs) -> Result<Proof, Box<dyn std::error::Error>>;
 }

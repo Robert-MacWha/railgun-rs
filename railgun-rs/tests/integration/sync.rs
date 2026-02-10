@@ -10,7 +10,7 @@ use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 const CHAIN: ChainConfig = MAINNET_CONFIG;
-const FORK_BLOCK: u64 = 24378760;
+const FORK_BLOCK: u64 = 24379760;
 
 #[tokio::test]
 #[serial_test::serial]

@@ -7,6 +7,7 @@ use alloy::{
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use thiserror::Error;
+use tracing::info;
 
 pub use crate::poi::{
     inner_client::ClientError,
@@ -14,7 +15,7 @@ pub use crate::poi::{
 };
 use crate::{
     crypto::{
-        keys::{fr_to_bytes, hex_to_fr},
+        keys::{fr_to_bigint, fr_to_bytes, fr_to_u256, hex_to_fr},
         railgun_txid::Txid,
     },
     merkle_trees::merkle_proof::MerkleProof,
@@ -186,17 +187,10 @@ impl TryFrom<crate::poi::inner_types::MerkleProof> for MerkleProof {
 
     fn try_from(proof: crate::poi::inner_types::MerkleProof) -> Result<MerkleProof, Self::Error> {
         Ok(MerkleProof {
-            element: Fr::from_be_bytes_mod_order(&hex::decode(proof.leaf)?),
-            elements: proof
-                .elements
-                .into_iter()
-                .map(|e| hex::decode(e))
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .map(|e| Fr::from_be_bytes_mod_order(&e))
-                .collect(),
-            indices: proof.indices.parse::<u32>()?,
-            root: Fr::from_be_bytes_mod_order(&hex::decode(proof.root)?),
+            element: hex_to_fr(&proof.leaf),
+            elements: proof.elements.iter().map(|s| hex_to_fr(s)).collect(),
+            indices: fr_to_u256(&hex_to_fr(&proof.indices)).saturating_to(),
+            root: hex_to_fr(&proof.root),
         })
     }
 }

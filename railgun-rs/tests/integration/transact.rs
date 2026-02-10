@@ -1,160 +1,185 @@
-// use std::str::FromStr;
+use std::str::FromStr;
 
-// use alloy::{
-//     network::Ethereum,
-//     primitives::{Address, address},
-//     providers::{Provider, ProviderBuilder},
-//     signers::local::PrivateKeySigner,
-// };
-// use railgun_rs::{
-//     abis::erc20::ERC20,
-//     account::RailgunAccount,
-//     caip::AssetId,
-//     chain_config::{ChainConfig, MAINNET_CONFIG},
-//     indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
-//     transaction::{shield_builder::ShieldBuilder, tx_builder::TxBuilder},
-// };
-// use rand::random;
-// use tracing::info;
-// use tracing_subscriber::EnvFilter;
+use alloy::{
+    network::Ethereum,
+    primitives::{Address, address},
+    providers::{Provider, ProviderBuilder},
+    signers::local::PrivateKeySigner,
+};
+use railgun_rs::{
+    abis::erc20::ERC20,
+    account::RailgunAccount,
+    caip::AssetId,
+    chain_config::{ChainConfig, MAINNET_CONFIG},
+    circuit::native_prover::NativeProver,
+    indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
+    transact::create_transactions,
+    transaction::{
+        operation_builder::OperationBuilder, shield_builder::ShieldBuilder, tx_data::TxData,
+    },
+};
+use rand::random;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
-// use crate::common;
+use crate::common;
 
-// const STATE_PATH: &str = "./tests/fixtures/state.json";
+const STATE_PATH: &str = "./tests/fixtures/state.json";
 
-// const FORK_BLOCK: u64 = 24378760;
-// const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
-// const USDC: AssetId = AssetId::Erc20(USDC_ADDRESS);
-// const CHAIN: ChainConfig = MAINNET_CONFIG;
+const FORK_BLOCK: u64 = 24379760;
+const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
+const USDC: AssetId = AssetId::Erc20(USDC_ADDRESS);
+const CHAIN: ChainConfig = MAINNET_CONFIG;
 
-// const INDEXER_STATE: &[u8] = include_bytes!("../fixtures/indexer_state.bincode");
+const INDEXER_STATE: &[u8] = include_bytes!("../fixtures/indexer_state.bincode");
 
-// #[tokio::test]
-// #[serial_test::serial]
-// #[ignore]
-// async fn test_transact() {
-//     tracing_subscriber::fmt()
-//         .with_env_filter(EnvFilter::from_default_env())
-//         .with_test_writer()
-//         .try_init()
-//         .ok();
+#[tokio::test]
+#[serial_test::serial]
+#[ignore]
+async fn test_transact() {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_test_writer()
+        .try_init()
+        .ok();
 
-//     info!("Starting test");
-//     let fork_url = std::env::var("FORK_URL_MAINNET").expect("Fork URL Must be set");
-//     let _anvil =
-//         common::anvil::AnvilInstance::fork_with_state(&fork_url, FORK_BLOCK, STATE_PATH).await;
+    info!("Starting test");
+    let fork_url = std::env::var("FORK_URL_MAINNET").expect("Fork URL Must be set");
+    let _anvil =
+        common::anvil::AnvilInstance::fork_with_state(&fork_url, FORK_BLOCK, STATE_PATH).await;
 
-//     // Setup provider, indexer, and accounts
-//     info!("Setting up provider");
-//     let signer = PrivateKeySigner::from_str(
-//         "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
-//     )
-//     .unwrap();
-//     let provider = ProviderBuilder::new()
-//         .network::<Ethereum>()
-//         .wallet(signer)
-//         .connect("http://localhost:8545")
-//         .await
-//         .unwrap()
-//         .erased();
+    // Setup provider, indexer, and accounts
+    info!("Setting up provider");
+    let signer = PrivateKeySigner::from_str(
+        "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    )
+    .unwrap();
+    let provider = ProviderBuilder::new()
+        .network::<Ethereum>()
+        .wallet(signer)
+        .connect("http://localhost:8545")
+        .await
+        .unwrap()
+        .erased();
 
-//     let usdc_contract = ERC20::new(USDC_ADDRESS, provider.clone());
+    let usdc_contract = ERC20::new(USDC_ADDRESS, provider.clone());
 
-//     info!("Setting up indexer");
-//     let rpc_syncer = Box::new(RpcSyncer::new(provider.clone(), CHAIN));
-//     let indexer_state = bitcode::deserialize(INDEXER_STATE).unwrap();
-//     let mut indexer = Indexer::new_with_state(rpc_syncer, indexer_state).unwrap();
+    info!("Setting up indexer");
+    let rpc_syncer = Box::new(RpcSyncer::new(provider.clone(), CHAIN));
+    let indexer_state = bitcode::deserialize(INDEXER_STATE).unwrap();
+    let mut indexer = Indexer::new_with_state(rpc_syncer, indexer_state).unwrap();
 
-//     info!("Setting up accounts");
-//     let account_1 = RailgunAccount::new(random(), random(), CHAIN.id);
-//     let account_2 = RailgunAccount::new(random(), random(), CHAIN.id);
-//     indexer.add_account(&account_1);
-//     indexer.add_account(&account_2);
+    info!("Setting up accounts");
+    let account_1 = RailgunAccount::new(random(), random(), CHAIN.id);
+    let account_2 = RailgunAccount::new(random(), random(), CHAIN.id);
+    indexer.add_account(&account_1);
+    indexer.add_account(&account_2);
 
-//     // Test Shielding
-//     info!("Testing shielding");
-//     let shield_tx = ShieldBuilder::new(CHAIN)
-//         .shield(account_1.address(), USDC, 1_000_000)
-//         .build()
-//         .unwrap();
-//     provider
-//         .send_transaction(shield_tx.into())
-//         .await
-//         .unwrap()
-//         .get_receipt()
-//         .await
-//         .unwrap();
+    // Test Shielding
+    info!("Testing shielding");
+    let shield_tx = ShieldBuilder::new(CHAIN)
+        .shield(account_1.address(), USDC, 1_000_000)
+        .build()
+        .unwrap();
+    provider
+        .send_transaction(shield_tx.into())
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
 
-//     indexer.sync().await.unwrap();
-//     let balance_1 = indexer.balance(account_1.address());
-//     let balance_2 = indexer.balance(account_2.address());
+    indexer.sync().await.unwrap();
+    let balance_1 = indexer.balance(account_1.address());
+    let balance_2 = indexer.balance(account_2.address());
 
-//     assert_eq!(balance_1.get(&USDC), Some(&997_500));
-//     assert_eq!(balance_2.get(&USDC), None);
+    assert_eq!(balance_1.get(&USDC), Some(&997_500));
+    assert_eq!(balance_2.get(&USDC), None);
 
-//     let notebook = indexer
-//         .notebooks(account_1.address())
-//         .unwrap()
-//         .get(&2)
-//         .unwrap();
-//     let notes = notebook.unspent().iter().collect();
+    // Test Transfer
+    info!("Testing transfer");
+    let unspent = indexer.unspent(account_1.address()).unwrap();
+    let transfer_operations = OperationBuilder::new()
+        .transfer(
+            account_1.clone(),
+            account_2.address(),
+            USDC,
+            5_000,
+            "test transfer",
+        )
+        .build(unspent)
+        .unwrap();
 
-//     // Test Transfer
-//     info!("Testing transfer");
-//     let transfer_tx = TxBuilder::new()
-//         .transfer(
-//             account_1.clone(),
-//             account_2.address(),
-//             USDC,
-//             5_000,
-//             "test transfer",
-//         )
-//         .build(notebook.unspent().iter().map(|n| n.1).cloned().collect());
-//     provider
-//         .send_transaction(transfer_tx.into())
-//         .await
-//         .unwrap()
-//         .get_receipt()
-//         .await
-//         .unwrap();
+    let transfer_txns = create_transactions(
+        &NativeProver::new(),
+        &mut indexer.utxo_trees,
+        0,
+        CHAIN,
+        Address::ZERO,
+        &[0u8; 32],
+        transfer_operations,
+    )
+    .unwrap();
+    let transfer_tx = TxData::new(CHAIN.railgun_smart_wallet, transfer_txns);
 
-//     indexer.sync().await.unwrap();
-//     let balance_1 = indexer.balance(account_1.address());
-//     let balance_2 = indexer.balance(account_2.address());
+    provider
+        .send_transaction(transfer_tx.into())
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
 
-//     assert_eq!(balance_1.get(&USDC), Some(&992500));
-//     assert_eq!(balance_2.get(&USDC), Some(&5000));
+    indexer.sync().await.unwrap();
+    let balance_1 = indexer.balance(account_1.address());
+    let balance_2 = indexer.balance(account_2.address());
 
-//     // // Test Unshielding
-//     // info!("Testing unshielding");
-//     // let unshield_tx = TxBuilder::new(&mut indexer)
-//     //     .set_unshield(
-//     //         &account_1,
-//     //         address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"),
-//     //         USDC,
-//     //         1_000,
-//     //     )
-//     //     .unwrap()
-//     //     .build()
-//     //     .unwrap();
-//     // provider
-//     //     .send_transaction(unshield_tx.into())
-//     //     .await
-//     //     .unwrap()
-//     //     .get_receipt()
-//     //     .await
-//     //     .unwrap();
+    assert_eq!(balance_1.get(&USDC), Some(&992500));
+    assert_eq!(balance_2.get(&USDC), Some(&5000));
 
-//     // indexer.sync().await.unwrap();
-//     // let balance_1 = indexer.balance(account_1.address());
-//     // let balance_2 = indexer.balance(account_2.address());
-//     // let balance_eoa = usdc_contract
-//     //     .balanceOf(address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"))
-//     //     .call()
-//     //     .await
-//     //     .unwrap();
+    // Test Unshielding
+    info!("Testing unshielding");
+    let unspent = indexer.unspent(account_1.address()).unwrap();
+    let unshield_operations = OperationBuilder::new()
+        .set_unshield(
+            account_1.clone(),
+            address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"),
+            USDC,
+            1_000,
+        )
+        .build(unspent)
+        .unwrap();
 
-//     // assert_eq!(balance_1.get(&USDC), Some(&991500));
-//     // assert_eq!(balance_2.get(&USDC), Some(&5000));
-//     // assert_eq!(balance_eoa, 998);
-// }
+    let unshield_txns = create_transactions(
+        &NativeProver::new(),
+        &mut indexer.utxo_trees,
+        0,
+        CHAIN,
+        Address::ZERO,
+        &[0u8; 32],
+        unshield_operations,
+    )
+    .unwrap();
+    let unshield_tx = TxData::new(CHAIN.railgun_smart_wallet, unshield_txns);
+
+    provider
+        .send_transaction(unshield_tx.into())
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    indexer.sync().await.unwrap();
+    let balance_1 = indexer.balance(account_1.address());
+    let balance_2 = indexer.balance(account_2.address());
+    let balance_eoa = usdc_contract
+        .balanceOf(address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"))
+        .call()
+        .await
+        .unwrap();
+
+    assert_eq!(balance_1.get(&USDC), Some(&991500));
+    assert_eq!(balance_2.get(&USDC), Some(&5000));
+    assert_eq!(balance_eoa, 998);
+}

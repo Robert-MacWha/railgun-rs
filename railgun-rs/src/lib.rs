@@ -9,5 +9,5 @@ pub mod merkle_trees;
 pub mod note;
 pub mod poi;
 pub mod railgun;
-mod transact;
+pub mod transact;
 pub mod transaction;

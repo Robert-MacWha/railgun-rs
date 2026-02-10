@@ -1,3 +1,5 @@
+use std::path::Display;
+
 use crate::{
     caip::AssetId,
     note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote, utxo::UtxoNote},

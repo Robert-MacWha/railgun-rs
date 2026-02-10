@@ -1,15 +1,20 @@
+use std::collections::HashMap;
+
 use ark_bn254::Fr;
 use num_bigint::BigInt;
 use thiserror::Error;
+use tracing::info;
 
+use crate::circuit::circuit_input::IntoSignalVec;
 use crate::{
+    circuit_inputs,
     crypto::{
         keys::{BigIntKey, NullifyingKey, SpendingPublicKey, bytes_to_bigint, fr_to_bigint},
         railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
     },
     merkle_trees::{
         merkle_proof::MerkleProof,
-        merkle_tree::{MerkleTreeError, TxidMerkleTree, UtxoMerkleTree},
+        merkle_tree::{MerkleTreeError, UtxoMerkleTree},
     },
     note::{IncludedNote, Note, operation::Operation},
     poi::{client::ListKey, poi_note::PoiNote},
@@ -26,8 +31,10 @@ pub struct PoiCircuitInputs {
 
     // Railgun Transaction info
     bound_params_hash: BigInt,
-    nullifiers: Vec<BigInt>,
-    commitments: Vec<BigInt>,
+
+    //? Required for prover
+    pub nullifiers: Vec<BigInt>,
+    pub commitments: Vec<BigInt>,
 
     // Spender wallet info
     spending_public_key: [BigInt; 2],
@@ -70,17 +77,18 @@ impl PoiCircuitInputs {
         spending_pubkey: SpendingPublicKey,
         nullifying_pubkey: NullifyingKey,
         utxo_merkle_tree: &mut UtxoMerkleTree,
-        txid_merkle_tree: &mut TxidMerkleTree,
         bound_params_hash: Fr,
         operation: &Operation<PoiNote>,
         list_key: ListKey,
     ) -> Result<Self, PoiCircuitInputsError> {
+        info!("UTXO proofs");
         let utxo_proofs: Vec<_> = operation
             .in_notes()
             .iter()
             .map(|note| utxo_merkle_tree.generate_proof(note.hash()))
             .collect::<Result<_, _>>()?;
 
+        info!("Nullifiers and commitments");
         let nullifiers = operation
             .in_notes()
             .iter()
@@ -93,15 +101,17 @@ impl PoiCircuitInputs {
             .map(|note| note.hash().into())
             .collect();
 
+        info!("Txid proof");
         let txid = Txid::new(&nullifiers, &commitments, bound_params_hash);
         let txid = TxidLeafHash::new(
             txid,
             operation.utxo_tree_number(),
             crate::crypto::railgun_txid::UtxoTreeOut::PreInclusion,
         );
-        let txid_merkle_root_after_transaction = MerkleProof::new_pre_inclusion(txid.into()).root;
+        let txid_proof = MerkleProof::new_pre_inclusion(txid.into());
 
         // Per-note POI proofs
+        info!("POI proofs");
         let poi_proofs = operation
             .in_notes()
             .iter()
@@ -112,6 +122,7 @@ impl PoiCircuitInputs {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        info!("Assembling circuit inputs");
         let poi_merkle_roots = poi_proofs
             .iter()
             .map(|proof| fr_to_bigint(&proof.root))
@@ -160,19 +171,8 @@ impl PoiCircuitInputs {
             Some(_) => fr_to_bigint(&txid.into()),
             None => BigInt::from(0),
         };
-
-        let txid_merkle_proof = txid_merkle_tree.generate_proof(txid)?;
-        let txid_merkle_proof_indices = BigInt::from(txid_merkle_proof.indices);
-        let txid_merkle_proof_path_elements = txid_merkle_proof
-            .elements
-            .iter()
-            .map(|e| fr_to_bigint(e))
-            .collect();
-
         Ok(PoiCircuitInputs {
-            railgun_txid_merkle_root_after_transaction: fr_to_bigint(
-                &txid_merkle_root_after_transaction,
-            ),
+            railgun_txid_merkle_root_after_transaction: fr_to_bigint(&txid_proof.root),
             poi_merkle_roots,
             bound_params_hash: fr_to_bigint(&bound_params_hash),
             nullifiers: nullifiers.iter().map(|n| fr_to_bigint(n)).collect(),
@@ -190,10 +190,41 @@ impl PoiCircuitInputs {
                 UtxoTreeOut::PreInclusion.global_index(),
             ),
             railgun_txid_if_has_unshield: txid_if_has_unshield,
-            railgun_txid_merkle_proof_indices: txid_merkle_proof_indices,
-            railgun_txid_merkle_proof_path_elements: txid_merkle_proof_path_elements,
+            railgun_txid_merkle_proof_indices: BigInt::from(txid_proof.indices),
+            railgun_txid_merkle_proof_path_elements: txid_proof
+                .elements
+                .iter()
+                .map(|e| fr_to_bigint(e))
+                .collect(),
             poi_in_merkle_proof_indices,
             poi_in_merkle_proof_path_elements,
         })
     }
+
+    circuit_inputs!(
+        railgun_txid_merkle_root_after_transaction => "anyRailgunTxidMerklerootAfterTransaction",
+        bound_params_hash => "boundParamsHash",
+        nullifiers => "nullifiers",
+        commitments => "commitmentsOut",
+        spending_public_key => "spendingPublicKey",
+        nullifying_key => "nullifyingKey",
+        token => "token",
+        randoms_in => "randomsIn",
+        values_in => "valuesIn",
+        utxo_positions_in => "utxoPositionsIn",
+        utxo_tree_in => "utxoTreeIn",
+        npks_out => "npksOut",
+        values_out => "valuesOut",
+        utxo_batch_global_start_position_out => "utxoBatchGlobalStartPositionOut",
+        railgun_txid_if_has_unshield => "railgunTxidIfHasUnshield",
+        railgun_txid_merkle_proof_indices => "railgunTxidMerkleProofIndices",
+        railgun_txid_merkle_proof_path_elements => "railgunTxidMerkleProofPathElements",
+        poi_merkle_roots => "poiMerkleRoots",
+        poi_in_merkle_proof_indices => "poiInMerkleProofIndices",
+        poi_in_merkle_proof_path_elements => "poiInMerkleProofPathElements"
+    );
 }
+
+/// TODO: Add test to verify POI inputs are correctly generated
+#[cfg(test)]
+mod tests {}

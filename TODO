@@ -9,6 +9,7 @@
     - [x] Setup syncing to download TXID merkle tree from subsquid
     - [x] Verify the root against the poi API
 - [ ] Fix the transact integration test
+- [ ] Impl managed merkle trees that are dependency-injected into the indexer.  This way the merkle trees can verify / save / manage themselves and the indexer can just call them.
   - [ ] Generate POI proof inputs for a transfer operation
   - [ ] Send to a broadcaster
   - [ ] Send a POI for a transfer note 

@@ -6,6 +6,7 @@ use alloy::{
     providers::{DynProvider, Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
 };
+use rand::random;
 use tracing::info;
 
 use railgun_rs::{
@@ -16,7 +17,7 @@ use railgun_rs::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, SEPOLIA_CONFIG},
-    circuit::{native_prover::NativeProver, poi_inputs::PoiCircuitInputs},
+    circuit::{native_prover::NativeProver, poi_inputs::PoiCircuitInputs, prover::PoiProver},
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
     merkle_trees::merkle_tree::TxidMerkleTree,
@@ -76,22 +77,14 @@ async fn main() {
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
     verify_trees(&mut indexer.txid_trees, &poi_client).await;
 
+    info!("Creating POI notes");
     let notes = indexer.unspent(account.address()).unwrap();
     let notes = PoiNote::from_utxo_notes(notes, &poi_client).await.unwrap();
 
-    let builder_address = RailgunAddress::from_str("0zk1qyqhtwaa9zj3ug9dmxhfedappvm509w7dr5lgadaehxz38w9u457mrv7j6fe3z53layes62mktxj5kd6reh2kxd39ds2gnpf6wphtw39y5g36lsvukeywfqa8y0").unwrap();
-    let builder_fee_asset = USDC;
-    let builder_fee_per_gas = 1;
-    let builder_fee = builder_fee_per_gas * 100;
-
+    let to_address = RailgunAddress::from_private_keys(random(), random(), CHAIN.id);
+    info!("Creating operation");
     let operation = &OperationBuilder::new()
-        .transfer(
-            account.clone(),
-            builder_address,
-            builder_fee_asset,
-            builder_fee,
-            "",
-        )
+        .transfer(account.clone(), to_address, USDC, 1_000, "")
         .build(notes.clone())
         .unwrap()[0];
 
@@ -113,21 +106,28 @@ async fn main() {
     );
     let bound_params_hash = bound_params.hash();
 
+    info!("Creating POI inputs");
     let prover = Box::new(NativeProver::new());
     let list_keys = poi_client.list_keys();
     for key in list_keys {
-        let poi_inputs = PoiCircuitInputs::from_inputs(
+        let mut utxo_merkle_tree = indexer
+            .utxo_trees
+            .get_mut(&operation.utxo_tree_number())
+            .unwrap();
+
+        let poi_circuit_inputs = PoiCircuitInputs::from_inputs(
             account.spending_key().public_key(),
             account.viewing_key().nullifying_key(),
-            &mut indexer.utxo_trees.get_mut(&2).unwrap(),
-            &mut indexer.txid_trees.get_mut(&0).unwrap(),
+            &mut utxo_merkle_tree,
             bound_params_hash,
             operation,
             key.clone(),
         )
         .unwrap();
 
-        info!("POI Inputs for list key {}: {:#?}", key, poi_inputs);
+        let proof = prover.prove_poi(&poi_circuit_inputs).unwrap();
+
+        info!("POI Inputs for list key {}: {:#?}", key, poi_circuit_inputs);
     }
 
     // // Creates a transaction builder for our desired set of operations.

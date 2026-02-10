@@ -216,12 +216,12 @@ impl Syncer for SubsquidSyncer {
         );
 
         let commitment_stream = self.commitment_stream(from_block, to_block);
-        let nullified_stream = self.nullified_stream(from_block, to_block);
-        let operation_stream = self.operation_stream(from_block, to_block);
+        // let nullified_stream = self.nullified_stream(from_block, to_block);
+        // let operation_stream = self.operation_stream(from_block, to_block);
 
-        let stream = commitment_stream
-            .chain(nullified_stream)
-            .chain(operation_stream);
+        let stream = commitment_stream;
+        // .chain(nullified_stream)
+        // .chain(operation_stream);
 
         Ok(Box::pin(stream))
     }

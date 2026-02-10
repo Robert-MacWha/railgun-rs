@@ -38,7 +38,6 @@ impl PoiNote {
             .map(|n| fr_to_bytes(&n.blinded_commitment()))
             .collect();
         let proofs = client.merkle_proofs(blinded_commitments).await?;
-
         let mut poi_notes = Vec::new();
 
         for (i, note) in inner.into_iter().enumerate() {

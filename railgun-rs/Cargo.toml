@@ -9,7 +9,7 @@ aes-gcm = { workspace = true }
 alloy = { workspace = true }
 alloy-contract = { workspace = true }
 alloy-sol-types = { workspace = true }
-anyhow = { workspace = true }
+anyhow.workspace = true
 ark-bn254 = { workspace = true }
 ark-ec = { workspace = true }
 ark-ed-on-bn254 = { workspace = true }

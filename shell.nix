@@ -11,14 +11,11 @@ let
     extensions = [ "rust-src" ];
     targets = [ "wasm32-unknown-unknown" ];
   };
-
-  circom = pkgs.callPackage ./flakes/circom.nix { };
 in
 pkgs.mkShell {
   packages = [
     rustToolchain
     pkgs.rust-analyzer
-    circom
     pkgs.just
     pkgs.cmake
     pkgs.foundry

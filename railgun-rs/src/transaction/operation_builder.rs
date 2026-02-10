@@ -44,6 +44,7 @@ pub struct TransferData {
 }
 
 pub struct UnshieldData {
+    pub from: RailgunAccount,
     pub to: Address,
     pub asset: AssetId,
     pub value: u128,
@@ -83,8 +84,19 @@ impl OperationBuilder {
     }
 
     /// Sets an unshield operation for the transaction.
-    pub fn set_unshield(mut self, to: Address, asset: AssetId, value: u128) -> Self {
-        let unshield_data = UnshieldData { to, asset, value };
+    pub fn set_unshield(
+        mut self,
+        from: RailgunAccount,
+        to: Address,
+        asset: AssetId,
+        value: u128,
+    ) -> Self {
+        let unshield_data = UnshieldData {
+            from,
+            to,
+            asset,
+            value,
+        };
         let old = self.unshields.insert(asset, unshield_data);
         if old.is_some() {
             warn!(
@@ -98,41 +110,75 @@ impl OperationBuilder {
 
     /// Builds the operations.
     ///
+    /// Groups input notes by (tree_number, asset_id) and creates separate operations
+    /// for each group. Creates change notes when input value exceeds output value.
+    ///
     /// Preserves the ordering of transfers within and across operations. Does not
     /// guarantee any particular ordering of unshield operations relative to transfers.
     pub fn build<N: IncludedNote>(self, in_notes: Vec<N>) -> Result<Vec<Operation<N>>, GroupError> {
-        let unshield_note = if self.unshields.len() > 1 {
-            return Err(GroupError::MultipleUnshields);
-        } else if self.unshields.len() == 1 {
-            Some(self.unshields.into_values().next().unwrap())
-        } else {
-            None
-        };
+        // 1. Group input notes by (tree_number, asset_id)
+        let mut grouped: HashMap<(u32, AssetId), Vec<N>> = HashMap::new();
+        for note in in_notes {
+            let key = (note.tree_number(), note.asset());
+            grouped.entry(key).or_default().push(note);
+        }
 
-        let out_notes = self
+        // 2. Get sender account from first transfer or unshield (needed for change notes)
+        let sender = self
             .transfers
-            .into_iter()
-            .map(|t| {
-                TransferNote::new(
-                    t.from.viewing_key(),
-                    t.to,
-                    t.asset,
-                    t.value,
-                    random(),
-                    &t.memo,
-                )
-            })
-            .collect();
+            .first()
+            .map(|t| &t.from)
+            .or_else(|| self.unshields.values().next().map(|u| &u.from));
 
-        let unshield_note = unshield_note.map(|u| UnshieldNote::new(u.to, u.asset, u.value));
+        // 3. Build operations for each group
+        let mut operations = Vec::new();
+        for ((tree_number, asset), notes) in grouped {
+            let input_sum: u128 = notes.iter().map(|n| n.value()).sum();
 
-        // TODO: Implement an actual algorithm
-        let group = Operation::new(
-            in_notes[0].tree_number(),
-            in_notes,
-            out_notes,
-            unshield_note,
-        );
-        Ok(vec![group])
+            // Filter transfers for this asset
+            let mut out_notes: Vec<TransferNote> = self
+                .transfers
+                .iter()
+                .filter(|t| t.asset == asset)
+                .map(|t| {
+                    TransferNote::new(
+                        t.from.viewing_key(),
+                        t.to,
+                        t.asset,
+                        t.value,
+                        random(),
+                        &t.memo,
+                    )
+                })
+                .collect();
+
+            let transfer_sum: u128 = out_notes.iter().map(|n| n.value()).sum();
+            let unshield_value = self.unshields.get(&asset).map(|u| u.value).unwrap_or(0);
+            let output_sum = transfer_sum + unshield_value;
+
+            // Add change note if input > output
+            if input_sum > output_sum {
+                if let Some(sender) = sender {
+                    let change_value = input_sum - output_sum;
+                    out_notes.push(TransferNote::new(
+                        sender.viewing_key(),
+                        sender.address(),
+                        asset,
+                        change_value,
+                        random(),
+                        "",
+                    ));
+                }
+            }
+
+            let unshield = self
+                .unshields
+                .get(&asset)
+                .map(|u| UnshieldNote::new(u.to, u.asset, u.value));
+
+            operations.push(Operation::new(tree_number, notes, out_notes, unshield));
+        }
+
+        Ok(operations)
     }
 }

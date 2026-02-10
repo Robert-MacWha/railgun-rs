@@ -88,8 +88,8 @@ pub struct MerkleTreeState {
 
 #[derive(Debug, Error)]
 pub enum MerkleTreeError {
-    #[error("Element not found in tree")]
-    ElementNotFound,
+    #[error("Element not found in tree: {0}")]
+    ElementNotFound(Fr),
     #[error("Invalid proof")]
     InvalidProof,
 }
@@ -203,11 +203,12 @@ impl<C: TreeConfig> MerkleTree<C> {
 
     pub fn generate_proof(&mut self, element: C::LeafType) -> Result<MerkleProof, MerkleTreeError> {
         self.rebuild_dirty();
+        let element = element.into();
 
         let initial_index = self.tree[0]
             .iter()
-            .position(|val| *val == element.clone().into())
-            .ok_or(MerkleTreeError::ElementNotFound)?;
+            .position(|val| *val == element)
+            .ok_or(MerkleTreeError::ElementNotFound(element))?;
 
         let mut elements = Vec::with_capacity(self.depth);
         let mut index = initial_index;

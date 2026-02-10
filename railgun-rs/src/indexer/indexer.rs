@@ -231,7 +231,6 @@ impl Indexer {
             }
         }
 
-        self.validate().await?;
         self.synced_block = end_block;
         Ok(())
     }
