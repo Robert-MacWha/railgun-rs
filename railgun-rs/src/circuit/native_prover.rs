@@ -1,9 +1,13 @@
 use std::fs;
 
 use ark_bn254::{Bn254, Fr};
-use ark_circom::{CircomBuilder, CircomConfig, CircomReduction, read_zkey};
+use ark_circom::{CircomReduction, read_zkey};
 use ark_groth16::{Groth16, ProvingKey, prepare_verifying_key};
+use ark_relations::r1cs::ConstraintMatrices;
+use ark_std::rand::random;
+use num_bigint::BigInt;
 use tracing::info;
+use wasmer::Store;
 
 use crate::{
     circuit::{
@@ -11,10 +15,15 @@ use crate::{
         prover::{G1Affine, G2Affine, PoiProver, Proof, TransactProver},
         transact_inputs::TransactCircuitInputs,
     },
-    crypto::keys::fq_to_u256,
+    crypto::keys::{bigint_to_fr, fq_to_u256},
 };
 
 pub struct NativeProver {}
+
+struct WitnessCalculator {
+    inner: ark_circom::WitnessCalculator,
+    store: wasmer::Store,
+}
 
 impl NativeProver {
     pub fn new() -> Self {
@@ -22,35 +31,32 @@ impl NativeProver {
     }
 }
 
-// TODO: Consider using github.com/iden3/circom-witnesscalc/tree/045320ecbafbff0617ab37eb6d85950ea8cc15ef
-// for smaller witness generation. That way you (a) won't need the .wasm files, and (b) can generate the
-// witness in rust instead of using wasmer + ark-circom.
 impl TransactProver for NativeProver {
     fn prove_transact(
         &self,
         inputs: &TransactCircuitInputs,
     ) -> Result<Proof, Box<dyn std::error::Error>> {
         info!("Loading artifacts");
-        let (pk, mut builder) =
-            self.load_artifacts(inputs.nullifiers.len(), inputs.commitments_out.len());
+        let (pk, matrices, mut calculator) =
+            self.load_railgun_artifacts(inputs.nullifiers.len(), inputs.commitments_out.len());
 
-        // Build the circuit
-        for (name, values) in inputs.as_flat_map() {
-            for value in values {
-                builder.push_input(&name, value);
-            }
-        }
+        info!("Calculating witness");
+        let witnesses = calculator.calculate_witness(inputs.as_flat_map())?;
 
-        let circuit = builder.build().unwrap();
-        let public_inputs = circuit.get_public_inputs().unwrap();
         info!("Creating proof");
-
-        let mut rng = ark_std::rand::thread_rng();
-        let proof = Groth16::<Bn254, CircomReduction>::create_random_proof_with_reduction(
-            circuit, &pk, &mut rng,
+        let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
+            &pk,
+            random(),
+            random(),
+            &matrices,
+            matrices.num_instance_variables,
+            matrices.num_constraints,
+            &witnesses,
         )
         .unwrap();
 
+        info!("Verifying proof");
+        let public_inputs = &witnesses[1..matrices.num_instance_variables];
         let pvk = prepare_verifying_key(&pk.vk);
         let verified =
             Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
@@ -77,26 +83,26 @@ impl TransactProver for NativeProver {
 impl PoiProver for NativeProver {
     fn prove_poi(&self, inputs: &PoiCircuitInputs) -> Result<Proof, Box<dyn std::error::Error>> {
         info!("Loading artifacts");
-        let (pk, mut builder) =
+        let (pk, matrices, mut calculator) =
             self.load_poi_artifacts(inputs.nullifiers.len(), inputs.commitments.len());
 
-        // Build the circuit
-        for (name, values) in inputs.as_flat_map() {
-            for value in values {
-                builder.push_input(&name, value);
-            }
-        }
+        info!("Calculating witness");
+        let witness = calculator.calculate_witness(inputs.as_flat_map())?;
 
-        let circuit = builder.build().unwrap();
-        let public_inputs = circuit.get_public_inputs().unwrap();
         info!("Creating proof");
-
-        let mut rng = ark_std::rand::thread_rng();
-        let proof = Groth16::<Bn254, CircomReduction>::create_random_proof_with_reduction(
-            circuit, &pk, &mut rng,
+        let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
+            &pk,
+            random(),
+            random(),
+            &matrices,
+            matrices.num_instance_variables,
+            matrices.num_constraints,
+            &witness,
         )
         .unwrap();
 
+        info!("Verifying proof");
+        let public_inputs = &witness[1..matrices.num_instance_variables];
         let pvk = prepare_verifying_key(&pk.vk);
         let verified =
             Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
@@ -109,11 +115,11 @@ impl PoiProver for NativeProver {
 }
 
 impl NativeProver {
-    fn load_artifacts(
+    fn load_railgun_artifacts(
         &self,
         notes_in: usize,
         notes_out: usize,
-    ) -> (ProvingKey<Bn254>, CircomBuilder<Fr>) {
+    ) -> (ProvingKey<Bn254>, ConstraintMatrices<Fr>, WitnessCalculator) {
         if notes_in != 1 || notes_out != 2 {
             info!(
                 "Unsupported number of notes: {} in, {} out",
@@ -123,37 +129,55 @@ impl NativeProver {
         }
 
         const WASM_PATH: &str = "artifacts/01x02.wasm";
-        const R1CS_PATH: &str = "artifacts/01x02.r1cs";
         const ZKEY_PATH: &str = "artifacts/01x02.zkey";
 
-        let cfg = CircomConfig::<Fr>::new(WASM_PATH, R1CS_PATH).unwrap();
-        let builder = CircomBuilder::new(cfg);
+        let calculator = WitnessCalculator::new(WASM_PATH).unwrap();
 
         let mut zkey_file = fs::File::open(ZKEY_PATH).unwrap();
-        let (proving_key, _matrices) = read_zkey(&mut zkey_file).unwrap();
+        let (proving_key, matrices) = read_zkey(&mut zkey_file).unwrap();
 
-        (proving_key, builder)
+        (proving_key, matrices, calculator)
     }
 
     fn load_poi_artifacts(
         &self,
         notes_in: usize,
         notes_out: usize,
-    ) -> (ProvingKey<Bn254>, CircomBuilder<Fr>) {
+    ) -> (ProvingKey<Bn254>, ConstraintMatrices<Fr>, WitnessCalculator) {
         if notes_in > 3 || notes_out > 3 {
+            info!(
+                "Unsupported number of notes: {} in, {} out",
+                notes_in, notes_out
+            );
             todo!("Only up to 3 input and 3 output notes are supported currently");
         }
 
-        const WASM_PATH: &str = "artifacts/poi_3x3.wasm";
-        const R1CS_PATH: &str = "artifacts/poi_3x3.r1cs";
-        const ZKEY_PATH: &str = "artifacts/poi_3x3.zkey";
+        const WASM_PATH: &str = "artifacts/ppoi/3x3.wasm";
+        const ZKEY_PATH: &str = "artifacts/ppoi/3x3.zkey";
 
-        let cfg = CircomConfig::<Fr>::new(WASM_PATH, R1CS_PATH).unwrap();
-        let builder = CircomBuilder::new(cfg);
+        let calculator = WitnessCalculator::new(WASM_PATH).unwrap();
 
         let mut zkey_file = fs::File::open(ZKEY_PATH).unwrap();
-        let (proving_key, _matrices) = read_zkey(&mut zkey_file).unwrap();
+        let (proving_key, matrices) = read_zkey(&mut zkey_file).unwrap();
 
-        (proving_key, builder)
+        (proving_key, matrices, calculator)
+    }
+}
+
+impl WitnessCalculator {
+    fn new(wasm_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut store = Store::default();
+        let inner = ark_circom::WitnessCalculator::new(&mut store, wasm_path)?;
+        Ok(Self { inner, store })
+    }
+
+    fn calculate_witness(
+        &mut self,
+        inputs: std::collections::HashMap<String, Vec<BigInt>>,
+    ) -> Result<Vec<Fr>, Box<dyn std::error::Error>> {
+        let witness = self
+            .inner
+            .calculate_witness(&mut self.store, inputs, true)?;
+        Ok(witness.into_iter().map(|b| bigint_to_fr(&b)).collect())
     }
 }

@@ -4802,6 +4802,7 @@ dependencies = [
  "rand 0.9.2",
  "rayon",
  "reqwest 0.13.2",
+ "ruint",
  "serde",
  "serde_json",
  "serial_test",
@@ -4812,6 +4813,7 @@ dependencies = [
  "tracing-subscriber 0.3.22",
  "tracing-test",
  "wasm-bindgen",
+ "wasmer",
 ]
 
 [[package]]
@@ -5220,13 +5222,14 @@ dependencies = [
 
 [[package]]
 name = "ruint"
-version = "1.16.0"
+version = "1.17.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ecb38f82477f20c5c3d62ef52d7c4e536e38ea9b73fb570a20c5cae0e14bcf6"
+checksum = "c141e807189ad38a07276942c6623032d3753c8859c146104ac2e4d68865945a"
 dependencies = [
  "alloy-rlp",
  "ark-ff 0.3.0",
  "ark-ff 0.4.2",
+ "ark-ff 0.5.0",
  "bytes",
  "fastrlp 0.3.1",
  "fastrlp 0.4.0",
@@ -5240,7 +5243,7 @@ dependencies = [
  "rand 0.9.2",
  "rlp",
  "ruint-macro",
- "serde",
+ "serde_core",
  "valuable",
  "zeroize",
 ]

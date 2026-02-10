@@ -1,0 +1,65 @@
+{
+    "pathElements": [
+        "0x488f89b25bc7011eaf6a5edce71aeafb9fe706faa3c0a5cd9cbe868ae3b9ffc",
+        "0x1c405064436affeae1fc8e30b2e417b4243bbb819adca3b55bb32efc3e43a4f",
+        "0x888d37652d10d1781db54b70af87b42a2916e87118f507218f9a42a58e85ed2",
+        "0x183f531ead7217ebc316b4c02a2aad5ad87a1d56d4fb9ed81bf84f644549eaf5",
+        "0x93c48f1ecedf2baec231f0af848a57a76c6cf05b290a396707972e1defd17df",
+        "0x1c5d8e82e917d0f680b50b529cd663a499406d61eba7c71f87603219b06d749e",
+        "0x12359ef9572912b49f44556b8bbbfa69318955352f54cfa35cb0f41309ed445a",
+        "0x1b6960f7b51dc889f96ba847a2b14a54f6dda6d22d3da80bb75315a00631e735",
+        "0x2500bdfc1592791583acefd050bc439a87f1d8e8697eb773e8e69b44973e6fdc",
+        "0x673cf35f4b19b19611ebcc9826f2e9a3ff47feb8057ee381c8011dca1a2c5da",
+        "0xca2b107491c8ca6e5f7e22403ea8529c1e349a1057b8713e09ca9f5b9294d46",
+        "0x18593c75a9e42af27b5e5b56b99c4c6a5d7e7d6e362f00c8e3f69aeebce52313",
+        "0x17aca915b237b04f873518947a1f440f0c1477a6ac79299b3be46858137d4bfb",
+        "0x2726c22ad3d9e23414887e8233ee83cc51603f58c48a9c9e33cb1f306d4365c0",
+        "0x26cd8e4176e99c1ffb33b3923426bcef07cb21a55669e7592e48fce4e35abdfb",
+        "0x1e844f4e5126f02c1754a751d32559f9153624469a344129ad8576d8e2cd5e7b"
+    ],
+    "signature": [
+        "0x266f36566f5320f67b189cafe8d145046aa0da4474aae72cf85debd097742ddb",
+        "0xe459c7b8ac3794dd790299b581bef0e005e0f1ddf691b7769bd5a1635e39341",
+        "0x3613715408d3e480d53e1f2d1a039c24f2e81e708837e38a8cd5bcf411782ac"
+    ],
+    "leavesIndices": [
+        "0xc2a0"
+    ],
+    "nullifyingKey": [
+        "0x1c84eeff089f8ff6be4d12caedc58ff45b45f445c4f2b082fecc8324e12acff"
+    ],
+    "commitmentsOut": [
+        "0x120b549ffe8d05029eba8f1cf0ae2b9903f06ba77f27efb6ac90a820482cd352",
+        "0x19f8b22d7ddccafbcf5619474990339b57540acc3b0b0232b280352611fd719d"
+    ],
+    "boundParamsHash": [
+        "0x1bb73fcb5845d8d4cd3682c84221e141743df516395320c3b764ff31ff553bab"
+    ],
+    "valueIn": [
+        "0xf387c"
+    ],
+    "npkOut": [
+        "0x3009c4b58b493d1be75d34cd06652846a13bdedbd850c8c5746f3bb0ccb00f67",
+        "0x1e3eee994e91125cf63c7e45a7c800399f47ec26e2846e4526f475eb0172a2c5"
+    ],
+    "randomIn": [
+        "0x94460d3eb9e08fb748bbbdc6579add5b"
+    ],
+    "nullifiers": [
+        "0x641e1abfc9a5f7b43b00605a38970645e9e43b47d8a978625ec1f2016a740b9"
+    ],
+    "merkleRoot": [
+        "0x12002d2a183656e79e54d3827bfb00496528fcbefaadf69d0fcdaf9d11924029"
+    ],
+    "token": [
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+    ],
+    "valueOut": [
+        "0x1388",
+        "0xf24f4"
+    ],
+    "publicKey": [
+        "0x6ecf400cc5d44dbd4a2077072453f48adea786df16863c45f213504066f1f0f",
+        "0x2b85e0863759b0354e5e3733ffaad0a5e48507474b604d4da1069c7a65c77c48"
+    ]
+}
