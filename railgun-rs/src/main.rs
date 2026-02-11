@@ -126,8 +126,6 @@ async fn main() {
         .unwrap();
 
         let proof = prover.prove_poi(&poi_circuit_inputs).unwrap();
-
-        info!("POI Inputs for list key {}: {:#?}", key, poi_circuit_inputs);
     }
 
     // // Creates a transaction builder for our desired set of operations.

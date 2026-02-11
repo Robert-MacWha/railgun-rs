@@ -63,6 +63,14 @@ export type PreTransactionPOIsPerTxidLeafPerList = Record<
     PreTransactionPOI
   >
 >;
+
+export type PreTransactionPOI = {
+  snarkProof: Proof;
+  txidMerkleroot: string;
+  poiMerkleroots: string[];
+  blindedCommitmentsOut: string[];
+  railgunTxidIfHasUnshield: string;
+};
 ```
 
 Encrypt with the broadcaster's viewing key:

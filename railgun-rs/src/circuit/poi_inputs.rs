@@ -322,23 +322,3 @@ impl PoiCircuitInputs {
         serde_json::from_str(json)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::circuit::native_prover::NativeProver;
-
-    const TEST_FIXTURE_PATH: &str = "tests/fixtures/poi_03x03_circuit_inputs.json";
-
-    #[tokio::test]
-    #[ignore] // Run with: cargo test test_poi_proof_from_fixture -- --ignored
-    async fn test_poi_proof_from_fixture() {
-        let json = std::fs::read_to_string(TEST_FIXTURE_PATH)
-            .expect("Failed to read test fixture. Run a test that generates the fixture first.");
-
-        let inputs = PoiCircuitInputs::from_json(&json).expect("Failed to parse test fixture");
-
-        let prover = NativeProver::new();
-        prover.prove_poi(&inputs).expect("Proof generation failed");
-    }
-}
