@@ -38,7 +38,7 @@ impl TransactProver for NativeProver {
     ) -> Result<Proof, Box<dyn std::error::Error>> {
         info!("Loading artifacts");
         let (pk, matrices, mut calculator) =
-            self.load_railgun_artifacts(inputs.nullifiers.len(), inputs.commitments_out.len());
+            load_railgun_artifacts(inputs.nullifiers.len(), inputs.commitments_out.len());
 
         info!("Calculating witness");
         let witnesses = calculator.calculate_witness(inputs.as_flat_map())?;
@@ -84,7 +84,7 @@ impl PoiProver for NativeProver {
     fn prove_poi(&self, inputs: &PoiCircuitInputs) -> Result<Proof, Box<dyn std::error::Error>> {
         info!("Loading artifacts");
         let (pk, matrices, mut calculator) =
-            self.load_poi_artifacts(inputs.nullifiers.len(), inputs.commitments.len());
+            load_poi_artifacts(inputs.nullifiers.len(), inputs.commitments.len());
 
         info!("Calculating witness");
         let witness = calculator.calculate_witness(inputs.as_flat_map())?;
@@ -114,54 +114,50 @@ impl PoiProver for NativeProver {
     }
 }
 
-impl NativeProver {
-    fn load_railgun_artifacts(
-        &self,
-        notes_in: usize,
-        notes_out: usize,
-    ) -> (ProvingKey<Bn254>, ConstraintMatrices<Fr>, WitnessCalculator) {
-        if notes_in != 1 || notes_out != 2 {
-            info!(
-                "Unsupported number of notes: {} in, {} out",
-                notes_in, notes_out
-            );
-            todo!("Only 1 input and 2 output notes are supported currently");
-        }
-
-        const WASM_PATH: &str = "artifacts/01x02.wasm";
-        const ZKEY_PATH: &str = "artifacts/01x02.zkey";
-
-        let calculator = WitnessCalculator::new(WASM_PATH).unwrap();
-
-        let mut zkey_file = fs::File::open(ZKEY_PATH).unwrap();
-        let (proving_key, matrices) = read_zkey(&mut zkey_file).unwrap();
-
-        (proving_key, matrices, calculator)
+fn load_railgun_artifacts(
+    notes_in: usize,
+    notes_out: usize,
+) -> (ProvingKey<Bn254>, ConstraintMatrices<Fr>, WitnessCalculator) {
+    if notes_in != 1 || notes_out != 2 {
+        info!(
+            "Unsupported number of notes: {} in, {} out",
+            notes_in, notes_out
+        );
+        todo!("Only 1 input and 2 output notes are supported currently");
     }
 
-    fn load_poi_artifacts(
-        &self,
-        notes_in: usize,
-        notes_out: usize,
-    ) -> (ProvingKey<Bn254>, ConstraintMatrices<Fr>, WitnessCalculator) {
-        if notes_in > 3 || notes_out > 3 {
-            info!(
-                "Unsupported number of notes: {} in, {} out",
-                notes_in, notes_out
-            );
-            todo!("Only up to 3 input and 3 output notes are supported currently");
-        }
+    const WASM_PATH: &str = "artifacts/01x02.wasm";
+    const ZKEY_PATH: &str = "artifacts/01x02.zkey";
 
-        const WASM_PATH: &str = "artifacts/ppoi/3x3.wasm";
-        const ZKEY_PATH: &str = "artifacts/ppoi/3x3.zkey";
+    let calculator = WitnessCalculator::new(WASM_PATH).unwrap();
 
-        let calculator = WitnessCalculator::new(WASM_PATH).unwrap();
+    let mut zkey_file = fs::File::open(ZKEY_PATH).unwrap();
+    let (proving_key, matrices) = read_zkey(&mut zkey_file).unwrap();
 
-        let mut zkey_file = fs::File::open(ZKEY_PATH).unwrap();
-        let (proving_key, matrices) = read_zkey(&mut zkey_file).unwrap();
+    (proving_key, matrices, calculator)
+}
 
-        (proving_key, matrices, calculator)
+fn load_poi_artifacts(
+    notes_in: usize,
+    notes_out: usize,
+) -> (ProvingKey<Bn254>, ConstraintMatrices<Fr>, WitnessCalculator) {
+    if notes_in > 3 || notes_out > 3 {
+        info!(
+            "Unsupported number of notes: {} in, {} out",
+            notes_in, notes_out
+        );
+        todo!("Only up to 3 input and 3 output notes are supported currently");
     }
+
+    const WASM_PATH: &str = "artifacts/ppoi/3x3.wasm";
+    const ZKEY_PATH: &str = "artifacts/ppoi/3x3.zkey";
+
+    let calculator = WitnessCalculator::new(WASM_PATH).unwrap();
+
+    let mut zkey_file = fs::File::open(ZKEY_PATH).unwrap();
+    let (proving_key, matrices) = read_zkey(&mut zkey_file).unwrap();
+
+    (proving_key, matrices, calculator)
 }
 
 impl WitnessCalculator {
