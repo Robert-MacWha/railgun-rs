@@ -101,14 +101,13 @@ impl PoiCircuitInputs {
             .map(|note| note.hash().into())
             .collect();
 
-        info!("Txid proof");
         let txid = Txid::new(&nullifiers, &commitments, bound_params_hash);
-        let txid = TxidLeafHash::new(
+        let txid_leaf_hash = TxidLeafHash::new(
             txid,
             operation.utxo_tree_number(),
             crate::crypto::railgun_txid::UtxoTreeOut::PreInclusion,
         );
-        let txid_proof = MerkleProof::new_pre_inclusion(txid.into());
+        let txid_proof = MerkleProof::new_pre_inclusion(txid_leaf_hash.into());
 
         // Per-note POI proofs
         info!("POI proofs");
