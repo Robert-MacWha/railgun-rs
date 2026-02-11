@@ -2,10 +2,12 @@ use std::collections::HashMap;
 
 use ark_bn254::Fr;
 use num_bigint::BigInt;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
 
 use crate::circuit::circuit_input::IntoSignalVec;
+use crate::circuit::prover::{PoiProver, Proof};
 use crate::{
     circuit_inputs,
     crypto::{
@@ -22,8 +24,8 @@ use crate::{
 };
 
 // TODO: Consider making me into an enum with two variants on a generic Inner, so
-// the values can be [BigInt; 3] / [BigInt; 13] instead of Vec<BigInt> with padding.
-#[derive(Debug)]
+// the values can be [_; 3] / [_; 13] instead of Vec<_> with padding.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct PoiCircuitInputs {
     // Public Inputs
     /// A merkle root from the txid merkle tree after this note's
@@ -63,6 +65,14 @@ pub struct PoiCircuitInputs {
     // POI tree
     poi_in_merkle_proof_indices: Vec<BigInt>,
     poi_in_merkle_proof_path_elements: Vec<Vec<BigInt>>,
+}
+
+#[derive(Debug, Error)]
+pub enum PoiCircuitProofError {
+    #[error("Invalid circuit inputs: {0}")]
+    InvalidCircuitInputs(#[from] PoiCircuitInputsError),
+    #[error("Proof generation failed: {0}")]
+    ProofGenerationFailed(Box<dyn std::error::Error>),
 }
 
 #[derive(Debug, Error)]
@@ -117,6 +127,31 @@ fn pad_merkle_proof_paths(mut vec: Vec<Vec<BigInt>>, target_len: usize) -> Vec<V
 }
 
 impl PoiCircuitInputs {
+    pub fn prove<P: PoiProver>(
+        prover: P,
+        spending_pubkey: SpendingPublicKey,
+        nullifying_pubkey: NullifyingKey,
+        utxo_merkle_tree: &mut UtxoMerkleTree,
+        bound_params_hash: Fr,
+        operation: &Operation<PoiNote>,
+        list_key: ListKey,
+    ) -> Result<Proof, PoiCircuitProofError> {
+        let inputs = Self::from_inputs(
+            spending_pubkey,
+            nullifying_pubkey,
+            utxo_merkle_tree,
+            bound_params_hash,
+            operation,
+            list_key,
+        )?;
+
+        let proof = prover
+            .prove_poi(&inputs)
+            .map_err(|e| PoiCircuitProofError::ProofGenerationFailed(e))?;
+
+        Ok(proof)
+    }
+
     pub fn from_inputs(
         spending_pubkey: SpendingPublicKey,
         nullifying_pubkey: NullifyingKey,
@@ -276,8 +311,34 @@ impl PoiCircuitInputs {
         poi_in_merkle_proof_indices => "poiInMerkleProofIndices",
         poi_in_merkle_proof_path_elements => "poiInMerkleProofPathElements"
     );
+
+    /// Serialize inputs to JSON for creating test fixtures.
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Load inputs from JSON fixture.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
 }
 
-/// TODO: Add test to verify POI inputs are correctly generated
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::*;
+    use crate::circuit::native_prover::NativeProver;
+
+    const TEST_FIXTURE_PATH: &str = "tests/fixtures/poi_03x03_circuit_inputs.json";
+
+    #[tokio::test]
+    #[ignore] // Run with: cargo test test_poi_proof_from_fixture -- --ignored
+    async fn test_poi_proof_from_fixture() {
+        let json = std::fs::read_to_string(TEST_FIXTURE_PATH)
+            .expect("Failed to read test fixture. Run a test that generates the fixture first.");
+
+        let inputs = PoiCircuitInputs::from_json(&json).expect("Failed to parse test fixture");
+
+        let prover = NativeProver::new();
+        prover.prove_poi(&inputs).expect("Proof generation failed");
+    }
+}

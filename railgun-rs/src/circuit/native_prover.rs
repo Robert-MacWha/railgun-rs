@@ -107,10 +107,22 @@ impl PoiProver for NativeProver {
         let verified =
             Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
         assert!(verified, "Proof verification failed");
-
         info!("Proof verified successfully");
 
-        todo!()
+        Ok(Proof {
+            a: G1Affine {
+                x: fq_to_u256(&proof.a.x),
+                y: fq_to_u256(&proof.a.y),
+            },
+            b: G2Affine {
+                x: [fq_to_u256(&proof.b.x.c0), fq_to_u256(&proof.b.x.c1)],
+                y: [fq_to_u256(&proof.b.y.c0), fq_to_u256(&proof.b.y.c1)],
+            },
+            c: G1Affine {
+                x: fq_to_u256(&proof.c.x),
+                y: fq_to_u256(&proof.c.y),
+            },
+        })
     }
 }
 
