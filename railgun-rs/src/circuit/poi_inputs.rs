@@ -11,6 +11,7 @@ use crate::{
     crypto::{
         keys::{BigIntKey, NullifyingKey, SpendingPublicKey, bytes_to_bigint, fr_to_bigint},
         railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
+        railgun_zero::railgun_merkle_tree_zero,
     },
     merkle_trees::{
         merkle_proof::MerkleProof,
@@ -20,6 +21,8 @@ use crate::{
     poi::{client::ListKey, poi_note::PoiNote},
 };
 
+// TODO: Consider making me into an enum with two variants on a generic Inner, so
+// the values can be [BigInt; 3] / [BigInt; 13] instead of Vec<BigInt> with padding.
 #[derive(Debug)]
 pub struct PoiCircuitInputs {
     // Public Inputs
@@ -70,6 +73,47 @@ pub enum PoiCircuitInputsError {
     MerkleTree(#[from] MerkleTreeError),
     #[error("Missing POI proofs for list key {0}")]
     MissingPoiProofs(ListKey),
+}
+
+const POI_MERKLE_PROOF_DEPTH: usize = 16;
+
+/// Determines the circuit size based on the number of nullifiers and commitments.
+/// Returns 3 for the "mini" circuit, 13 for the "full" circuit.
+fn circuit_size(nullifiers_len: usize, commitments_len: usize) -> usize {
+    if nullifiers_len <= 3 && commitments_len <= 3 {
+        3
+    } else {
+        13
+    }
+}
+
+/// Pads a vector with the railgun merkle tree zero value.
+fn pad_with_zero_value(vec: Vec<BigInt>, target_len: usize) -> Vec<BigInt> {
+    let zero = fr_to_bigint(&railgun_merkle_tree_zero());
+    pad_with_value(vec, target_len, zero)
+}
+
+/// Pads a vector with zero (0).
+fn pad_with_zero(vec: Vec<BigInt>, target_len: usize) -> Vec<BigInt> {
+    pad_with_value(vec, target_len, BigInt::from(0))
+}
+
+/// Pads a vector with the given value.
+fn pad_with_value(mut vec: Vec<BigInt>, target_len: usize, value: BigInt) -> Vec<BigInt> {
+    while vec.len() < target_len {
+        vec.push(value.clone());
+    }
+    vec
+}
+
+/// Pads a 2D vector (array of merkle proof paths) to the target length.
+fn pad_merkle_proof_paths(mut vec: Vec<Vec<BigInt>>, target_len: usize) -> Vec<Vec<BigInt>> {
+    let zero = fr_to_bigint(&railgun_merkle_tree_zero());
+    let empty_path: Vec<BigInt> = vec![zero; POI_MERKLE_PROOF_DEPTH];
+    while vec.len() < target_len {
+        vec.push(empty_path.clone());
+    }
+    vec
 }
 
 impl PoiCircuitInputs {
@@ -170,21 +214,28 @@ impl PoiCircuitInputs {
             Some(_) => fr_to_bigint(&txid.into()),
             None => BigInt::from(0),
         };
+
+        // Determine circuit size and apply padding
+        let max_size = circuit_size(nullifiers.len(), commitments.len());
+
+        let nullifiers: Vec<BigInt> = nullifiers.iter().map(|n| fr_to_bigint(n)).collect();
+        let commitments: Vec<BigInt> = commitments.iter().map(|c| fr_to_bigint(c)).collect();
+
         Ok(PoiCircuitInputs {
             railgun_txid_merkle_root_after_transaction: fr_to_bigint(&txid_proof.root),
-            poi_merkle_roots,
+            poi_merkle_roots: pad_with_zero_value(poi_merkle_roots, max_size),
             bound_params_hash: fr_to_bigint(&bound_params_hash),
-            nullifiers: nullifiers.iter().map(|n| fr_to_bigint(n)).collect(),
-            commitments: commitments.iter().map(|c| fr_to_bigint(c)).collect(),
+            nullifiers: pad_with_zero_value(nullifiers, max_size),
+            commitments: pad_with_zero_value(commitments, max_size),
             spending_public_key: [spending_pubkey.x_bigint(), spending_pubkey.y_bigint()],
             nullifying_key: nullifying_pubkey.to_bigint(),
             token: fr_to_bigint(&asset.hash()),
-            randoms_in,
-            values_in,
-            utxo_positions_in,
+            randoms_in: pad_with_zero_value(randoms_in, max_size),
+            values_in: pad_with_zero(values_in, max_size),
+            utxo_positions_in: pad_with_zero_value(utxo_positions_in, max_size),
             utxo_tree_in,
-            npks_out,
-            values_out,
+            npks_out: pad_with_zero_value(npks_out, max_size),
+            values_out: pad_with_zero(values_out, max_size),
             utxo_batch_global_start_position_out: BigInt::from(
                 UtxoTreeOut::PreInclusion.global_index(),
             ),
@@ -195,8 +246,11 @@ impl PoiCircuitInputs {
                 .iter()
                 .map(|e| fr_to_bigint(e))
                 .collect(),
-            poi_in_merkle_proof_indices,
-            poi_in_merkle_proof_path_elements,
+            poi_in_merkle_proof_indices: pad_with_zero(poi_in_merkle_proof_indices, max_size),
+            poi_in_merkle_proof_path_elements: pad_merkle_proof_paths(
+                poi_in_merkle_proof_path_elements,
+                max_size,
+            ),
         })
     }
 
