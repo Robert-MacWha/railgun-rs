@@ -272,7 +272,7 @@ impl PoiCircuitInputs {
         railgun_txid_if_has_unshield => "railgunTxidIfHasUnshield",
         railgun_txid_merkle_proof_indices => "railgunTxidMerkleProofIndices",
         railgun_txid_merkle_proof_path_elements => "railgunTxidMerkleProofPathElements",
-        poi_merkle_roots => "poiMerkleRoots",
+        poi_merkle_roots => "poiMerkleroots",
         poi_in_merkle_proof_indices => "poiInMerkleProofIndices",
         poi_in_merkle_proof_path_elements => "poiInMerkleProofPathElements"
     );
