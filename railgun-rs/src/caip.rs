@@ -1,8 +1,6 @@
 use std::fmt::Display;
 
 use alloy::primitives::{Address, U256, Uint};
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -70,5 +68,36 @@ impl From<TokenData> for AssetId {
             TokenType::ERC1155 => AssetId::Erc1155(token_data.tokenAddress, token_data.tokenSubID),
             _ => unreachable!(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_erc20_hash_snap() {
+        let erc20 = AssetId::Erc20(Address::from_slice(&[1u8; 20]));
+        let hash = erc20.hash();
+        insta::assert_debug_snapshot!(hash);
+
+        let recovered: AssetId = TokenData::from_hash(&hash.to_be_bytes_vec())
+            .unwrap()
+            .into();
+        assert_eq!(recovered, erc20);
+    }
+
+    #[test]
+    fn test_erc721_hash_snap() {
+        let erc721 = AssetId::Erc721(Address::from_slice(&[2u8; 20]), U256::from(123));
+        let hash = erc721.hash();
+        insta::assert_debug_snapshot!(hash);
+    }
+
+    #[test]
+    fn test_erc1155_hash_snap() {
+        let erc1155 = AssetId::Erc1155(Address::from_slice(&[3u8; 20]), U256::from(456));
+        let hash = erc1155.hash();
+        insta::assert_debug_snapshot!(hash);
     }
 }

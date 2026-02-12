@@ -1,0 +1,17 @@
+---
+source: railgun-rs/src/note/encrypt.rs
+assertion_line: 141
+expression: encrypted
+---
+CommitmentCiphertext {
+    ciphertext: [
+        0xb2d6a87ec06934ff5857e678d073000d7ea1d4255d296618a1e6e2751aa2b943,
+        0x2b0f8f409fc754957c60c5f76e5609ca7e3985f81bfd35eff3d8686a4ae0a3c2,
+        0x2a6e7f34bc63e211f60dab5e0058b50e498a2f8138618c341b2ec533f8aa0202,
+        0xbefadfa2c609fc8195a1fb3ddbaef83b61543d0d3687a96911861dce977b1ecd,
+    ],
+    blindedSenderViewingKey: 0x6046890e0c0db16cdf19a7a4b6f69ffce0f71c9b7ada91a93e0f2e970e0d6310,
+    blindedReceiverViewingKey: 0x4fa247c5252eee8e4fac0d43194ff062a48898dc1342fccaa8fae5f5c9b034e2,
+    annotationData: 0xe42ffadfa3f464f8e92bbcc7bc8d22eebcdacbe0583c24a3680111ec9101450c6c0786538b00e1257c891f5820d3aabc,
+    memo: 0xef6b608efce79eac1d,
+}

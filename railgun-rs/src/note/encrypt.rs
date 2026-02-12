@@ -38,7 +38,7 @@ pub fn encrypt_note<R: Rng + ?Sized>(
 ) -> Result<CommitmentCiphertext, EncryptError> {
     let output_type = 0;
     let application_identifier = railgun_base_37::encode("railgun rs")?;
-    let sender_random: [u8; 15] = if blind { random() } else { [0u8; 15] };
+    let sender_random: [u8; 15] = if blind { rng.random() } else { [0u8; 15] };
 
     let (blinded_sender, blinded_receiver) = blind_viewing_keys(
         viewing_key.public_key(),
@@ -103,6 +103,43 @@ mod tests {
     use alloy::primitives::address;
     use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
     use tracing_test::traced_test;
+
+    #[test]
+    fn test_encrypt_snap() {
+        let mut rand = ChaChaRng::seed_from_u64(0);
+        let chain_id = 1;
+
+        // Sender keys
+        let sender_viewing_key = ViewingKey::from_bytes([2u8; 32]);
+
+        // Receiver keys
+        let receiver_spending_key = SpendingKey::from_bytes([3u8; 32]);
+        let receiver_viewing_key = ViewingKey::from_bytes([4u8; 32]);
+        let receiver = RailgunAddress::from_private_keys(
+            receiver_spending_key,
+            receiver_viewing_key,
+            chain_id,
+        );
+
+        let shared_random = [5u8; 16];
+        let value = 1000u128;
+        let asset = AssetId::Erc20(address!("0x1234567890123456789012345678901234567890"));
+        let memo = "test memo";
+
+        let encrypted = encrypt_note(
+            &receiver,
+            &shared_random,
+            value,
+            &asset,
+            memo,
+            sender_viewing_key,
+            false,
+            &mut rand,
+        )
+        .unwrap();
+
+        insta::assert_debug_snapshot!(encrypted);
+    }
 
     #[test]
     #[traced_test]
