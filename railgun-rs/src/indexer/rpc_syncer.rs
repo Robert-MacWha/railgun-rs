@@ -1,19 +1,17 @@
 use alloy::{
-    primitives::FixedBytes,
     providers::{DynProvider, Provider},
     rpc::types::Filter,
 };
 use alloy_sol_types::SolEvent;
 use futures::{Stream, StreamExt, stream};
-use ruint::aliases::U256;
 use tracing::{info, warn};
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
     chain_config::ChainConfig,
     indexer::{
-        compat::{BoxedError, BoxedSyncStream},
-        syncer::{RootVerifier, SyncEvent, Syncer},
+        compat::BoxedSyncStream,
+        syncer::{SyncEvent, Syncer},
     },
 };
 
@@ -44,8 +42,32 @@ impl RpcSyncer {
         self.batch_size = batch_size;
         self
     }
+}
 
-    #[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
+#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
+impl Syncer for RpcSyncer {
+    async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        let block_number = self.provider.get_block_number().await?;
+        Ok(block_number)
+    }
+
+    async fn sync(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>> {
+        info!(
+            "Starting RPC sync from block {} to block {}",
+            from_block, to_block
+        );
+
+        Ok(Box::pin(self.event_stream(from_block, to_block)))
+    }
+}
+
+impl RpcSyncer {
+    #[cfg(not(feature = "wasm"))]
     fn event_stream(
         &self,
         from_block: u64,
@@ -54,12 +76,8 @@ impl RpcSyncer {
         self.event_stream_inner(from_block, to_block)
     }
 
-    #[cfg(target_arch = "wasm32")]
-    fn event_stream(
-        &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> impl Stream<Item = SyncEvent> + '_ {
+    #[cfg(feature = "wasm")]
+    fn event_stream(&self, from_block: u64, to_block: u64) -> impl Stream<Item = SyncEvent> + '_ {
         self.event_stream_inner(from_block, to_block)
     }
 
@@ -144,63 +162,9 @@ impl RpcSyncer {
             // Constructing Operations requires call tracing to correlate which events
             // belong to which Railgun transaction within a block.
 
-            // Update state for next iteration
             let next_block = batch_end + 1;
-
-            // Return the events as a stream and the next block to fetch
             Some((stream::iter(events), next_block))
         })
         .flatten()
-    }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl RootVerifier for RpcSyncer {
-    async fn seen(
-        &self,
-        tree_number: u32,
-        utxo_merkle_root: U256,
-    ) -> Result<bool, BoxedError> {
-        let root: FixedBytes<32> = FixedBytes::from(utxo_merkle_root.to_be_bytes::<32>());
-        let contract = RailgunSmartWallet::new(self.chain.railgun_smart_wallet, &self.provider);
-
-        let seen = contract
-            .rootHistory(U256::from(tree_number), root)
-            .call()
-            .await?;
-        Ok(seen)
-    }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl Syncer for RpcSyncer {
-    async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
-        let block_number = self.provider.get_block_number().await?;
-        Ok(block_number)
-    }
-
-    async fn seen(&self, utxo_merkle_root: U256) -> Result<bool, Box<dyn std::error::Error>> {
-        let root: FixedBytes<32> = FixedBytes::from(utxo_merkle_root.to_be_bytes::<32>());
-        let contract = RailgunSmartWallet::new(self.chain.railgun_smart_wallet, &self.provider);
-
-        // Query rootHistory mapping with tree_number = 0
-        let seen = contract.rootHistory(U256::ZERO, root).call().await?;
-        Ok(seen)
-    }
-
-    async fn sync(
-        &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>>
-    {
-        info!(
-            "Starting RPC sync from block {} to block {}",
-            from_block, to_block
-        );
-
-        Ok(Box::pin(self.event_stream(from_block, to_block)))
     }
 }

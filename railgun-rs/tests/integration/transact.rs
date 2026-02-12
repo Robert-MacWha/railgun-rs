@@ -16,10 +16,7 @@ use railgun_rs::{
         native::{FsArtifactLoader, WasmerWitnessCalculator},
     },
     indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
-    transact::create_transactions,
-    transaction::{
-        operation_builder::OperationBuilder, shield_builder::ShieldBuilder, tx_data::TxData,
-    },
+    transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
 };
 use rand::random;
 use tracing::info;
@@ -52,10 +49,7 @@ async fn test_transact() {
         common::anvil::AnvilInstance::fork_with_state(&fork_url, FORK_BLOCK, STATE_PATH).await;
 
     info!("Setting up prover");
-    let prover = Groth16Prover::new(
-        WasmerWitnessCalculator::new("./artifacts"),
-        FsArtifactLoader::new("./artifacts"),
-    );
+    let prover = Groth16Prover::new_native("./artifacts");
 
     // Setup provider, indexer, and accounts
     info!("Setting up provider");
@@ -107,31 +101,18 @@ async fn test_transact() {
 
     // Test Transfer
     info!("Testing transfer");
-    let unspent = indexer.unspent(account_1.address()).unwrap();
-    let transfer_operations = OperationBuilder::new()
-        .transfer(
-            account_1.clone(),
-            account_2.address(),
-            USDC,
-            5_000,
-            "test transfer",
-        )
-        .build(unspent)
+    let mut builder = OperationBuilder::new();
+    builder.transfer(
+        account_1.clone(),
+        account_2.address(),
+        USDC,
+        5_000,
+        "test transfer",
+    );
+    let transfer_tx = builder
+        .build_transaction(&prover, &mut indexer, CHAIN, &mut rand::rng())
+        .await
         .unwrap();
-
-    let transfer_txns = create_transactions(
-        &prover,
-        &mut indexer.utxo_trees,
-        0,
-        CHAIN,
-        Address::ZERO,
-        &[0u8; 32],
-        transfer_operations,
-        &mut rand::rng(),
-    )
-    .await
-    .unwrap();
-    let transfer_tx = TxData::new(CHAIN.railgun_smart_wallet, transfer_txns);
 
     provider
         .send_transaction(transfer_tx.into())
@@ -150,30 +131,17 @@ async fn test_transact() {
 
     // Test Unshielding
     info!("Testing unshielding");
-    let unspent = indexer.unspent(account_1.address()).unwrap();
-    let unshield_operations = OperationBuilder::new()
-        .set_unshield(
-            account_1.clone(),
-            address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"),
-            USDC,
-            1_000,
-        )
-        .build(unspent)
+    let mut builder = OperationBuilder::new();
+    builder.set_unshield(
+        account_1.clone(),
+        address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"),
+        USDC,
+        1_000,
+    );
+    let unshield_tx = builder
+        .build_transaction(&prover, &mut indexer, CHAIN, &mut rand::rng())
+        .await
         .unwrap();
-
-    let unshield_txns = create_transactions(
-        &prover,
-        &mut indexer.utxo_trees,
-        0,
-        CHAIN,
-        Address::ZERO,
-        &[0u8; 32],
-        unshield_operations,
-        &mut rand::rng(),
-    )
-    .await
-    .unwrap();
-    let unshield_tx = TxData::new(CHAIN.railgun_smart_wallet, unshield_txns);
 
     provider
         .send_transaction(unshield_tx.into())

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use js_sys::Function;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
@@ -13,31 +14,37 @@ use crate::circuit::{
     transact_inputs::TransactCircuitInputs,
 };
 
-/// Prover that delegates to JavaScript callbacks for proof generation.
-///
-/// # Example (JS side)
-/// ```js
-/// import init, { JsProver } from './railgun_rs.js';
-///
-/// await init();
-///
-/// const prover = new JsProver(
-///     async (circuitName, inputs) => {
-///         // Use snarkjs to generate transact proof
-///         const { proof } = await snarkjs.groth16.fullProve(inputs, wasmPath, zkeyPath);
-///         return formatProof(proof);
-///     },
-///     async (circuitName, inputs) => {
-///         // Use snarkjs to generate POI proof
-///         const { proof } = await snarkjs.groth16.fullProve(inputs, wasmPath, zkeyPath);
-///         return formatProof(proof);
-///     }
-/// );
-/// ```
 #[wasm_bindgen]
 pub struct JsProver {
     prove_transact_fn: Function,
     prove_poi_fn: Function,
+}
+
+/// Circuit inputs serialized for JS consumption.
+/// Values are converted to decimal strings.
+#[derive(Serialize)]
+struct JsCircuitInputs {
+    #[serde(flatten)]
+    inputs: HashMap<String, Vec<String>>,
+}
+
+/// Proof format expected from JS callbacks.
+/// All values should be decimal strings.
+#[derive(Deserialize)]
+pub struct JsProofResponse {
+    pub a: [String; 2],
+    pub b: [[String; 2]; 2],
+    pub c: [String; 2],
+}
+
+#[derive(Debug, Error)]
+pub enum JsProverError {
+    #[error("Serde error: {0}")]
+    Serde(#[from] serde_wasm_bindgen::Error),
+    #[error("JS Error: {0:?}")]
+    Js(JsValue),
+    #[error("Proof parsing error: {0}")]
+    ProofParse(String),
 }
 
 #[wasm_bindgen]
@@ -51,49 +58,36 @@ impl JsProver {
     }
 }
 
-/// Proof format expected from JS callbacks.
-/// All values should be decimal or hex strings.
-#[derive(Deserialize)]
-pub struct JsProofResponse {
-    pub a: [String; 2],
-    pub b: [[String; 2]; 2],
-    pub c: [String; 2],
-}
+#[async_trait::async_trait(?Send)]
+impl TransactProver for JsProver {
+    async fn prove_transact(
+        &self,
+        inputs: &TransactCircuitInputs,
+    ) -> Result<Proof, Box<dyn std::error::Error>> {
+        let circuit_name = format!(
+            "transact/{:02}x{:02}",
+            inputs.nullifiers.len(),
+            inputs.commitments_out.len()
+        );
 
-fn parse_number(s: &str) -> Result<U256, String> {
-    let s = s.trim();
-    if s.starts_with("0x") || s.starts_with("0X") {
-        U256::from_str_radix(&s[2..], 16).map_err(|e| format!("Failed to parse hex: {}", e))
-    } else {
-        U256::from_str_radix(s, 10).map_err(|e| format!("Failed to parse decimal: {}", e))
+        Ok(call_js_prover(&self.prove_transact_fn, &circuit_name, inputs.as_flat_map()).await?)
     }
 }
 
-impl JsProofResponse {
-    pub fn into_proof(self) -> Result<Proof, String> {
-        Ok(Proof {
-            a: G1Affine {
-                x: parse_number(&self.a[0])?,
-                y: parse_number(&self.a[1])?,
-            },
-            b: G2Affine {
-                x: [parse_number(&self.b[0][0])?, parse_number(&self.b[0][1])?],
-                y: [parse_number(&self.b[1][0])?, parse_number(&self.b[1][1])?],
-            },
-            c: G1Affine {
-                x: parse_number(&self.c[0])?,
-                y: parse_number(&self.c[1])?,
-            },
-        })
-    }
-}
+#[async_trait::async_trait(?Send)]
+impl PoiProver for JsProver {
+    async fn prove_poi(
+        &self,
+        inputs: &PoiCircuitInputs,
+    ) -> Result<Proof, Box<dyn std::error::Error>> {
+        let circuit_name = format!(
+            "poi/{:02}x{:02}",
+            inputs.nullifiers.len(),
+            inputs.commitments.len()
+        );
 
-/// Circuit inputs serialized for JS consumption.
-/// Values are converted to decimal strings.
-#[derive(Serialize)]
-struct JsCircuitInputs {
-    #[serde(flatten)]
-    inputs: HashMap<String, Vec<String>>,
+        Ok(call_js_prover(&self.prove_poi_fn, &circuit_name, inputs.as_flat_map()).await?)
+    }
 }
 
 impl From<HashMap<String, Vec<U256>>> for JsCircuitInputs {
@@ -106,11 +100,32 @@ impl From<HashMap<String, Vec<U256>>> for JsCircuitInputs {
     }
 }
 
+impl TryFrom<JsProofResponse> for Proof {
+    type Error = JsProverError;
+
+    fn try_from(value: JsProofResponse) -> Result<Self, Self::Error> {
+        Ok(Proof {
+            a: G1Affine {
+                x: parse_number(&value.a[0])?,
+                y: parse_number(&value.a[1])?,
+            },
+            b: G2Affine {
+                x: [parse_number(&value.b[0][0])?, parse_number(&value.b[0][1])?],
+                y: [parse_number(&value.b[1][0])?, parse_number(&value.b[1][1])?],
+            },
+            c: G1Affine {
+                x: parse_number(&value.c[0])?,
+                y: parse_number(&value.c[1])?,
+            },
+        })
+    }
+}
+
 async fn call_js_prover(
     func: &Function,
     circuit_name: &str,
     inputs: HashMap<String, Vec<U256>>,
-) -> Result<Proof, Box<dyn std::error::Error>> {
+) -> Result<Proof, JsProverError> {
     let js_inputs: JsCircuitInputs = inputs.into();
     let js_value = serde_wasm_bindgen::to_value(&js_inputs)?;
 
@@ -119,48 +134,21 @@ async fn call_js_prover(
 
     let promise = func
         .call2(&this, &circuit_name_js, &js_value)
-        .map_err(|e| format!("Failed to call JS prover: {:?}", e))?;
+        .map_err(|e| JsProverError::Js(e))?;
 
     let promise = js_sys::Promise::from(promise);
-    let result = JsFuture::from(promise).await.map_err(|e| {
-        e.as_string()
-            .unwrap_or_else(|| "Unknown JS error".to_string())
-    })?;
+    let result = JsFuture::from(promise)
+        .await
+        .map_err(|e| JsProverError::Js(e))?;
 
     let response: JsProofResponse = serde_wasm_bindgen::from_value(result)?;
-    let proof = response.into_proof()?;
+    let proof = response.try_into()?;
 
     Ok(proof)
 }
 
-#[async_trait::async_trait(?Send)]
-impl TransactProver for JsProver {
-    async fn prove_transact(
-        &self,
-        inputs: &TransactCircuitInputs,
-    ) -> Result<Proof, Box<dyn std::error::Error>> {
-        let circuit_name = format!(
-            "{:02}x{:02}",
-            inputs.nullifiers.len(),
-            inputs.commitments_out.len()
-        );
-
-        call_js_prover(&self.prove_transact_fn, &circuit_name, inputs.as_flat_map()).await
-    }
-}
-
-#[async_trait::async_trait(?Send)]
-impl PoiProver for JsProver {
-    async fn prove_poi(
-        &self,
-        inputs: &PoiCircuitInputs,
-    ) -> Result<Proof, Box<dyn std::error::Error>> {
-        let circuit_name = format!(
-            "ppoi/{}x{}",
-            inputs.nullifiers.len(),
-            inputs.commitments.len()
-        );
-
-        call_js_prover(&self.prove_poi_fn, &circuit_name, inputs.as_flat_map()).await
-    }
+fn parse_number(s: &str) -> Result<U256, JsProverError> {
+    let s = s.trim();
+    U256::from_str_radix(s, 10)
+        .map_err(|e| JsProverError::ProofParse(format!("Failed to parse decimal: {}", e)))
 }

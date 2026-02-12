@@ -9,8 +9,7 @@ pub mod merkle_trees;
 pub mod note;
 pub mod poi;
 pub mod railgun;
-pub mod transact;
 pub mod transaction;
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(feature = "wasm")]
 pub mod wasm;

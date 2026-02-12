@@ -36,7 +36,6 @@ async fn test_sync() {
 
     info!("Syncing indexer");
     indexer.sync_to(FORK_BLOCK).await.unwrap();
-    indexer.validate().await.unwrap();
     verify_trees(&mut indexer.txid_trees, &poi_client).await;
 
     let state = bitcode::serialize(&indexer.state()).unwrap();

@@ -6,8 +6,8 @@ pub mod prover;
 pub mod transact_inputs;
 pub mod witness;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "wasm"))]
 pub mod groth16_prover;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(not(feature = "wasm"))]
 pub mod native;

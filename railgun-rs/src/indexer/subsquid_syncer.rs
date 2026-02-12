@@ -15,9 +15,9 @@ use crate::{
         TokenType,
     },
     indexer::{
-        compat::{BoxedError, BoxedSyncStream},
+        compat::BoxedSyncStream,
         graphql_bigint,
-        syncer::{LegacyCommitment, Operation, RootVerifier, SyncEvent, Syncer},
+        syncer::{LegacyCommitment, Operation, SyncEvent, Syncer},
     },
 };
 
@@ -92,13 +92,13 @@ const RETRY_DELAY: Duration = Duration::from_secs(1);
 
 impl SubsquidSyncer {
     pub fn new(endpoint: &str) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(feature = "wasm"))]
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .unwrap();
 
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(feature = "wasm")]
         let client = Client::new();
 
         SubsquidSyncer {
@@ -107,82 +107,10 @@ impl SubsquidSyncer {
             batch_size: 50000,
         }
     }
-
-    async fn post_graphql<V, R>(&self, op_name: &str, body: V) -> Result<R, SubsquidError>
-    where
-        V: serde::Serialize,
-        R: serde::de::DeserializeOwned,
-    {
-        let json_body = serde_json::to_vec(&body).map_err(|e| {
-            SubsquidError::InvalidData(format!("Failed to serialize request: {}", e))
-        })?;
-
-        //? Retry request to handle transient errors
-        let mut attempts = 0;
-        loop {
-            let result: Result<Response<R>, SubsquidError> = async {
-                let response = self
-                    .client
-                    .post(&self.endpoint)
-                    .header("Content-Type", "application/json")
-                    .body(json_body.clone())
-                    .send()
-                    .await?;
-
-                if !response.status().is_success() {
-                    return Err(SubsquidError::ServerError(
-                        response.status(),
-                        response.text().await.unwrap_or_default(),
-                    ));
-                }
-
-                Ok(response.json().await?)
-            }
-            .await;
-
-            match result {
-                Ok(res) => {
-                    if let Some(errs) = res.errors {
-                        return Err(SubsquidError::GraphqlErrors(errs));
-                    }
-                    match res.data {
-                        Some(data) => return Ok(data),
-                        None => return Err(SubsquidError::MissingData),
-                    }
-                }
-                Err(e) => {
-                    attempts += 1;
-                    warn!("Failed to fetch {}: {}", op_name, e);
-                    if attempts >= MAX_RETRIES {
-                        return Err(e.into());
-                    }
-                    sleep(RETRY_DELAY).await;
-                }
-            }
-        }
-    }
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
-impl RootVerifier for SubsquidSyncer {
-    async fn seen(
-        &self,
-        _tree_number: u32,
-        utxo_merkle_root: U256,
-    ) -> Result<bool, BoxedError> {
-        let request_body = SeenRootQuery::build_query(seen_root_query::Variables {
-            root: Some(Bytes::from(utxo_merkle_root.to_be_bytes::<32>())),
-        });
-
-        let data: seen_root_query::ResponseData = self.post_graphql("seen", request_body).await?;
-
-        Ok(data.transactions.into_iter().next().is_some())
-    }
-}
-
-#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
-#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
+#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
 impl Syncer for SubsquidSyncer {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let request_body = BlockNumberQuery::build_query(block_number_query::Variables {});
@@ -200,41 +128,30 @@ impl Syncer for SubsquidSyncer {
         Ok(block_number)
     }
 
-    async fn seen(&self, utxo_merkle_root: U256) -> Result<bool, Box<dyn std::error::Error>> {
-        let root = Bytes::from(utxo_merkle_root.to_be_bytes::<32>());
-        let request_body =
-            SeenRootQuery::build_query(seen_root_query::Variables { root: Some(root) });
-
-        let data: seen_root_query::ResponseData = self.post_graphql("seen", request_body).await?;
-
-        Ok(data.transactions.into_iter().next().is_some())
-    }
-
     async fn sync(
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>>
-    {
+    ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>> {
         info!(
             "Starting sync from block {} to block {}",
             from_block, to_block
         );
 
         let commitment_stream = self.commitment_stream(from_block, to_block);
-        // let nullified_stream = self.nullified_stream(from_block, to_block);
-        // let operation_stream = self.operation_stream(from_block, to_block);
+        let nullified_stream = self.nullified_stream(from_block, to_block);
+        let operation_stream = self.operation_stream(from_block, to_block);
 
-        let stream = commitment_stream;
-        // .chain(nullified_stream)
-        // .chain(operation_stream);
+        let stream = commitment_stream
+            .chain(nullified_stream)
+            .chain(operation_stream);
 
         Ok(Box::pin(stream))
     }
 }
 
 impl SubsquidSyncer {
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "wasm"))]
     fn commitment_stream(
         &self,
         from_block: u64,
@@ -243,7 +160,7 @@ impl SubsquidSyncer {
         self.commitment_stream_inner(from_block, to_block)
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "wasm")]
     fn commitment_stream(
         &self,
         from_block: u64,
@@ -295,7 +212,7 @@ impl SubsquidSyncer {
         .flatten()
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "wasm"))]
     fn nullified_stream(
         &self,
         from_block: u64,
@@ -304,7 +221,7 @@ impl SubsquidSyncer {
         self.nullified_stream_inner(from_block, to_block)
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "wasm")]
     fn nullified_stream(
         &self,
         from_block: u64,
@@ -349,7 +266,7 @@ impl SubsquidSyncer {
         .flatten()
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(feature = "wasm"))]
     fn operation_stream(
         &self,
         from_block: u64,
@@ -358,7 +275,7 @@ impl SubsquidSyncer {
         self.operation_stream_inner(from_block, to_block)
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(feature = "wasm")]
     fn operation_stream(
         &self,
         from_block: u64,
@@ -534,6 +451,60 @@ impl SubsquidSyncer {
         }
 
         Ok((operations, last_id))
+    }
+
+    async fn post_graphql<V, R>(&self, op_name: &str, body: V) -> Result<R, SubsquidError>
+    where
+        V: serde::Serialize,
+        R: serde::de::DeserializeOwned,
+    {
+        let json_body = serde_json::to_vec(&body).map_err(|e| {
+            SubsquidError::InvalidData(format!("Failed to serialize request: {}", e))
+        })?;
+
+        //? Retry request to handle transient errors
+        let mut attempts = 0;
+        loop {
+            let result: Result<Response<R>, SubsquidError> = async {
+                let response = self
+                    .client
+                    .post(&self.endpoint)
+                    .header("Content-Type", "application/json")
+                    .body(json_body.clone())
+                    .send()
+                    .await?;
+
+                if !response.status().is_success() {
+                    return Err(SubsquidError::ServerError(
+                        response.status(),
+                        response.text().await.unwrap_or_default(),
+                    ));
+                }
+
+                Ok(response.json().await?)
+            }
+            .await;
+
+            match result {
+                Ok(res) => {
+                    if let Some(errs) = res.errors {
+                        return Err(SubsquidError::GraphqlErrors(errs));
+                    }
+                    match res.data {
+                        Some(data) => return Ok(data),
+                        None => return Err(SubsquidError::MissingData),
+                    }
+                }
+                Err(e) => {
+                    attempts += 1;
+                    warn!("Failed to fetch {}: {}", op_name, e);
+                    if attempts >= MAX_RETRIES {
+                        return Err(e.into());
+                    }
+                    sleep(RETRY_DELAY).await;
+                }
+            }
+        }
     }
 }
 

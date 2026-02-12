@@ -138,14 +138,15 @@ sol! {
         ShieldCiphertext ciphertext;
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Default)]
     enum TokenType {
+        #[default]
         ERC20,
         ERC721,
         ERC1155
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct TokenData {
         TokenType tokenType;
         address tokenAddress;
@@ -167,8 +168,9 @@ sol! {
         bytes32 shieldKey; // Public key to generate shared key from
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     enum UnshieldType {
+        #[default]
         NONE,
         NORMAL,
         REDIRECT
@@ -196,7 +198,7 @@ sol! {
         CommitmentPreimage unshieldPreimage;
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Default)]
     struct CommitmentPreimage {
         bytes32 npk; // Poseidon(Poseidon(spending public key, nullifying key), random)
         TokenData token; // Token field

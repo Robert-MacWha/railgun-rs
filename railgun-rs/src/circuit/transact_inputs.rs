@@ -1,10 +1,11 @@
 use std::collections::HashMap;
 
 use ruint::aliases::U256;
+use thiserror::Error;
 
 use crate::{
     circuit_inputs,
-    merkle_trees::merkle_tree::UtxoMerkleTree,
+    merkle_trees::merkle_tree::{MerkleTreeError, UtxoMerkleTree},
     note::{Note, utxo::UtxoNote},
 };
 
@@ -31,23 +32,30 @@ pub struct TransactCircuitInputs {
     value_out: Vec<U256>,
 }
 
+#[derive(Debug, Error)]
+pub enum TransactCircuitInputsError {
+    #[error("Empty input notes")]
+    EmptyInputNotes,
+    #[error("Merkle tree error: {0}")]
+    MerkleTree(#[from] MerkleTreeError),
+}
+
 impl TransactCircuitInputs {
     pub fn from_inputs(
         merkle_tree: &mut UtxoMerkleTree,
         bound_params_hash: U256,
         notes_in: &[UtxoNote],
         notes_out: &[Box<dyn Note>],
-    ) -> Result<Self, ()> {
+    ) -> Result<Self, TransactCircuitInputsError> {
         if notes_in.is_empty() || notes_out.is_empty() {
-            return Err(());
+            return Err(TransactCircuitInputsError::EmptyInputNotes);
         }
 
         let merkle_root = merkle_tree.root();
         let merkle_proofs: Vec<_> = notes_in
             .iter()
             .map(|note| merkle_tree.generate_proof(note.hash()))
-            .collect::<Result<_, _>>()
-            .unwrap();
+            .collect::<Result<_, _>>()?;
 
         let nullifiers = notes_in
             .iter()
@@ -129,7 +137,3 @@ impl TransactCircuitInputs {
         value_out => "valueOut"
     );
 }
-
-/// TODO: Add test to verify POI inputs are correctly generated
-#[cfg(test)]
-mod tests {}

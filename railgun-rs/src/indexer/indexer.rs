@@ -60,10 +60,6 @@ pub enum SyncError {
     LogDecodeError(#[from] alloy_sol_types::Error),
     #[error("Note error: {0}")]
     NoteError(#[from] NoteError),
-    #[error("No Subsquid endpoint configured")]
-    MissingSubsquidEndpoint,
-    // #[error("Subsquid client error: {0}")]
-    // SubsquidClientError(#[from] crate::indexer::subsquid_syncer::SubsquidError),
     #[error("Validation error: {0}")]
     ValidationError(#[from] ValidationError),
     #[error("Syncer error: {0}")]
@@ -94,7 +90,7 @@ impl Indexer {
         }
     }
 
-    pub fn new_with_state(syncer: Box<dyn Syncer>, state: IndexerState) -> Option<Self> {
+    pub fn from_state(syncer: Box<dyn Syncer>, state: IndexerState) -> Option<Self> {
         let chain = get_chain_config(state.chain_id)?;
         let utxo_trees = state
             .utxo_trees
@@ -131,14 +127,13 @@ impl Indexer {
         self.synced_block
     }
 
-    pub fn notebooks(&self, address: RailgunAddress) -> Option<BTreeMap<u32, Notebook>> {
+    pub fn all_unspent(&self) -> Vec<UtxoNote> {
+        let mut notes = Vec::new();
         for account in self.accounts.iter() {
-            if account.address() == address {
-                return Some(account.notebooks());
-            }
+            notes.extend(account.unspent());
         }
 
-        None
+        notes
     }
 
     pub fn unspent(&self, address: RailgunAddress) -> Option<Vec<UtxoNote>> {
@@ -226,32 +221,6 @@ impl Indexer {
         }
 
         self.synced_block = end_block;
-        Ok(())
-    }
-
-    /// Validates that all Merkle Tree roots are seen on-chain. If any are not,
-    /// returns a ValidationError.
-    pub async fn validate(&mut self) -> Result<(), ValidationError> {
-        info!("Validating {} trees", self.utxo_trees.len());
-
-        for (i, tree) in self.utxo_trees.iter_mut() {
-            let root = tree.root();
-            info!("Tree {} root: {}", i, root);
-
-            let seen = self
-                .syncer
-                .seen(root)
-                .await
-                .map_err(ValidationError::SyncerError)?;
-
-            if !seen {
-                return Err(ValidationError::NotSeen {
-                    tree_number: *i,
-                    root,
-                });
-            }
-        }
-
         Ok(())
     }
 

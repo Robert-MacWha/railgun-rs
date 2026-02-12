@@ -1,7 +1,8 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, aliases::U120};
 use ruint::aliases::U256;
 
 use crate::{
+    abis,
     caip::AssetId,
     crypto::{poseidon::poseidon_hash, railgun_utxo::UtxoLeaf},
     note::Note,
@@ -22,6 +23,18 @@ impl UnshieldNote {
             asset,
             value,
         }
+    }
+
+    pub fn preimage(&self) -> abis::railgun::CommitmentPreimage {
+        abis::railgun::CommitmentPreimage {
+            npk: self.note_public_key().into(),
+            token: self.asset.into(),
+            value: U120::from(self.value),
+        }
+    }
+
+    pub fn unshield_type(&self) -> abis::railgun::UnshieldType {
+        abis::railgun::UnshieldType::NORMAL
     }
 }
 

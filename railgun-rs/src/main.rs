@@ -1,3 +1,5 @@
+#![cfg(not(feature = "wasm"))]
+
 use std::{collections::BTreeMap, str::FromStr};
 
 use alloy::{
@@ -88,10 +90,10 @@ async fn main() {
 
     let to_address = RailgunAddress::from_private_keys(random(), random(), CHAIN.id);
     info!("Creating operation");
-    let operation = &OperationBuilder::new()
-        .transfer(account.clone(), to_address, USDC, 1_000, "")
-        .build(notes.clone())
-        .unwrap()[0];
+    let mut builder = OperationBuilder::new();
+    builder.transfer(account.clone(), to_address, USDC, 1_000, "");
+    let operations = builder.build(notes.clone()).unwrap();
+    let operation = &operations[0];
 
     let commitment_ciphertexts: Vec<CommitmentCiphertext> = operation
         .out_encryptable_notes()

@@ -5,13 +5,17 @@ use crate::crypto::keys::{ByteKey, SpendingKey, ViewingKey};
 
 #[wasm_bindgen]
 pub struct JsRailgunAccount {
-    inner: RailgunAccount,
+    pub(crate) inner: RailgunAccount,
 }
 
 #[wasm_bindgen]
 impl JsRailgunAccount {
     #[wasm_bindgen(constructor)]
-    pub fn new(spending_key: &[u8], viewing_key: &[u8], chain_id: u64) -> Result<JsRailgunAccount, JsError> {
+    pub fn new(
+        spending_key: &[u8],
+        viewing_key: &[u8],
+        chain_id: u64,
+    ) -> Result<JsRailgunAccount, JsError> {
         if spending_key.len() != 32 {
             return Err(JsError::new("Spending key must be 32 bytes"));
         }
