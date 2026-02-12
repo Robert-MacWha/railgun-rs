@@ -12,7 +12,7 @@ use crate::{
             ViewingPublicKey,
         },
         poseidon::poseidon_hash,
-        railgun_utxo::Utxo,
+        railgun_utxo::UtxoLeaf,
     },
     note::{IncludedNote, Note},
     poi::client::BlindedCommitmentType,
@@ -176,7 +176,7 @@ impl Note for UtxoNote {
         self.memo.clone()
     }
 
-    fn hash(&self) -> Utxo {
+    fn hash(&self) -> UtxoLeaf {
         poseidon_hash(&[
             self.note_public_key(),
             self.asset.hash(),

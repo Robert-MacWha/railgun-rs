@@ -16,8 +16,8 @@ use crate::{
     chain_config::{ChainConfig, get_chain_config},
     crypto::{
         poseidon::poseidon_hash,
-        railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
-        railgun_utxo::Utxo,
+        railgun_txid::{Txid, TxidLeaf, UtxoTreeOut},
+        railgun_utxo::UtxoLeaf,
     },
     indexer::{
         indexed_account::IndexedAccount,
@@ -99,13 +99,13 @@ impl Indexer {
         let utxo_trees = state
             .utxo_trees
             .into_iter()
-            .map(|(k, v)| (k, MerkleTree::new_from_state(v)))
+            .map(|(k, v)| (k, MerkleTree::from_state(v)))
             .collect();
 
         let txid_trees = state
             .txid_trees
             .into_iter()
-            .map(|(k, v)| (k, MerkleTree::new_from_state(v)))
+            .map(|(k, v)| (k, MerkleTree::from_state(v)))
             .collect();
 
         Some(Indexer {
@@ -260,7 +260,7 @@ impl Indexer {
         event: &RailgunSmartWallet::Shield,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let leaves: Vec<Utxo> = event
+        let leaves: Vec<UtxoLeaf> = event
             .commitments
             .iter()
             .map(|c| {
@@ -294,7 +294,7 @@ impl Indexer {
     ) -> Result<(), SyncError> {
         // info!("Handling transact: {:#?}", event);
 
-        let leaves: Vec<Utxo> = event
+        let leaves: Vec<UtxoLeaf> = event
             .hash
             .iter()
             .map(|h| U256::from_be_bytes(**h).into())
@@ -327,7 +327,7 @@ impl Indexer {
             event.bound_params_hash,
         );
 
-        let txid_leaf_hash = TxidLeafHash::new(
+        let txid_leaf_hash = TxidLeaf::new(
             txid,
             event.utxo_tree_in,
             UtxoTreeOut::included(event.utxo_tree_out, event.utxo_out_start_index),

@@ -51,6 +51,7 @@ poseidon-rust = { workspace = true }
 poseidon-rs = { workspace = true }
 ruint = { version = "1.17.2", features = ["num-bigint", "serde", "ark-ff-05"] }
 wasmer = "4.4.0"
+waku-bindings = { workspace = true }
 
 [dev-dependencies]
 insta = { version = "1.46.3" }

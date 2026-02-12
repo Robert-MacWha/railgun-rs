@@ -6,7 +6,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct TxidLeafHash(U256);
+pub struct TxidLeaf(U256);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct Txid(U256);
@@ -67,7 +67,7 @@ impl UtxoTreeOut {
     }
 }
 
-impl TxidLeafHash {
+impl TxidLeaf {
     pub fn new(txid: Txid, utxo_tree_in: u32, utxo_tree_out: UtxoTreeOut) -> Self {
         let global_position = utxo_tree_out.global_index();
 
@@ -81,13 +81,13 @@ impl TxidLeafHash {
     }
 }
 
-impl From<U256> for TxidLeafHash {
+impl From<U256> for TxidLeaf {
     fn from(value: U256) -> Self {
-        TxidLeafHash(value)
+        TxidLeaf(value)
     }
 }
 
-impl Into<U256> for TxidLeafHash {
+impl Into<U256> for TxidLeaf {
     fn into(self) -> U256 {
         self.0
     }
@@ -160,7 +160,7 @@ uint!(34198991274555001477159037747741983086739304322809405028467147263259194165
     #[test]
     fn test_txid_leaf_hash() {
         let txid = Txid(uint!(0_U256));
-        let leaf_hash = TxidLeafHash::new(
+        let leaf_hash = TxidLeaf::new(
             txid,
             1,
             UtxoTreeOut::Included {

@@ -11,7 +11,7 @@ use crate::{
     circuit_inputs,
     crypto::{
         keys::{NullifyingKey, SpendingPublicKey},
-        railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
+        railgun_txid::{Txid, TxidLeaf, UtxoTreeOut},
         railgun_zero::railgun_merkle_tree_zero,
     },
     merkle_trees::{
@@ -154,7 +154,7 @@ impl PoiCircuitInputs {
             .collect();
 
         let txid = Txid::new(&nullifiers, &commitments, bound_params_hash);
-        let txid_leaf_hash = TxidLeafHash::new(
+        let txid_leaf_hash = TxidLeaf::new(
             txid,
             operation.utxo_tree_number(),
             crate::crypto::railgun_txid::UtxoTreeOut::PreInclusion,

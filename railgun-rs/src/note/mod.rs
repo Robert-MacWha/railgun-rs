@@ -1,11 +1,8 @@
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
-use ark_serialize::CanonicalSerialize;
-use rand::{Rng, RngCore};
+use rand::RngCore;
 use ruint::aliases::U256;
 
 use crate::{
-    abis::railgun::CommitmentCiphertext, caip::AssetId, crypto::railgun_utxo::Utxo,
+    abis::railgun::CommitmentCiphertext, caip::AssetId, crypto::railgun_utxo::UtxoLeaf,
     note::encrypt::EncryptError,
 };
 
@@ -33,7 +30,7 @@ pub trait Note {
     fn memo(&self) -> String;
 
     /// Commitment Hash
-    fn hash(&self) -> Utxo;
+    fn hash(&self) -> UtxoLeaf;
 
     /// NPK
     fn note_public_key(&self) -> U256;

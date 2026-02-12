@@ -1,4 +1,4 @@
-use rand::{Rng, RngCore};
+use rand::RngCore;
 use ruint::aliases::U256;
 
 use crate::{
@@ -7,7 +7,7 @@ use crate::{
     crypto::{
         keys::{U256Key, ViewingKey},
         poseidon::poseidon_hash,
-        railgun_utxo::Utxo,
+        railgun_utxo::UtxoLeaf,
     },
     note::{
         EncryptableNote, Note,
@@ -75,7 +75,7 @@ impl Note for TransferNote {
         self.memo.clone()
     }
 
-    fn hash(&self) -> Utxo {
+    fn hash(&self) -> UtxoLeaf {
         poseidon_hash(&[
             self.note_public_key(),
             self.asset.hash(),
@@ -104,7 +104,7 @@ mod tests {
         caip::AssetId,
         crypto::{
             keys::{ByteKey, SpendingKey, ViewingKey},
-            railgun_utxo::Utxo,
+            railgun_utxo::UtxoLeaf,
         },
         note::{Note, transfer::TransferNote},
         railgun::address::RailgunAddress,
@@ -125,9 +125,9 @@ mod tests {
             [2u8; 16],
             "memo",
         );
-        let hash: Utxo = note.hash();
+        let hash: UtxoLeaf = note.hash();
 
-        let expected: Utxo = uint!(
+        let expected: UtxoLeaf = uint!(
             1005027091991696937637380235791481806966626119421670561695028901610612069057_U256
         )
         .into();
