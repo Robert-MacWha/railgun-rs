@@ -22,11 +22,6 @@ use rand::random;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use crate::common;
-
-const STATE_PATH: &str = "./tests/fixtures/state.json";
-
-const FORK_BLOCK: u64 = 24379760;
 const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48");
 const USDC: AssetId = AssetId::Erc20(USDC_ADDRESS);
 const CHAIN: ChainConfig = MAINNET_CONFIG;
@@ -42,11 +37,6 @@ async fn test_transact() {
         .with_test_writer()
         .try_init()
         .ok();
-
-    info!("Starting test");
-    let fork_url = std::env::var("FORK_URL_MAINNET").expect("Fork URL Must be set");
-    let _anvil =
-        common::anvil::AnvilInstance::fork_with_state(&fork_url, FORK_BLOCK, STATE_PATH).await;
 
     info!("Setting up prover");
     let prover = Groth16Prover::new_native("./artifacts");
