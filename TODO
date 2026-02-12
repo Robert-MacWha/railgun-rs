@@ -15,7 +15,7 @@
   - [ ] Send a POI for a transfer note 
 - [ ] Implement broadcasters
 - [ ] Refactor and tidy up
-  - [ ] Pick and STICK WITH a consistent type for representing proof values / amounts. Right now I'm in conversion hell.  ruint seems like a good choice.
+  - [x] Pick and STICK WITH a consistent type for representing proof values / amounts. Right now I'm in conversion hell.  ruint seems like a good choice.
 - Optimize performance
   - Benchmark current performance + components
   - [x] Try to use `https://github.com/philsippl/circom-witness-rs` for witness generation.  Seems to be ~30x faster for native, and probably faster for wasm too since we avoid wasmer overhead.
