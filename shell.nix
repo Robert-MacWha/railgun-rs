@@ -22,5 +22,6 @@ pkgs.mkShell {
     pkgs.cargo-bloat
     pkgs.cargo-machete
     pkgs.binaryen
+    pkgs.wasm-pack
   ];
 }

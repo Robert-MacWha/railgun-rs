@@ -1,7 +1,8 @@
-use std::fmt::Display;
+use std::{fmt::Display, str::FromStr};
 
 use alloy::primitives::{Address, U256, Uint};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::{
     abis::railgun::{TokenData, TokenType},
@@ -67,6 +68,64 @@ impl From<TokenData> for AssetId {
             TokenType::ERC721 => AssetId::Erc721(token_data.tokenAddress, token_data.tokenSubID),
             TokenType::ERC1155 => AssetId::Erc1155(token_data.tokenAddress, token_data.tokenSubID),
             _ => unreachable!(),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum AssetIdParseError {
+    #[error("Invalid format: expected 'type:address' or 'type:address/subId'")]
+    InvalidFormat,
+    #[error("Unknown asset type: {0}")]
+    UnknownType(String),
+    #[error("Invalid address: {0}")]
+    InvalidAddress(String),
+    #[error("Invalid sub ID: {0}")]
+    InvalidSubId(String),
+}
+
+impl FromStr for AssetId {
+    type Err = AssetIdParseError;
+
+    /// Parse an AssetId from a string.
+    ///
+    /// Supported formats:
+    /// - `erc20:0x...` - ERC20 token
+    /// - `erc721:0x.../123` - ERC721 token with sub ID
+    /// - `erc1155:0x.../456` - ERC1155 token with sub ID
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let (asset_type, rest) = s.split_once(':').ok_or(AssetIdParseError::InvalidFormat)?;
+
+        match asset_type.to_lowercase().as_str() {
+            "erc20" => {
+                let address: Address = rest
+                    .parse()
+                    .map_err(|_| AssetIdParseError::InvalidAddress(rest.to_string()))?;
+                Ok(AssetId::Erc20(address))
+            }
+            "erc721" => {
+                let (addr_str, sub_id_str) =
+                    rest.split_once('/').ok_or(AssetIdParseError::InvalidFormat)?;
+                let address: Address = addr_str
+                    .parse()
+                    .map_err(|_| AssetIdParseError::InvalidAddress(addr_str.to_string()))?;
+                let sub_id: U256 = sub_id_str
+                    .parse()
+                    .map_err(|_| AssetIdParseError::InvalidSubId(sub_id_str.to_string()))?;
+                Ok(AssetId::Erc721(address, sub_id))
+            }
+            "erc1155" => {
+                let (addr_str, sub_id_str) =
+                    rest.split_once('/').ok_or(AssetIdParseError::InvalidFormat)?;
+                let address: Address = addr_str
+                    .parse()
+                    .map_err(|_| AssetIdParseError::InvalidAddress(addr_str.to_string()))?;
+                let sub_id: U256 = sub_id_str
+                    .parse()
+                    .map_err(|_| AssetIdParseError::InvalidSubId(sub_id_str.to_string()))?;
+                Ok(AssetId::Erc1155(address, sub_id))
+            }
+            _ => Err(AssetIdParseError::UnknownType(asset_type.to_string())),
         }
     }
 }

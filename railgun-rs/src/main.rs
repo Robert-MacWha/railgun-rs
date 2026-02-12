@@ -70,7 +70,7 @@ async fn main() {
     let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
     // let mut indexer = Indexer::new(subsquid, CHAIN);
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    let mut indexer = Indexer::new_with_state(subsquid, indexer_state).unwrap();
+    let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
     indexer.add_account(&account);
 
     info!("Syncing indexer");

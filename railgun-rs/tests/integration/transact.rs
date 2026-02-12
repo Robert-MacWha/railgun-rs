@@ -70,7 +70,7 @@ async fn test_transact() {
     info!("Setting up indexer");
     let rpc_syncer = Box::new(RpcSyncer::new(provider.clone(), CHAIN));
     let indexer_state = bitcode::deserialize(INDEXER_STATE).unwrap();
-    let mut indexer = Indexer::new_with_state(rpc_syncer, indexer_state).unwrap();
+    let mut indexer = Indexer::from_state(rpc_syncer, indexer_state).unwrap();
 
     info!("Setting up accounts");
     let account_1 = RailgunAccount::new(random(), random(), CHAIN.id);
