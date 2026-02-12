@@ -27,6 +27,7 @@ use crate::{
         prover::TransactProver,
         transact_inputs::{TransactCircuitInputs, TransactCircuitInputsError},
     },
+    crypto::keys::ViewingPublicKey,
     indexer::indexer::Indexer,
     merkle_trees::merkle_tree::UtxoMerkleTree,
     note::{
@@ -116,8 +117,11 @@ impl OperationBuilder {
 
     /// Builds the operations.
     ///
-    /// Groups input notes by (tree_number, asset_id) and creates separate operations
-    /// for each group. Creates change notes when input value exceeds output value.
+    /// Groups input notes by (tree_number, asset_id, viewing_public_key) and creates
+    /// separate operations for each group. This ensures that each operation only
+    /// contains notes from the same owner, tree, and asset.
+    ///
+    /// Creates change notes when input value exceeds output value.
     ///
     /// Preserves the ordering of transfers within and across operations. Does not
     /// guarantee any particular ordering of unshield operations relative to transfers.
@@ -125,30 +129,23 @@ impl OperationBuilder {
         &mut self,
         in_notes: Vec<N>,
     ) -> Result<Vec<Operation<N>>, BuildError> {
-        // 1. Group input notes by (tree_number, asset_id)
-        let mut grouped: HashMap<(u32, AssetId), Vec<N>> = HashMap::new();
+        // 1. Group input notes by (tree_number, asset_id, viewing_public_key)
+        let mut grouped: HashMap<(u32, AssetId, ViewingPublicKey), Vec<N>> = HashMap::new();
         for note in in_notes {
-            let key = (note.tree_number(), note.asset());
+            let key = (note.tree_number(), note.asset(), note.viewing_public_key());
             grouped.entry(key).or_default().push(note);
         }
 
-        // 2. Get sender account from first transfer or unshield (needed for change notes)
-        let sender = self
-            .transfers
-            .first()
-            .map(|t| &t.from)
-            .or_else(|| self.unshields.values().next().map(|u| &u.from));
-
-        // 3. Build operations for each group
+        // 2. Build operations for each group
         let mut operations = Vec::new();
-        for ((tree_number, asset), notes) in grouped {
+        for ((tree_number, asset, owner), notes) in grouped {
             let input_sum: u128 = notes.iter().map(|n| n.value()).sum();
 
-            // Filter transfers for this asset
+            // Filter transfers for this asset and owner
             let mut out_notes: Vec<TransferNote> = self
                 .transfers
                 .iter()
-                .filter(|t| t.asset == asset)
+                .filter(|t| t.asset == asset && t.from.viewing_key().public_key() == owner)
                 .map(|t| {
                     TransferNote::new(
                         t.from.viewing_key(),
@@ -162,11 +159,32 @@ impl OperationBuilder {
                 .collect();
 
             let transfer_sum: u128 = out_notes.iter().map(|n| n.value()).sum();
-            let unshield_value = self.unshields.get(&asset).map(|u| u.value).unwrap_or(0);
+
+            // Filter unshields for this asset and owner
+            let unshield = self
+                .unshields
+                .get(&asset)
+                .filter(|u| u.from.viewing_key().public_key() == owner)
+                .map(|u| UnshieldNote::new(u.to, u.asset, u.value));
+
+            let unshield_value = unshield.as_ref().map(|u| u.value()).unwrap_or(0);
             let output_sum = transfer_sum + unshield_value;
 
             // Add change note if input > output
+            // Find the sender account that matches this owner
             if input_sum > output_sum {
+                let sender = self
+                    .transfers
+                    .iter()
+                    .find(|t| t.from.viewing_key().public_key() == owner)
+                    .map(|t| &t.from)
+                    .or_else(|| {
+                        self.unshields
+                            .values()
+                            .find(|u| u.from.viewing_key().public_key() == owner)
+                            .map(|u| &u.from)
+                    });
+
                 if let Some(sender) = sender {
                     let change_value = input_sum - output_sum;
                     out_notes.push(TransferNote::new(
@@ -180,10 +198,9 @@ impl OperationBuilder {
                 }
             }
 
-            let unshield = self
-                .unshields
-                .get(&asset)
-                .map(|u| UnshieldNote::new(u.to, u.asset, u.value));
+            if out_notes.is_empty() && unshield.is_none() {
+                continue; // No outputs for this group, skip creating an operation
+            }
 
             operations.push(Operation::new(tree_number, notes, out_notes, unshield));
         }
@@ -199,6 +216,7 @@ impl OperationBuilder {
         rng: &mut R,
     ) -> Result<TxData, BuildError> {
         let in_notes = indexer.all_unspent();
+
         let operations = self.build(in_notes)?;
         let utxo_trees = &mut indexer.utxo_trees;
         let transactions = create_transactions(

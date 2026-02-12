@@ -204,6 +204,10 @@ impl IncludedNote for UtxoNote {
     fn leaf_index(&self) -> u32 {
         self.leaf_index
     }
+
+    fn viewing_public_key(&self) -> ViewingPublicKey {
+        self.viewing_key.public_key()
+    }
 }
 
 impl UtxoNote {

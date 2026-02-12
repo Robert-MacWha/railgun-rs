@@ -2,7 +2,9 @@ use rand::RngCore;
 use ruint::aliases::U256;
 
 use crate::{
-    abis::railgun::CommitmentCiphertext, caip::AssetId, crypto::railgun_utxo::UtxoLeaf,
+    abis::railgun::CommitmentCiphertext,
+    caip::AssetId,
+    crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeaf},
     note::encrypt::EncryptError,
 };
 
@@ -18,6 +20,7 @@ pub mod utxo;
 pub trait IncludedNote: Note {
     fn tree_number(&self) -> u32;
     fn leaf_index(&self) -> u32;
+    fn viewing_public_key(&self) -> ViewingPublicKey;
 }
 
 pub trait EncryptableNote: Note {

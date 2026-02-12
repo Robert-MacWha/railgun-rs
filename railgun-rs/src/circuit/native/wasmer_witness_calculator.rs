@@ -31,14 +31,14 @@ impl WasmerWitnessCalculator {
             CircuitType::Transact {
                 nullifiers,
                 commitments,
-            } => format!("{}/{:02}x{:02}.wasm", self.path, nullifiers, commitments),
+            } => format!(
+                "{}/railgun/{:02}x{:02}.wasm",
+                self.path, nullifiers, commitments
+            ),
             CircuitType::Poi {
                 nullifiers,
                 commitments,
-            } => format!(
-                "{}/ppoi/{}x{}.wasm",
-                self.path, nullifiers, commitments
-            ),
+            } => format!("{}/ppoi/{}x{}.wasm", self.path, nullifiers, commitments),
         }
     }
 }

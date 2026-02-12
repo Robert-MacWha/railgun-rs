@@ -6,6 +6,7 @@ use ark_bn254::{Bn254, Fr};
 use ark_circom::read_zkey;
 use ark_groth16::ProvingKey;
 use ark_relations::r1cs::ConstraintMatrices;
+use ark_serialize::CanonicalSerialize;
 
 use crate::circuit::artifacts::ArtifactLoader;
 use crate::circuit::witness::CircuitType;
@@ -28,14 +29,14 @@ impl FsArtifactLoader {
             CircuitType::Transact {
                 nullifiers,
                 commitments,
-            } => format!("{}/{:02}x{:02}.zkey", self.path, nullifiers, commitments),
+            } => format!(
+                "{}/railgun/{:02}x{:02}.zkey",
+                self.path, nullifiers, commitments
+            ),
             CircuitType::Poi {
                 nullifiers,
                 commitments,
-            } => format!(
-                "{}/ppoi/{}x{}.zkey",
-                self.path, nullifiers, commitments
-            ),
+            } => format!("{}/ppoi/{}x{}.zkey", self.path, nullifiers, commitments),
         }
     }
 
@@ -46,8 +47,10 @@ impl FsArtifactLoader {
         let zkey_path = self.zkey_path(circuit_type);
         let mut zkey_file = fs::File::open(&zkey_path)
             .map_err(|e| format!("Failed to open zkey file {}: {}", zkey_path, e))?;
+
         let (proving_key, matrices) =
             read_zkey(&mut zkey_file).map_err(|e| format!("Failed to read zkey: {}", e))?;
+
         Ok((proving_key, matrices))
     }
 }
@@ -62,6 +65,7 @@ impl ArtifactLoader for FsArtifactLoader {
         }
 
         let (pk, matrices) = self.load_artifacts(circuit)?;
+
         cache.insert(circuit, (pk.clone(), matrices));
         Ok(pk)
     }

@@ -1,11 +1,17 @@
 use std::collections::BTreeMap;
 
+use alloy::{
+    network::Ethereum,
+    providers::{DynProvider, Provider, ProviderBuilder},
+};
 use railgun_rs::{
+    abis::railgun::RailgunSmartWallet,
     chain_config::{ChainConfig, MAINNET_CONFIG},
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
-    merkle_trees::merkle_tree::TxidMerkleTree,
+    merkle_trees::merkle_tree::{TxidMerkleTree, UtxoMerkleTree},
     poi::client::PoiClient,
 };
+use ruint::aliases::U256;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -27,6 +33,15 @@ async fn test_sync() {
         .await
         .unwrap();
 
+    info!("Setting up chain client");
+    let fork_url = std::env::var("FORK_URL_MAINNET").expect("Fork URL Must be set");
+    let provider = ProviderBuilder::new()
+        .network::<Ethereum>()
+        .connect(&fork_url)
+        .await
+        .unwrap()
+        .erased();
+
     info!("Setting up indexer");
     let endpoint = CHAIN
         .subsquid_endpoint
@@ -36,19 +51,20 @@ async fn test_sync() {
 
     info!("Syncing indexer");
     indexer.sync_to(FORK_BLOCK).await.unwrap();
-    verify_trees(&mut indexer.txid_trees, &poi_client).await;
+    verify_txid_trees(&mut indexer.txid_trees, &poi_client).await;
+    verify_utxo_trees(&mut indexer.utxo_trees, provider.clone()).await;
 
     let state = bitcode::serialize(&indexer.state()).unwrap();
     std::fs::write("./tests/fixtures/indexer_state.bincode", state).unwrap();
 }
 
-async fn verify_trees(trees: &mut BTreeMap<u32, TxidMerkleTree>, poi_client: &PoiClient) {
-    info!("Verifying trees: {}", trees.len());
+async fn verify_txid_trees(trees: &mut BTreeMap<u32, TxidMerkleTree>, poi_client: &PoiClient) {
+    info!("Verifying TxID trees: {}", trees.len());
     for (tree_number, tree) in trees.iter_mut() {
         let root = tree.root();
         let leaves = tree.leaves_len();
         info!(
-            "Tree number: {}, leaves: {}, tree root: {:?}",
+            "TxID Tree number: {}, leaves: {}, tree root: {:?}",
             tree_number, leaves, root
         );
 
@@ -56,6 +72,32 @@ async fn verify_trees(trees: &mut BTreeMap<u32, TxidMerkleTree>, poi_client: &Po
             .validate_txid_merkleroot(*tree_number, leaves as u64 - 1, root.into())
             .await
             .unwrap();
-        assert!(valid, "Tree number {} failed validation", tree_number);
+        assert!(valid, "TxID Tree number {} failed validation", tree_number);
+    }
+}
+
+async fn verify_utxo_trees(trees: &mut BTreeMap<u32, UtxoMerkleTree>, provider: DynProvider) {
+    info!("Verifying UTXO trees: {}", trees.len());
+
+    let railgun_contract = RailgunSmartWallet::new(CHAIN.railgun_smart_wallet, provider.clone());
+
+    for (tree_number, tree) in trees.iter_mut() {
+        let root = tree.root();
+        let leaves = tree.leaves_len();
+        info!(
+            "UTXO Tree number: {}, leaves: {}, tree root: {:?}",
+            tree_number, leaves, root
+        );
+
+        let seen = railgun_contract
+            .rootHistory(U256::from(*tree_number), root.into())
+            .call()
+            .await
+            .unwrap();
+        assert!(
+            seen,
+            "UTXO Tree number {} with root {:?} not found on-chain",
+            tree_number, root
+        );
     }
 }

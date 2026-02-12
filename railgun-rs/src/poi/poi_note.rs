@@ -4,7 +4,7 @@ use ruint::aliases::U256;
 
 use crate::{
     caip::AssetId,
-    crypto::railgun_utxo::UtxoLeaf,
+    crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeaf},
     merkle_trees::merkle_proof::MerkleProof,
     note::{IncludedNote, Note, utxo::UtxoNote},
     poi::client::{ClientError, ListKey, PoiClient},
@@ -79,6 +79,10 @@ impl IncludedNote for PoiNote {
 
     fn leaf_index(&self) -> u32 {
         self.inner.leaf_index()
+    }
+
+    fn viewing_public_key(&self) -> ViewingPublicKey {
+        self.inner.viewing_public_key()
     }
 }
 
