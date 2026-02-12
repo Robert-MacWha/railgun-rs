@@ -1,6 +1,4 @@
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
-use poseidon_rust::poseidon_hash;
+use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
@@ -9,7 +7,7 @@ use tracing::info;
 
 use crate::{
     crypto::{
-        keys::fr_to_bytes, railgun_txid::TxidLeafHash, railgun_utxo::Utxo,
+        poseidon::poseidon_hash, railgun_txid::TxidLeafHash, railgun_utxo::Utxo,
         railgun_zero::railgun_merkle_tree_zero,
     },
     merkle_trees::merkle_proof::MerkleProof,
@@ -32,10 +30,10 @@ pub type TxidMerkleTree = MerkleTree<TxidTreeConfig>;
 
 /// Configuration trait for different merkle tree types.
 pub trait TreeConfig: Clone + Default {
-    type LeafType: Clone + From<Fr> + Into<Fr>;
+    type LeafType: Clone + From<U256> + Into<U256>;
     /// The zero value used for empty leaves in this tree type.
-    fn zero_value() -> Fr;
-    fn hash_left_right(left: Fr, right: Fr) -> Fr;
+    fn zero_value() -> U256;
+    fn hash_left_right(left: U256, right: U256) -> U256;
 }
 
 #[derive(Clone, Default, Debug)]
@@ -47,11 +45,11 @@ pub struct TxidTreeConfig;
 impl TreeConfig for UtxoTreeConfig {
     type LeafType = Utxo;
 
-    fn zero_value() -> Fr {
+    fn zero_value() -> U256 {
         railgun_merkle_tree_zero()
     }
 
-    fn hash_left_right(left: Fr, right: Fr) -> Fr {
+    fn hash_left_right(left: U256, right: U256) -> U256 {
         poseidon_hash(&[left, right]).unwrap()
     }
 }
@@ -59,11 +57,11 @@ impl TreeConfig for UtxoTreeConfig {
 impl TreeConfig for TxidTreeConfig {
     type LeafType = TxidLeafHash;
 
-    fn zero_value() -> Fr {
+    fn zero_value() -> U256 {
         railgun_merkle_tree_zero()
     }
 
-    fn hash_left_right(left: Fr, right: Fr) -> Fr {
+    fn hash_left_right(left: U256, right: U256) -> U256 {
         poseidon_hash(&[left, right]).unwrap()
     }
 }
@@ -73,8 +71,8 @@ impl TreeConfig for TxidTreeConfig {
 pub struct MerkleTree<C: TreeConfig> {
     number: u32,
     depth: usize,
-    zeros: Vec<Fr>,
-    tree: Vec<Vec<Fr>>,
+    zeros: Vec<U256>,
+    tree: Vec<Vec<U256>>,
     dirty_parents: BTreeSet<usize>,
     _config: PhantomData<C>,
 }
@@ -83,13 +81,13 @@ pub struct MerkleTree<C: TreeConfig> {
 pub struct MerkleTreeState {
     pub number: u32,
     pub depth: usize,
-    pub tree: Vec<Vec<[u8; 32]>>,
+    pub tree: Vec<Vec<U256>>,
 }
 
 #[derive(Debug, Error)]
 pub enum MerkleTreeError {
     #[error("Element not found in tree: {0}")]
-    ElementNotFound(Fr),
+    ElementNotFound(U256),
     #[error("Invalid proof")]
     InvalidProof,
 }
@@ -103,7 +101,7 @@ impl<C: TreeConfig> MerkleTree<C> {
 
     pub fn new_with_depth(tree_number: u32, depth: usize) -> Self {
         let zeros = zero_value_levels::<C>(depth);
-        let mut tree: Vec<Vec<Fr>> = (0..=depth).map(|_| Vec::new()).collect();
+        let mut tree: Vec<Vec<U256>> = (0..=depth).map(|_| Vec::new()).collect();
 
         let root = C::hash_left_right(zeros[depth - 1], zeros[depth - 1]);
         tree[depth].insert(0, root);
@@ -121,16 +119,7 @@ impl<C: TreeConfig> MerkleTree<C> {
     /// Creates a Merkle tree from a saved state.
     pub fn new_from_state(state: MerkleTreeState) -> Self {
         let mut tree = MerkleTree::new_with_depth(state.number, state.depth);
-        tree.tree = state
-            .tree
-            .iter()
-            .map(|level| {
-                level
-                    .iter()
-                    .map(|bytes| Fr::from_be_bytes_mod_order(bytes))
-                    .collect()
-            })
-            .collect();
+        tree.tree = state.tree;
 
         tree
     }
@@ -139,7 +128,7 @@ impl<C: TreeConfig> MerkleTree<C> {
         self.number
     }
 
-    pub fn root(&mut self) -> Fr {
+    pub fn root(&mut self) -> U256 {
         self.rebuild_dirty();
         self.tree[self.depth][0]
     }
@@ -154,17 +143,10 @@ impl<C: TreeConfig> MerkleTree<C> {
 
     pub fn into_state(mut self) -> MerkleTreeState {
         self.rebuild_dirty();
-
-        let tree: Vec<Vec<[u8; 32]>> = self
-            .tree
-            .iter()
-            .map(|level| level.iter().map(fr_to_bytes).collect())
-            .collect();
-
         MerkleTreeState {
             number: self.number,
             depth: self.depth,
-            tree,
+            tree: self.tree,
         }
     }
 
@@ -277,7 +259,7 @@ impl<C: TreeConfig> MerkleTree<C> {
     }
 }
 
-fn zero_value_levels<C: TreeConfig>(depth: usize) -> Vec<Fr> {
+fn zero_value_levels<C: TreeConfig>(depth: usize) -> Vec<U256> {
     let mut levels = Vec::with_capacity(depth + 1);
     let mut current = C::zero_value();
 
@@ -291,9 +273,8 @@ fn zero_value_levels<C: TreeConfig>(depth: usize) -> Vec<Fr> {
 
 #[cfg(test)]
 mod tests {
+    use ruint::uint;
     use tracing_test::traced_test;
-
-    use crate::crypto::keys::hex_to_fr;
 
     use super::*;
 
@@ -302,8 +283,9 @@ mod tests {
     #[traced_test]
     fn test_merkle_root() {
         let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let expected_root =
-            hex_to_fr("0x14fceeac99eb8419a2796d1958fc2050d489bf5a3eb170ef16a667060344ba90");
+        let expected_root = uint!(
+            9493149700940509817378043077993653487291699154667385859234945399563579865744_U256
+        );
 
         assert_eq!(tree.root(), expected_root);
     }
@@ -313,9 +295,10 @@ mod tests {
     #[traced_test]
     fn test_merkle_tree_insert_and_proof() {
         let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let leaves: Vec<Utxo> = (0..10).map(|i| Fr::from(i as u64 + 1).into()).collect();
-        let expected_root =
-            hex_to_fr("0x1d89f5b3d39b050a5b31be8bdb05fccdf236c038ee5b23e25d61324fca6dc4a9");
+        let leaves: Vec<Utxo> = (0..10).map(|i| U256::from(i + 1).into()).collect();
+        let expected_root = uint!(
+            13360826432759445967430837006844965422592495092152969583910134058984357610665_U256
+        );
 
         tree.insert_leaves(&leaves, 0);
 
@@ -336,7 +319,7 @@ mod tests {
     #[traced_test]
     fn test_state() {
         let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let leaves: Vec<Utxo> = (0..10).map(|i| Fr::from(i as u64 + 1).into()).collect();
+        let leaves: Vec<Utxo> = (0..10).map(|i| U256::from(i + 1).into()).collect();
         tree.insert_leaves(&leaves, 0);
 
         let state = tree.state();

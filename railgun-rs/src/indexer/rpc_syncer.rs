@@ -1,19 +1,18 @@
 use std::pin::Pin;
 
 use alloy::{
-    primitives::{FixedBytes, U256},
+    primitives::FixedBytes,
     providers::{DynProvider, Provider},
     rpc::types::Filter,
 };
 use alloy_sol_types::SolEvent;
-use ark_bn254::Fr;
 use futures::{Stream, StreamExt, stream};
+use ruint::aliases::U256;
 use tracing::{info, warn};
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
     chain_config::ChainConfig,
-    crypto::keys::fr_to_bytes,
     indexer::syncer::{RootVerifier, SyncEvent, Syncer},
 };
 
@@ -141,13 +140,13 @@ impl RootVerifier for RpcSyncer {
     async fn seen(
         &self,
         tree_number: u32,
-        utxo_merkle_root: Fr,
+        utxo_merkle_root: U256,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let root_bytes: FixedBytes<32> = fr_to_bytes(&utxo_merkle_root).into();
+        let root: FixedBytes<32> = FixedBytes::from(utxo_merkle_root.to_be_bytes::<32>());
         let contract = RailgunSmartWallet::new(self.chain.railgun_smart_wallet, &self.provider);
 
         let seen = contract
-            .rootHistory(U256::from(tree_number), root_bytes)
+            .rootHistory(U256::from(tree_number), root)
             .call()
             .await?;
         Ok(seen)
@@ -161,12 +160,12 @@ impl Syncer for RpcSyncer {
         Ok(block_number)
     }
 
-    async fn seen(&self, utxo_merkle_root: Fr) -> Result<bool, Box<dyn std::error::Error>> {
-        let root_bytes: FixedBytes<32> = fr_to_bytes(&utxo_merkle_root).into();
+    async fn seen(&self, utxo_merkle_root: U256) -> Result<bool, Box<dyn std::error::Error>> {
+        let root: FixedBytes<32> = FixedBytes::from(utxo_merkle_root.to_be_bytes::<32>());
         let contract = RailgunSmartWallet::new(self.chain.railgun_smart_wallet, &self.provider);
 
         // Query rootHistory mapping with tree_number = 0
-        let seen = contract.rootHistory(U256::ZERO, root_bytes).call().await?;
+        let seen = contract.rootHistory(U256::ZERO, root).call().await?;
         Ok(seen)
     }
 

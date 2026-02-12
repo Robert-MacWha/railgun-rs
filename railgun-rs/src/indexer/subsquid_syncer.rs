@@ -1,8 +1,6 @@
 use std::{array::TryFromSliceError, pin::Pin, time::Duration};
 
 use alloy::primitives::{Bytes, FixedBytes, U256, ruint::ParseError};
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use futures::StreamExt;
 use futures::{Stream, stream};
 use graphql_client::{GraphQLQuery, Response};
@@ -16,7 +14,6 @@ use crate::{
         CommitmentCiphertext, CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, TokenData,
         TokenType,
     },
-    crypto::keys::fr_to_bytes,
     indexer::{
         graphql_bigint,
         syncer::{LegacyCommitment, Operation, RootVerifier, SyncEvent, Syncer},
@@ -164,10 +161,10 @@ impl RootVerifier for SubsquidSyncer {
     async fn seen(
         &self,
         _tree_number: u32,
-        utxo_merkle_root: Fr,
+        utxo_merkle_root: U256,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let request_body = SeenRootQuery::build_query(seen_root_query::Variables {
-            root: Some(Bytes::from(fr_to_bytes(&utxo_merkle_root))),
+            root: Some(Bytes::from(utxo_merkle_root.to_be_bytes::<32>())),
         });
 
         let data: seen_root_query::ResponseData = self.post_graphql("seen", request_body).await?;
@@ -194,10 +191,10 @@ impl Syncer for SubsquidSyncer {
         Ok(block_number)
     }
 
-    async fn seen(&self, utxo_merkle_root: Fr) -> Result<bool, Box<dyn std::error::Error>> {
-        let request_body = SeenRootQuery::build_query(seen_root_query::Variables {
-            root: Some(Bytes::from(fr_to_bytes(&utxo_merkle_root))),
-        });
+    async fn seen(&self, utxo_merkle_root: U256) -> Result<bool, Box<dyn std::error::Error>> {
+        let root = Bytes::from(utxo_merkle_root.to_be_bytes::<32>());
+        let request_body =
+            SeenRootQuery::build_query(seen_root_query::Variables { root: Some(root) });
 
         let data: seen_root_query::ResponseData = self.post_graphql("seen", request_body).await?;
 
@@ -382,7 +379,7 @@ impl SubsquidSyncer {
                 }
                 _ => legacy_events.push((
                     LegacyCommitment {
-                        hash: Fr::from_le_bytes_mod_order(&c.hash.0.as_le_bytes()),
+                        hash: c.hash.0,
                         tree_number: c.tree_number as u32,
                         leaf_index: c.tree_position as u32,
                     },
@@ -458,14 +455,14 @@ impl SubsquidSyncer {
                 nullifiers: op
                     .nullifiers
                     .into_iter()
-                    .map(|n| Fr::from_be_bytes_mod_order(n.as_ref()))
+                    .map(|n| U256::from_be_slice(n.as_ref()))
                     .collect(),
                 commitment_hashes: op
                     .commitments
                     .into_iter()
-                    .map(|h| Fr::from_be_bytes_mod_order(h.as_ref()))
+                    .map(|h| U256::from_be_slice(h.as_ref()))
                     .collect(),
-                bound_params_hash: Fr::from_be_bytes_mod_order(op.bound_params_hash.as_ref()),
+                bound_params_hash: U256::from_be_slice(op.bound_params_hash.as_ref()),
                 utxo_tree_in: op.utxo_tree_in.0.saturating_to(),
                 utxo_tree_out: op.utxo_tree_out.0.saturating_to(),
                 utxo_out_start_index: op.utxo_batch_start_position_out.0.saturating_to(),

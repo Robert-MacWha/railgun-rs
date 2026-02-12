@@ -1,6 +1,6 @@
 // In tests/common/mod.rs or a fixture
 use std::{
-    process::{Child, Command, Stdio},
+    process::{Child, Command},
     time::Duration,
 };
 

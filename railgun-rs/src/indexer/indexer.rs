@@ -4,10 +4,7 @@ use std::{
 };
 
 use alloy::primitives::{ChainId, U256};
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use futures::StreamExt;
-use poseidon_rust::poseidon_hash;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
@@ -18,7 +15,7 @@ use crate::{
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
     crypto::{
-        keys::{fr_to_bytes, fr_to_u256},
+        poseidon::poseidon_hash,
         railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
         railgun_utxo::Utxo,
     },
@@ -33,9 +30,6 @@ use crate::{
     note::utxo::{NoteError, UtxoNote},
     railgun::address::RailgunAddress,
 };
-
-pub type CommitmentHash = Fr;
-pub type TxIdLeafHash = Fr;
 
 /// The indexer is responsible for syncing the state of the Railgun protocol by
 /// consuming events from a Syncer.
@@ -242,7 +236,7 @@ impl Indexer {
 
         for (i, tree) in self.utxo_trees.iter_mut() {
             let root = tree.root();
-            info!("Tree {} root: {}", i, fr_to_u256(&root));
+            info!("Tree {} root: {}", i, root);
 
             let seen = self
                 .syncer
@@ -253,7 +247,7 @@ impl Indexer {
             if !seen {
                 return Err(ValidationError::NotSeen {
                     tree_number: *i,
-                    root: fr_to_u256(&root),
+                    root,
                 });
             }
         }
@@ -270,11 +264,10 @@ impl Indexer {
             .commitments
             .iter()
             .map(|c| {
-                let npk = Fr::from_be_bytes_mod_order(c.npk.as_slice());
+                let npk = U256::from_be_bytes(*c.npk);
                 let token_id: AssetId = c.token.clone().into();
                 let token_id = token_id.hash();
-                let value: u128 = c.value.saturating_to();
-                let value = Fr::from(value);
+                let value = U256::from(c.value);
 
                 poseidon_hash(&[npk, token_id, value]).unwrap().into()
             })
@@ -304,7 +297,7 @@ impl Indexer {
         let leaves: Vec<Utxo> = event
             .hash
             .iter()
-            .map(|h| Fr::from_be_bytes_mod_order(h.as_slice()).into())
+            .map(|h| U256::from_be_bytes(**h).into())
             .collect();
 
         insert_leaves(

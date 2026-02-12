@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 
+use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 
-use crate::{crypto::keys::bytes_to_fr, note::utxo::UtxoNote};
+use crate::note::utxo::UtxoNote;
 
 /// Notebook holds a collection of spent and unspent notes for a Railgun account,
 /// on a single tree.
@@ -15,7 +16,7 @@ pub struct Notebook {
 #[derive(Clone, Debug)]
 pub struct SpentNote {
     inner: UtxoNote,
-    nullifier: [u8; 32],
+    nullifier: U256,
     /// Unix timestamp
     timestamp: u64,
 }
@@ -36,13 +37,11 @@ impl Notebook {
     /// Nullifies (spends) a note in the notebook based on its nullifier.
     ///
     /// Returns the spent note if found and nullified, otherwise returns None.
-    pub fn nullify(&mut self, nullifier: &[u8; 32], timestamp: u64) -> Option<SpentNote> {
-        let nullifier_fr = bytes_to_fr(nullifier);
-
+    pub fn nullify(&mut self, nullifier: U256, timestamp: u64) -> Option<SpentNote> {
         let Some((&leaf_index, _)) = self
             .unspent
             .iter()
-            .find(|(leaf_index, note)| note.nullifier(**leaf_index) == nullifier_fr)
+            .find(|(leaf_index, note)| note.nullifier(**leaf_index) == nullifier)
         else {
             return None;
         };
@@ -50,7 +49,7 @@ impl Notebook {
 
         let spent_note = SpentNote {
             inner: note,
-            nullifier: *nullifier,
+            nullifier,
             timestamp,
         };
         self.spent.insert(leaf_index, spent_note.inner.clone());

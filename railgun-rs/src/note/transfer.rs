@@ -1,12 +1,12 @@
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
-use poseidon_rust::poseidon_hash;
+use rand::{Rng, RngCore};
+use ruint::aliases::U256;
 
 use crate::{
     abis::railgun::CommitmentCiphertext,
     caip::AssetId,
     crypto::{
-        keys::{FieldKey, ViewingKey},
+        keys::{U256Key, ViewingKey},
+        poseidon::poseidon_hash,
         railgun_utxo::Utxo,
     },
     note::{
@@ -48,7 +48,7 @@ impl TransferNote {
 }
 
 impl EncryptableNote for TransferNote {
-    fn encrypt(&self) -> Result<CommitmentCiphertext, EncryptError> {
+    fn encrypt(&self, rng: &mut dyn RngCore) -> Result<CommitmentCiphertext, EncryptError> {
         encrypt_note(
             &self.to,
             &self.random,
@@ -57,6 +57,7 @@ impl EncryptableNote for TransferNote {
             &self.memo,
             self.from_key,
             false,
+            rng,
         )
     }
 }
@@ -78,16 +79,16 @@ impl Note for TransferNote {
         poseidon_hash(&[
             self.note_public_key(),
             self.asset.hash(),
-            Fr::from(self.value),
+            U256::from(self.value),
         ])
         .unwrap()
         .into()
     }
 
-    fn note_public_key(&self) -> Fr {
+    fn note_public_key(&self) -> U256 {
         poseidon_hash(&[
-            self.to.master_key().to_fr(),
-            Fr::from_be_bytes_mod_order(&self.random),
+            self.to.master_key().to_u256(),
+            U256::from_be_slice(&self.random),
         ])
         .unwrap()
     }
@@ -96,12 +97,13 @@ impl Note for TransferNote {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::address;
+    use ruint::uint;
     use tracing_test::traced_test;
 
     use crate::{
         caip::AssetId,
         crypto::{
-            keys::{ByteKey, SpendingKey, ViewingKey, hex_to_fr},
+            keys::{ByteKey, SpendingKey, ViewingKey},
             railgun_utxo::Utxo,
         },
         note::{Note, transfer::TransferNote},
@@ -125,8 +127,10 @@ mod tests {
         );
         let hash: Utxo = note.hash();
 
-        let expected: Utxo =
-            hex_to_fr("0x0238d33eb654c483bb7beb8dc44f2d364ee415414af794adf3cc40018d1412c1").into();
+        let expected: Utxo = uint!(
+            1005027091991696937637380235791481806966626119421670561695028901610612069057_U256
+        )
+        .into();
         assert_eq!(hash, expected);
     }
 }

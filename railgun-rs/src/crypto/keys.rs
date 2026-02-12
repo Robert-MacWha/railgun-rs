@@ -1,12 +1,11 @@
-use alloy::primitives::U256;
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
-use ark_serialize::CanonicalSerialize;
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::{EdwardsPoint, Scalar};
 use ed25519_dalek::SigningKey;
-use num_bigint::{BigInt, Sign};
-use poseidon_rust::poseidon_hash;
+use num_bigint::BigInt;
+use rand::Rng;
+use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
@@ -14,7 +13,7 @@ use thiserror::Error;
 use crate::crypto::aes::{
     AesError, Ciphertext, CiphertextCtr, decrypt_ctr, decrypt_gcm, encrypt_ctr, encrypt_gcm,
 };
-use crate::crypto::poseidon::poseidon_fr_to_arkworks;
+use crate::crypto::poseidon::{poseidon_fr_to_uint, poseidon_hash};
 
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -26,9 +25,9 @@ pub struct SpendingPublicKey {
 }
 
 pub struct SpendingSignature {
-    pub r8_x: Fr,
-    pub r8_y: Fr,
-    pub s: Fr,
+    pub r8_x: U256,
+    pub r8_y: U256,
+    pub s: U256,
 }
 
 /// Private key for viewing transactions and ECDH.
@@ -90,27 +89,6 @@ pub trait HexKey: ByteKey {
     }
 }
 
-pub trait BigIntKey: ByteKey {
-    /// Create from BigInt, converting to big-endian bytes and padding/truncating
-    /// to 32 bytes
-    fn from_bigint(bi: &BigInt) -> Self {
-        let (_sign, bytes) = bi.to_bytes_be();
-
-        //? Debug assert to avoid panics in prod
-        debug_assert!(bytes.len() <= 32, "BigInt too large for 32-byte key");
-
-        let mut arr = [0u8; 32];
-        let src_start = bytes.len().saturating_sub(32);
-        let dst_start = 32usize.saturating_sub(bytes.len());
-        arr[dst_start..].copy_from_slice(&bytes[src_start..]);
-        Self::from_bytes(arr)
-    }
-
-    fn to_bigint(&self) -> BigInt {
-        BigInt::from_bytes_be(Sign::Plus, self.as_bytes())
-    }
-}
-
 pub trait U256Key: ByteKey {
     fn from_u256(value: U256) -> Self {
         let bytes = value.to_be_bytes::<32>();
@@ -140,7 +118,6 @@ macro_rules! impl_byte_key {
             }
         }
         impl FieldKey for $name {}
-        impl BigIntKey for $name {}
         impl HexKey for $name {}
         impl U256Key for $name {}
     };
@@ -158,32 +135,22 @@ impl SpendingKey {
     pub fn public_key(&self) -> SpendingPublicKey {
         let sk = babyjubjub_rs::PrivateKey::import(self.0.to_vec()).unwrap();
         let pk = sk.public();
-        let (x, y) = (
-            poseidon_fr_to_arkworks(&pk.x),
-            poseidon_fr_to_arkworks(&pk.y),
-        );
+        let (x, y) = (poseidon_fr_to_uint(&pk.x), poseidon_fr_to_uint(&pk.y));
 
         SpendingPublicKey {
-            x: x.into_bigint().to_bytes_be().try_into().unwrap(),
-            y: y.into_bigint().to_bytes_be().try_into().unwrap(),
+            x: x.to_be_bytes(),
+            y: y.to_be_bytes(),
         }
     }
 
-    pub fn sign(&self, message: Fr) -> SpendingSignature {
+    pub fn sign(&self, message: U256) -> SpendingSignature {
         let sk = babyjubjub_rs::PrivateKey::import(self.0.to_vec()).unwrap();
-        let mut msg_bytes = Vec::new();
-        message
-            .serialize_uncompressed(&mut msg_bytes)
-            .map_err(|e: ark_serialize::SerializationError| e.to_string())
-            .unwrap();
-        let msg_bigint = BigInt::from_bytes_le(Sign::Plus, &msg_bytes);
-
-        let signature = sk.sign(msg_bigint).unwrap();
+        let signature = sk.sign(BigInt::from(message)).unwrap();
 
         SpendingSignature {
-            r8_x: poseidon_fr_to_arkworks(&signature.r_b8.x),
-            r8_y: poseidon_fr_to_arkworks(&signature.r_b8.y),
-            s: bigint_to_fr(&signature.s),
+            r8_x: poseidon_fr_to_uint(&signature.r_b8.x),
+            r8_y: poseidon_fr_to_uint(&signature.r_b8.y),
+            s: U256::from(signature.s),
         }
     }
 }
@@ -191,29 +158,6 @@ impl SpendingKey {
 impl SpendingPublicKey {
     pub fn new(x: [u8; 32], y: [u8; 32]) -> Self {
         Self { x, y }
-    }
-
-    pub fn from_fr(x: Fr, y: Fr) -> Self {
-        Self {
-            x: fr_to_bytes(&x),
-            y: fr_to_bytes(&y),
-        }
-    }
-
-    pub fn x_bytes(&self) -> &[u8; 32] {
-        &self.x
-    }
-
-    pub fn y_bytes(&self) -> &[u8; 32] {
-        &self.y
-    }
-
-    pub fn x_fr(&self) -> Fr {
-        bytes_to_fr(&self.x)
-    }
-
-    pub fn y_fr(&self) -> Fr {
-        bytes_to_fr(&self.y)
     }
 
     pub fn x_hex(&self) -> String {
@@ -224,12 +168,12 @@ impl SpendingPublicKey {
         hex::encode(self.y)
     }
 
-    pub fn x_bigint(&self) -> BigInt {
-        bytes_to_bigint(&self.x)
+    pub fn x_u256(&self) -> U256 {
+        U256::from_be_bytes(self.x)
     }
 
-    pub fn y_bigint(&self) -> BigInt {
-        bytes_to_bigint(&self.y)
+    pub fn y_u256(&self) -> U256 {
+        U256::from_be_bytes(self.y)
     }
 }
 
@@ -257,16 +201,20 @@ impl ViewingKey {
         Ok(SharedKey::new(self, point))
     }
 
-    pub fn encrypt_gcm(&self, plaintext: &[&[u8]]) -> Result<Ciphertext, AesError> {
-        encrypt_gcm(plaintext, &self.0)
+    pub fn encrypt_gcm<R: Rng>(
+        &self,
+        plaintext: &[&[u8]],
+        rng: &mut R,
+    ) -> Result<Ciphertext, AesError> {
+        encrypt_gcm(plaintext, &self.0, rng)
     }
 
     pub fn decrypt_gcm(&self, ciphertext: &Ciphertext) -> Result<Vec<Vec<u8>>, AesError> {
         decrypt_gcm(ciphertext, &self.0)
     }
 
-    pub fn encrypt_ctr(&self, plaintext: &[&[u8]]) -> CiphertextCtr {
-        encrypt_ctr(plaintext, &self.0)
+    pub fn encrypt_ctr<R: Rng>(&self, plaintext: &[&[u8]], rng: &mut R) -> CiphertextCtr {
+        encrypt_ctr(plaintext, &self.0, rng)
     }
 
     pub fn decrypt_ctr(&self, ciphertext: &CiphertextCtr) -> Vec<Vec<u8>> {
@@ -295,16 +243,20 @@ impl SharedKey {
         SharedKey(digest.into())
     }
 
-    pub fn encrypt_gcm(&self, plaintext: &[&[u8]]) -> Result<Ciphertext, AesError> {
-        encrypt_gcm(plaintext, &self.0)
+    pub fn encrypt_gcm<R: Rng + ?Sized>(
+        &self,
+        plaintext: &[&[u8]],
+        rng: &mut R,
+    ) -> Result<Ciphertext, AesError> {
+        encrypt_gcm(plaintext, &self.0, rng)
     }
 
     pub fn decrypt_gcm(&self, ciphertext: &Ciphertext) -> Result<Vec<Vec<u8>>, AesError> {
         decrypt_gcm(ciphertext, &self.0)
     }
 
-    pub fn encrypt_ctr(&self, plaintext: &[&[u8]]) -> CiphertextCtr {
-        encrypt_ctr(plaintext, &self.0)
+    pub fn encrypt_ctr<R: Rng>(&self, plaintext: &[&[u8]], rng: &mut R) -> CiphertextCtr {
+        encrypt_ctr(plaintext, &self.0, rng)
     }
 
     pub fn decrypt_ctr(&self, ciphertext: &CiphertextCtr) -> Vec<Vec<u8>> {
@@ -314,11 +266,11 @@ impl SharedKey {
 
 impl MasterPublicKey {
     pub fn new(spending_pubkey: SpendingPublicKey, nullifying_key: NullifyingKey) -> Self {
-        MasterPublicKey::from_fr(
-            &poseidon_hash(&[
-                spending_pubkey.x_fr(),
-                spending_pubkey.y_fr(),
-                nullifying_key.to_fr(),
+        MasterPublicKey::from_u256(
+            poseidon_hash(&[
+                spending_pubkey.x_u256(),
+                spending_pubkey.y_u256(),
+                nullifying_key.to_u256(),
             ])
             .unwrap(),
         )
@@ -327,7 +279,7 @@ impl MasterPublicKey {
 
 impl NullifyingKey {
     pub fn new(viewing_key: ViewingKey) -> Self {
-        NullifyingKey::from_fr(&poseidon_hash(&[viewing_key.to_fr()]).unwrap())
+        NullifyingKey::from_u256(poseidon_hash(&[viewing_key.to_u256()]).unwrap())
     }
 }
 
@@ -360,47 +312,10 @@ pub fn blind_viewing_keys(
     ))
 }
 
-pub fn fr_to_bytes(value: &Fr) -> [u8; 32] {
-    value.into_bigint().to_bytes_be().try_into().unwrap()
-}
-
-pub fn bytes_to_fr(bytes: &[u8; 32]) -> Fr {
-    Fr::from_be_bytes_mod_order(bytes)
-}
-
-pub fn bytes_to_bigint(bytes: &[u8]) -> BigInt {
-    BigInt::from_bytes_be(Sign::Plus, bytes)
-}
-
-pub fn fr_to_bigint(fr: &Fr) -> BigInt {
-    BigInt::from_bytes_be(num_bigint::Sign::Plus, &fr_to_bytes(fr))
-}
-
-pub fn fr_to_u256(fr: &Fr) -> U256 {
-    let bytes = fr_to_bytes(fr);
-    U256::from_be_bytes::<32>(bytes)
-}
-
-pub fn biguint_to_u256(value: &num_bigint::BigUint) -> U256 {
-    let bytes = value.to_bytes_be();
-    let fr = Fr::from_be_bytes_mod_order(&bytes);
-    fr_to_u256(&fr)
-}
-
-pub fn fq_to_u256(fq: &ark_bn254::Fq) -> U256 {
-    let bytes = fq.into_bigint().to_bytes_be();
-    U256::from_be_bytes::<32>(bytes.try_into().unwrap())
-}
-
-pub fn bigint_to_fr(bi: &BigInt) -> Fr {
-    let (_sign, bytes) = bi.to_bytes_be();
-    Fr::from_be_bytes_mod_order(&bytes)
-}
-
-pub fn hex_to_fr(hex_str: &str) -> Fr {
+pub fn hex_to_u256(hex_str: &str) -> U256 {
     let stripped = hex_str.strip_prefix("0x").unwrap_or(hex_str);
     let bytes = hex::decode(stripped).unwrap();
-    Fr::from_be_bytes_mod_order(&bytes)
+    U256::from_be_slice(&bytes)
 }
 
 #[cfg(test)]

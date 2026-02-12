@@ -118,6 +118,7 @@ async fn test_transact() {
         Address::ZERO,
         &[0u8; 32],
         transfer_operations,
+        &mut rand::rng(),
     )
     .unwrap();
     let transfer_tx = TxData::new(CHAIN.railgun_smart_wallet, transfer_txns);
@@ -158,6 +159,7 @@ async fn test_transact() {
         Address::ZERO,
         &[0u8; 32],
         unshield_operations,
+        &mut rand::rng(),
     )
     .unwrap();
     let unshield_tx = TxData::new(CHAIN.railgun_smart_wallet, unshield_txns);

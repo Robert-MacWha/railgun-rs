@@ -1,4 +1,4 @@
-use rand::random;
+use rand::{Rng, random};
 use thiserror::Error;
 
 use crate::{
@@ -7,7 +7,7 @@ use crate::{
     crypto::{
         aes::{AesError, encrypt_ctr},
         concat_arrays, concat_arrays_3,
-        keys::{ByteKey, KeyError, U256Key, ViewingKey, blind_viewing_keys, fr_to_bytes},
+        keys::{ByteKey, KeyError, U256Key, ViewingKey, blind_viewing_keys},
         railgun_base_37,
     },
     railgun::address::RailgunAddress,
@@ -26,7 +26,7 @@ pub enum EncryptError {
 /// Encrypts a note into a CommitmentCiphertext
 ///
 /// TODO: Add details on blind
-pub fn encrypt_note(
+pub fn encrypt_note<R: Rng + ?Sized>(
     receiver: &RailgunAddress,
     shared_random: &[u8; 16],
     value: u128,
@@ -34,6 +34,7 @@ pub fn encrypt_note(
     memo: &str,
     viewing_key: ViewingKey,
     blind: bool,
+    rng: &mut R,
 ) -> Result<CommitmentCiphertext, EncryptError> {
     let output_type = 0;
     let application_identifier = railgun_base_37::encode("railgun rs")?;
@@ -47,12 +48,15 @@ pub fn encrypt_note(
     )?;
 
     let shared_key = viewing_key.derive_shared_key_blinded(blinded_receiver)?;
-    let gcm = shared_key.encrypt_gcm(&[
-        receiver.master_key().as_bytes(),
-        &concat_arrays::<16, 16, 32>(shared_random, &value.to_be_bytes()),
-        &fr_to_bytes(&asset.hash()),
-        memo.as_bytes(),
-    ])?;
+    let gcm = shared_key.encrypt_gcm(
+        &[
+            receiver.master_key().as_bytes(),
+            &concat_arrays::<16, 16, 32>(shared_random, &value.to_be_bytes()),
+            &asset.hash().to_be_bytes_vec(),
+            memo.as_bytes(),
+        ],
+        rng,
+    )?;
 
     let ctr = encrypt_ctr(
         &[&concat_arrays_3::<1, 15, 16, 32>(
@@ -61,6 +65,7 @@ pub fn encrypt_note(
             &application_identifier,
         )],
         viewing_key.public_key().as_bytes(),
+        rng,
     );
 
     let bundle_1: [u8; 32] = gcm.data[0].clone().try_into().unwrap();
@@ -88,67 +93,74 @@ pub fn encrypt_note(
 
 #[cfg(test)]
 mod tests {
-    use crate::{crypto::keys::SpendingKey, note::utxo::UtxoNote};
+    use crate::{
+        crypto::keys::SpendingKey,
+        note::utxo::{UtxoNote, UtxoType},
+    };
 
     use super::*;
 
     use alloy::primitives::address;
+    use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
     use tracing_test::traced_test;
 
-    // #[test]
-    // #[traced_test]
-    // fn test_encrypt_decrypt_note() {
-    //     let chain_id = 1;
+    #[test]
+    #[traced_test]
+    fn test_encrypt_decrypt_note() {
+        let mut rand = ChaChaRng::seed_from_u64(0);
+        let chain_id = 1;
 
-    //     // Sender keys
-    //     let sender_viewing_key = ViewingKey::from_bytes([2u8; 32]);
+        // Sender keys
+        let sender_viewing_key = ViewingKey::from_bytes([2u8; 32]);
 
-    //     // Receiver keys
-    //     let receiver_spending_key = SpendingKey::from_bytes([3u8; 32]);
-    //     let receiver_viewing_key = ViewingKey::from_bytes([4u8; 32]);
-    //     let receiver = RailgunAddress::from_private_keys(
-    //         receiver_spending_key,
-    //         receiver_viewing_key,
-    //         chain_id,
-    //     );
+        // Receiver keys
+        let receiver_spending_key = SpendingKey::from_bytes([3u8; 32]);
+        let receiver_viewing_key = ViewingKey::from_bytes([4u8; 32]);
+        let receiver = RailgunAddress::from_private_keys(
+            receiver_spending_key,
+            receiver_viewing_key,
+            chain_id,
+        );
 
-    //     let shared_random = [5u8; 16];
-    //     let value = 1000u128;
-    //     let asset = AssetId::Erc20(address!("0x1234567890123456789012345678901234567890"));
-    //     let memo = "test memo";
+        let shared_random = [5u8; 16];
+        let value = 1000u128;
+        let asset = AssetId::Erc20(address!("0x1234567890123456789012345678901234567890"));
+        let memo = "test memo";
 
-    //     let encrypted = encrypt_note(
-    //         &receiver,
-    //         &shared_random,
-    //         value,
-    //         &asset,
-    //         memo,
-    //         sender_viewing_key,
-    //         false,
-    //     )
-    //     .unwrap();
+        let encrypted = encrypt_note(
+            &receiver,
+            &shared_random,
+            value,
+            &asset,
+            memo,
+            sender_viewing_key,
+            false,
+            &mut rand,
+        )
+        .unwrap();
 
-    //     // Receiver decrypts with their own keys
-    //     let decrypted = UtxoNote::decrypt(
-    //         receiver_spending_key,
-    //         receiver_viewing_key,
-    //         1,
-    //         0,
-    //         &encrypted,
-    //     )
-    //     .unwrap();
+        // Receiver decrypts with their own keys
+        let decrypted = UtxoNote::decrypt(
+            receiver_spending_key,
+            receiver_viewing_key,
+            1,
+            0,
+            &encrypted,
+        )
+        .unwrap();
 
-    //     let expected = UtxoNote::new(
-    //         receiver_spending_key,
-    //         receiver_viewing_key,
-    //         1,
-    //         0,
-    //         asset,
-    //         value,
-    //         &shared_random,
-    //         memo,
-    //     );
+        let expected = UtxoNote::new(
+            receiver_spending_key,
+            receiver_viewing_key,
+            1,
+            0,
+            asset,
+            value,
+            &shared_random,
+            memo,
+            UtxoType::Transact,
+        );
 
-    //     assert_eq!(expected, decrypted);
-    // }
+        assert_eq!(expected, decrypted);
+    }
 }

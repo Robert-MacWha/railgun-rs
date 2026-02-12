@@ -1,8 +1,6 @@
-use std::path::Display;
-
 use crate::{
     caip::AssetId,
-    note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote, utxo::UtxoNote},
+    note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote},
 };
 
 /// An Operation represents a single "operation" within a railgun transaction.

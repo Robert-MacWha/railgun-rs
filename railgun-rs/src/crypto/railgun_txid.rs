@@ -1,13 +1,15 @@
-use ark_bn254::Fr;
-use poseidon_rust::poseidon_hash;
+use ruint::{aliases::U256};
 
-use crate::{crypto::railgun_zero::railgun_merkle_tree_zero, indexer::indexer::TOTAL_LEAVES};
+use crate::{
+    crypto::{poseidon::poseidon_hash, railgun_zero::railgun_merkle_tree_zero},
+    indexer::indexer::TOTAL_LEAVES,
+};
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct TxidLeafHash(Fr);
+pub struct TxidLeafHash(U256);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct Txid(Fr);
+pub struct Txid(U256);
 
 pub enum UtxoTreeOut {
     /// Transactions that have been included in the UTXO merkle tree (IE those
@@ -71,28 +73,28 @@ impl TxidLeafHash {
 
         poseidon_hash(&[
             txid.into(),
-            Fr::from(utxo_tree_in),
-            Fr::from(global_position),
+            U256::from(utxo_tree_in),
+            U256::from(global_position),
         ])
         .unwrap()
         .into()
     }
 }
 
-impl From<Fr> for TxidLeafHash {
-    fn from(value: Fr) -> Self {
+impl From<U256> for TxidLeafHash {
+    fn from(value: U256) -> Self {
         TxidLeafHash(value)
     }
 }
 
-impl Into<Fr> for TxidLeafHash {
-    fn into(self) -> Fr {
+impl Into<U256> for TxidLeafHash {
+    fn into(self) -> U256 {
         self.0
     }
 }
 
 impl Txid {
-    pub fn new(nullifiers: &[Fr], commitments: &[Fr], bound_params_hash: Fr) -> Self {
+    pub fn new(nullifiers: &[U256], commitments: &[U256], bound_params_hash: U256) -> Self {
         let max_nullifiers = 13; // Max circuit inputs
         let max_commitments = 13; // Max circuit outputs
 
@@ -116,49 +118,48 @@ impl Txid {
     }
 }
 
-impl From<Fr> for Txid {
-    fn from(value: Fr) -> Self {
+impl From<U256> for Txid {
+    fn from(value: U256) -> Self {
         Txid(value)
     }
 }
 
-impl Into<Fr> for Txid {
-    fn into(self) -> Fr {
+impl Into<U256> for Txid {
+    fn into(self) -> U256 {
         self.0
     }
 }
 
 #[cfg(test)]
 mod tests {
-
-    use crate::crypto::keys::{fr_to_bytes, hex_to_fr};
-
     use super::*;
+
+    use ruint::uint;
 
     #[test]
     fn test_txid() {
         let txid = Txid::new(
             &[
-                hex_to_fr("0x1e52cee52f67c37a468458671cddde6b56390dcbdc4cf3b770badc0e78d66401"),
-                hex_to_fr("0x0ac9f5ab5bcb5a115a3efdd0475f6c22dc6a6841caf35a52ecf86a802bfce8ee"),
+                uint!(13715694855377408371089601959277332264580227086500088662374474180290571297793_U256),
+                uint!(4879960293526035536337105771650901564439892825648159183025591237708347140334_U256),
             ],
             &[
-                hex_to_fr("0x1afd01a29faf22dcc5678694092a08d38de99fc97d07b9281fa66f956ce43579"),
-                hex_to_fr("0x2ffc716d8ae767995961bbde4a208dbae438783065bbd200f51a8d4e97cc2289"),
-                hex_to_fr("0x078f9824c86b2488714eb76dc15199c3fa21903517d5f3e19ab2035d264400b6"),
+uint!(12207157656628265423438060380057846656543786903997769688185483156243865679225_U256),            
+uint!(21704732194337337773381894542943230082317724786316223111256657768939470463625_U256),
+uint!(3419899127455500147715903774774198308673930432280940502846714726325919416502_U256),
             ],
-            hex_to_fr("0x2c72a0bcce4f1169dd988204775483938ded5f5899cec84829b1cc667a683784"),
+            uint!(20104295272660775597730850404771326812479727572119535488383037433725311268740_U256),
         );
 
         assert_eq!(
-            hex::encode(fr_to_bytes(&txid.0)),
-            "24355ef25433d028ebcc75110e233021e80f6c5fa04bd1b42cdb40c35d8396e8"
+            txid.0,
+            uint!(16377560740762083297602124407587012236402803616921752695154194813882621728488_U256),
         );
     }
 
     #[test]
     fn test_txid_leaf_hash() {
-        let txid = Txid(Fr::from(0));
+        let txid = Txid(uint!(0_U256));
         let leaf_hash = TxidLeafHash::new(
             txid,
             1,
@@ -169,8 +170,8 @@ mod tests {
         );
 
         assert_eq!(
-            hex::encode(fr_to_bytes(&leaf_hash.0)),
-            "0ee9fe920d14d2b4ccc7911b02a4b3cfed2b06a0ca499592285658880880d330"
+            leaf_hash.0,
+            uint!(6745812227361017099581501373645245177541765188484161512119790239305301021488_U256),
         );
     }
 }

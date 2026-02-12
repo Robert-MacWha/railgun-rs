@@ -1,7 +1,7 @@
 use std::pin::Pin;
 
-use ark_bn254::Fr;
 use futures::Stream;
+use ruint::aliases::U256;
 
 use crate::abis::railgun::RailgunSmartWallet;
 
@@ -16,9 +16,9 @@ pub enum SyncEvent {
 }
 
 pub struct Operation {
-    pub nullifiers: Vec<Fr>,
-    pub commitment_hashes: Vec<Fr>,
-    pub bound_params_hash: Fr,
+    pub nullifiers: Vec<U256>,
+    pub commitment_hashes: Vec<U256>,
+    pub bound_params_hash: U256,
     pub utxo_tree_in: u32,
     pub utxo_tree_out: u32,
     pub utxo_out_start_index: u32,
@@ -28,7 +28,7 @@ pub struct Operation {
 // For now it's much simpler just to populate the UTXO merkle tree while ignoring the
 // legacy events for accounts.
 pub struct LegacyCommitment {
-    pub hash: Fr,
+    pub hash: U256,
     pub tree_number: u32,
     pub leaf_index: u32,
 }
@@ -40,14 +40,14 @@ pub trait RootVerifier: Send + Sync {
     async fn seen(
         &self,
         tree_number: u32,
-        utxo_merkle_root: Fr,
+        utxo_merkle_root: U256,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 }
 
 #[async_trait::async_trait]
 pub trait Syncer: Send + Sync {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>>;
-    async fn seen(&self, utxo_merkle_root: Fr) -> Result<bool, Box<dyn std::error::Error>>;
+    async fn seen(&self, utxo_merkle_root: U256) -> Result<bool, Box<dyn std::error::Error>>;
 
     async fn sync(
         &self,

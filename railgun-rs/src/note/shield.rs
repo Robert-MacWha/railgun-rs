@@ -1,8 +1,5 @@
-use alloy::primitives::Uint;
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
-use poseidon_rust::poseidon_hash;
-use rand::random;
+use alloy::primitives::{U256, Uint};
+use rand::Rng;
 use thiserror::Error;
 
 use crate::{
@@ -10,35 +7,37 @@ use crate::{
     caip::AssetId,
     crypto::{
         concat_arrays,
-        keys::{ByteKey, FieldKey, U256Key, ViewingKey},
+        keys::{ByteKey, U256Key, ViewingKey},
+        poseidon::poseidon_hash,
     },
-    note::ark_to_solidity_bytes,
     railgun::address::RailgunAddress,
 };
 
 #[derive(Debug, Error)]
 pub enum ShieldError {}
 
-pub fn create_shield_request(
+pub fn create_shield_request<R: Rng>(
     recipient: RailgunAddress,
     asset: AssetId,
     value: u128,
+    rng: &mut R,
 ) -> Result<ShieldRequest, ShieldError> {
-    let shield_private_key: ViewingKey = random();
+    let shield_private_key: ViewingKey = rng.random();
     let shared_key = shield_private_key
         .derive_shared_key(recipient.viewing_pubkey())
         .unwrap();
 
-    let random_seed: [u8; 16] = random();
-    let npk = ark_to_solidity_bytes(
-        poseidon_hash(&[
-            recipient.master_key().to_fr(),
-            Fr::from_be_bytes_mod_order(&random_seed),
-        ])
-        .unwrap(),
-    );
-    let gcm = shared_key.encrypt_gcm(&[&random_seed]).unwrap();
-    let ctr = shield_private_key.encrypt_ctr(&[recipient.viewing_pubkey().as_bytes()]);
+    let random_seed: [u8; 16] = rng.random();
+    let mut npk: [u8; 32] = poseidon_hash(&[
+        recipient.master_key().to_u256(),
+        U256::from_be_slice(&random_seed),
+    ])
+    .unwrap()
+    .to_le_bytes();
+    npk.reverse();
+
+    let gcm = shared_key.encrypt_gcm(&[&random_seed], rng).unwrap();
+    let ctr = shield_private_key.encrypt_ctr(&[recipient.viewing_pubkey().as_bytes()], rng);
 
     let gcm_random: [u8; 16] = gcm.data[0].clone().try_into().unwrap();
     let ctr_key: [u8; 32] = ctr.data[0].clone().try_into().unwrap();
@@ -66,7 +65,8 @@ pub fn create_shield_request(
 #[cfg(test)]
 mod tests {
     use alloy::primitives::Address;
-    use rand::random;
+    use rand::Rng;
+    use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
     use tracing_test::traced_test;
 
     use crate::{
@@ -78,15 +78,33 @@ mod tests {
 
     #[test]
     #[traced_test]
-    fn test_shield_encrypt_decrypt() {
-        let spending_key: SpendingKey = random();
-        let viewing_key: ViewingKey = random();
+    fn test_shield_snap() {
+        let mut rng = ChaChaRng::seed_from_u64(0);
+
+        let spending_key: SpendingKey = rng.random();
+        let viewing_key: ViewingKey = rng.random();
 
         let recipient = RailgunAddress::from_private_keys(spending_key, viewing_key, 1);
         let asset: AssetId = AssetId::Erc20(Address::from([0u8; 20]));
         let value: u128 = 1_000_000;
 
-        let shield_request = create_shield_request(recipient, asset, value).unwrap();
+        let shield_request = create_shield_request(recipient, asset, value, &mut rng).unwrap();
+        insta::assert_debug_snapshot!(shield_request);
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_shield_encrypt_decrypt() {
+        let mut rng = ChaChaRng::seed_from_u64(0);
+
+        let spending_key: SpendingKey = rng.random();
+        let viewing_key: ViewingKey = rng.random();
+
+        let recipient = RailgunAddress::from_private_keys(spending_key, viewing_key, 1);
+        let asset: AssetId = AssetId::Erc20(Address::from([0u8; 20]));
+        let value: u128 = 1_000_000;
+
+        let shield_request = create_shield_request(recipient, asset, value, &mut rng).unwrap();
 
         // Decrypt the note
         let decrypted =

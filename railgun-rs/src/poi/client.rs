@@ -1,23 +1,15 @@
 use std::collections::HashMap;
 
-use alloy::{
-    primitives::{ChainId, FixedBytes},
-    serde::quantity::vec,
-};
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
+use alloy::primitives::ChainId;
+use ruint::aliases::U256;
 use thiserror::Error;
-use tracing::info;
 
 pub use crate::poi::{
     inner_client::ClientError,
     inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap},
 };
 use crate::{
-    crypto::{
-        keys::{fr_to_bigint, fr_to_bytes, fr_to_u256, hex_to_fr},
-        railgun_txid::Txid,
-    },
+    crypto::{keys::hex_to_u256, railgun_txid::Txid},
     merkle_trees::merkle_proof::MerkleProof,
 };
 
@@ -150,7 +142,7 @@ impl PoiClient {
         Ok(ValidatedRailgunTxidStatus {
             tree,
             index,
-            merkleroot: hex_to_fr(&merkle_root).into(),
+            merkleroot: hex_to_u256(&merkle_root).into(),
         })
     }
 
@@ -161,14 +153,14 @@ impl PoiClient {
         index: u64,
         merkleroot: Txid,
     ) -> Result<bool, ClientError> {
-        let txid: Fr = merkleroot.into();
+        let txid: U256 = merkleroot.into();
 
         self.inner
             .validate_txid_merkleroot(crate::poi::inner_types::ValidateTxidMerklerootParams {
                 chain: self.chain(),
                 tree: tree as u64,
                 index,
-                merkleroot: hex::encode(fr_to_bytes(&txid)),
+                merkleroot: hex::encode(&txid.to_be_bytes::<32>()),
             })
             .await
     }
@@ -187,10 +179,10 @@ impl TryFrom<crate::poi::inner_types::MerkleProof> for MerkleProof {
 
     fn try_from(proof: crate::poi::inner_types::MerkleProof) -> Result<MerkleProof, Self::Error> {
         Ok(MerkleProof {
-            element: hex_to_fr(&proof.leaf),
-            elements: proof.elements.iter().map(|s| hex_to_fr(s)).collect(),
-            indices: fr_to_u256(&hex_to_fr(&proof.indices)).saturating_to(),
-            root: hex_to_fr(&proof.root),
+            element: hex_to_u256(&proof.leaf),
+            elements: proof.elements.iter().map(|s| hex_to_u256(s)).collect(),
+            indices: hex_to_u256(&proof.indices).saturating_to(),
+            root: hex_to_u256(&proof.root),
         })
     }
 }

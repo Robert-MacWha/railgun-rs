@@ -24,9 +24,9 @@ pub enum AccountId {
 }
 
 impl AssetId {
-    pub fn hash(&self) -> Fr {
+    pub fn hash(&self) -> U256 {
         let token_data: TokenData = (*self).into();
-        Fr::from_be_bytes_mod_order(&token_data.hash())
+        token_data.hash()
     }
 }
 

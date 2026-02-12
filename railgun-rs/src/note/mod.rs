@@ -1,6 +1,8 @@
 use ark_bn254::Fr;
 use ark_ff::PrimeField;
 use ark_serialize::CanonicalSerialize;
+use rand::{Rng, RngCore};
+use ruint::aliases::U256;
 
 use crate::{
     abis::railgun::CommitmentCiphertext, caip::AssetId, crypto::railgun_utxo::Utxo,
@@ -22,7 +24,7 @@ pub trait IncludedNote: Note {
 }
 
 pub trait EncryptableNote: Note {
-    fn encrypt(&self) -> Result<CommitmentCiphertext, EncryptError>;
+    fn encrypt(&self, rng: &mut dyn RngCore) -> Result<CommitmentCiphertext, EncryptError>;
 }
 
 pub trait Note {
@@ -34,13 +36,5 @@ pub trait Note {
     fn hash(&self) -> Utxo;
 
     /// NPK
-    fn note_public_key(&self) -> Fr;
-}
-
-pub fn ark_to_solidity_bytes(fr: Fr) -> [u8; 32] {
-    let bigint = fr.into_bigint();
-    let mut bytes = [0u8; 32];
-    bigint.serialize_compressed(&mut bytes[..]).unwrap();
-    bytes.reverse();
-    bytes
+    fn note_public_key(&self) -> U256;
 }

@@ -1,4 +1,4 @@
-use alloy::primitives::U256;
+use ruint::aliases::U256;
 
 /// U256 wrapper for GraphQL serialization/deserialization as decimal string
 #[derive(Debug, Clone)]

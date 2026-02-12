@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::HashMap, fs};
 
 use ark_bn254::{Bn254, Fr};
 use ark_circom::{CircomReduction, read_zkey};
@@ -6,16 +6,14 @@ use ark_groth16::{Groth16, ProvingKey, prepare_verifying_key};
 use ark_relations::r1cs::ConstraintMatrices;
 use ark_std::rand::random;
 use num_bigint::BigInt;
+use ruint::aliases::U256;
 use tracing::info;
 use wasmer::Store;
 
-use crate::{
-    circuit::{
-        poi_inputs::PoiCircuitInputs,
-        prover::{G1Affine, G2Affine, PoiProver, Proof, TransactProver},
-        transact_inputs::TransactCircuitInputs,
-    },
-    crypto::keys::{bigint_to_fr, fq_to_u256},
+use crate::circuit::{
+    poi_inputs::PoiCircuitInputs,
+    prover::{PoiProver, Proof, TransactProver},
+    transact_inputs::TransactCircuitInputs,
 };
 
 pub struct NativeProver {}
@@ -63,20 +61,7 @@ impl TransactProver for NativeProver {
         assert!(verified, "Proof verification failed");
 
         info!("Proof verified successfully");
-        Ok(Proof {
-            a: G1Affine {
-                x: fq_to_u256(&proof.a.x),
-                y: fq_to_u256(&proof.a.y),
-            },
-            b: G2Affine {
-                x: [fq_to_u256(&proof.b.x.c0), fq_to_u256(&proof.b.x.c1)],
-                y: [fq_to_u256(&proof.b.y.c0), fq_to_u256(&proof.b.y.c1)],
-            },
-            c: G1Affine {
-                x: fq_to_u256(&proof.c.x),
-                y: fq_to_u256(&proof.c.y),
-            },
-        })
+        Ok(proof.into())
     }
 }
 
@@ -109,20 +94,7 @@ impl PoiProver for NativeProver {
         assert!(verified, "Proof verification failed");
         info!("Proof verified successfully");
 
-        Ok(Proof {
-            a: G1Affine {
-                x: fq_to_u256(&proof.a.x),
-                y: fq_to_u256(&proof.a.y),
-            },
-            b: G2Affine {
-                x: [fq_to_u256(&proof.b.x.c0), fq_to_u256(&proof.b.x.c1)],
-                y: [fq_to_u256(&proof.b.y.c0), fq_to_u256(&proof.b.y.c1)],
-            },
-            c: G1Affine {
-                x: fq_to_u256(&proof.c.x),
-                y: fq_to_u256(&proof.c.y),
-            },
-        })
+        Ok(proof.into())
     }
 }
 
@@ -181,11 +153,24 @@ impl WitnessCalculator {
 
     fn calculate_witness(
         &mut self,
-        inputs: std::collections::HashMap<String, Vec<BigInt>>,
+        inputs: std::collections::HashMap<String, Vec<U256>>,
     ) -> Result<Vec<Fr>, Box<dyn std::error::Error>> {
+        let inputs: HashMap<String, Vec<BigInt>> = inputs
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().map(BigInt::from).collect()))
+            .collect();
+
         let witness = self
             .inner
             .calculate_witness(&mut self.store, inputs, true)?;
-        Ok(witness.into_iter().map(|b| bigint_to_fr(&b)).collect())
+
+        let witness = witness
+            .into_iter()
+            .map(U256::from)
+            .map(ark_ff::BigInt::from)
+            .map(|bi| bi.into())
+            .collect();
+
+        Ok(witness)
     }
 }

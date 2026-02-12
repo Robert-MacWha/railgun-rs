@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
-use ark_bn254::Fr;
+use ruint::aliases::U256;
 
 use crate::{
     caip::AssetId,
-    crypto::{keys::fr_to_bytes, railgun_utxo::Utxo},
+    crypto::railgun_utxo::Utxo,
     merkle_trees::merkle_proof::MerkleProof,
     note::{IncludedNote, Note, utxo::UtxoNote},
     poi::client::{ClientError, ListKey, PoiClient},
@@ -35,7 +35,7 @@ impl PoiNote {
     ) -> Result<Vec<Self>, ClientError> {
         let blinded_commitments = inner
             .iter()
-            .map(|n| fr_to_bytes(&n.blinded_commitment()))
+            .map(|n| n.blinded_commitment().to_be_bytes())
             .collect();
         let proofs = client.merkle_proofs(blinded_commitments).await?;
         let mut poi_notes = Vec::new();
@@ -67,7 +67,7 @@ impl PoiNote {
         self.inner.random()
     }
 
-    pub fn nullifier(&self, leaf_index: u32) -> Fr {
+    pub fn nullifier(&self, leaf_index: u32) -> U256 {
         self.inner.nullifier(leaf_index)
     }
 }
@@ -99,7 +99,7 @@ impl Note for PoiNote {
         self.inner.hash().into()
     }
 
-    fn note_public_key(&self) -> Fr {
+    fn note_public_key(&self) -> U256 {
         self.inner.note_public_key()
     }
 }

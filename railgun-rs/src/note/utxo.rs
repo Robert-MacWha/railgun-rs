@@ -1,6 +1,4 @@
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
-use poseidon_rust::poseidon_hash;
+use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -10,9 +8,10 @@ use crate::{
     crypto::{
         aes::{AesError, Ciphertext},
         keys::{
-            BlindedKey, ByteKey, FieldKey, KeyError, MasterPublicKey, SpendingKey, ViewingKey,
+            BlindedKey, ByteKey, KeyError, MasterPublicKey, SpendingKey, U256Key, ViewingKey,
             ViewingPublicKey,
         },
+        poseidon::poseidon_hash,
         railgun_utxo::Utxo,
     },
     note::{IncludedNote, Note},
@@ -164,30 +163,6 @@ impl UtxoNote {
     }
 }
 
-// impl EncryptableNote for UtxoNote {
-//     /// Encrypts the note into a CommitmentCiphertext. Uses this note's spending
-//     /// and viewing keys as the receiver's information.
-//     ///
-//     ///  See `encrypt_note` for more details.
-//     fn encrypt(
-//         &self,
-//         sender_viewing_key: ViewingKey,
-//         blind: bool,
-//     ) -> Result<CommitmentCiphertext, EncryptError> {
-//         //? Encryption doesn't depend on the chain ID, so it can be arbitrary
-//         let receiver = RailgunAddress::from_private_keys(self.spending_key, self.viewing_key, 1);
-//         encrypt_note(
-//             &receiver,
-//             &self.random,
-//             self.value,
-//             &self.asset,
-//             &self.memo,
-//             sender_viewing_key,
-//             blind,
-//         )
-//     }
-// }
-
 impl Note for UtxoNote {
     fn asset(&self) -> AssetId {
         self.asset
@@ -205,23 +180,19 @@ impl Note for UtxoNote {
         poseidon_hash(&[
             self.note_public_key(),
             self.asset.hash(),
-            Fr::from(self.value),
+            U256::from(self.value),
         ])
         .unwrap()
         .into()
     }
 
-    fn note_public_key(&self) -> Fr {
+    fn note_public_key(&self) -> U256 {
         let master_key = MasterPublicKey::new(
             self.spending_key.public_key(),
             self.viewing_key.nullifying_key(),
         );
 
-        poseidon_hash(&[
-            master_key.to_fr(),
-            Fr::from_be_bytes_mod_order(&self.random),
-        ])
-        .unwrap()
+        poseidon_hash(&[master_key.to_u256(), U256::from_be_slice(&self.random)]).unwrap()
     }
 }
 
@@ -246,11 +217,11 @@ impl UtxoNote {
 
     pub fn sign_circuit_inputs(
         &self,
-        merkle_root: Fr,
-        bound_params_hash: Fr,
-        nullifiers: &Vec<Fr>,
-        commitments: &Vec<Fr>,
-    ) -> [Fr; 3] {
+        merkle_root: U256,
+        bound_params_hash: U256,
+        nullifiers: &Vec<U256>,
+        commitments: &Vec<U256>,
+    ) -> [U256; 3] {
         let mut inputs = vec![merkle_root, bound_params_hash];
         inputs.extend_from_slice(nullifiers);
         inputs.extend_from_slice(commitments);
@@ -258,37 +229,37 @@ impl UtxoNote {
         self.sign(&inputs)
     }
 
-    pub fn sign(&self, inputs: &[Fr]) -> [Fr; 3] {
+    pub fn sign(&self, inputs: &[U256]) -> [U256; 3] {
         let sig_hash = poseidon_hash(inputs).unwrap();
         let signature = self.spending_key.sign(sig_hash);
         [signature.r8_x, signature.r8_y, signature.s]
     }
 
     /// Returns the note's spending public key
-    pub fn spending_public_key(&self) -> (Fr, Fr) {
+    pub fn spending_public_key(&self) -> (U256, U256) {
         let pubkey = self.spending_key.public_key();
-        (pubkey.x_fr(), pubkey.y_fr())
+        (pubkey.x_u256(), pubkey.y_u256())
     }
 
     /// Returns the note's nullifier for a given leaf index
     ///
     /// Hash of (nullifying_key, leaf_index)
-    pub fn nullifier(&self, leaf_index: u32) -> Fr {
-        poseidon_hash(&[self.nullifying_key(), Fr::from(leaf_index)]).unwrap()
+    pub fn nullifier(&self, leaf_index: u32) -> U256 {
+        poseidon_hash(&[self.nullifying_key(), U256::from(leaf_index)]).unwrap()
     }
 
     /// Returns the note's nullifying key
     ///
     /// Hash of (viewing_private_key)
-    pub fn nullifying_key(&self) -> Fr {
-        poseidon_hash(&[self.viewing_key.to_fr()]).unwrap()
+    pub fn nullifying_key(&self) -> U256 {
+        poseidon_hash(&[self.viewing_key.to_u256()]).unwrap()
     }
 
-    pub fn blinded_commitment(&self) -> Fr {
+    pub fn blinded_commitment(&self) -> U256 {
         poseidon_hash(&[
             self.hash().into(),
             self.note_public_key(),
-            Fr::from((self.tree_number as u64) * 65536 + (self.leaf_index as u64)),
+            U256::from((self.tree_number as u128) * 65536 + (self.leaf_index as u128)),
         ])
         .unwrap()
     }
@@ -325,9 +296,8 @@ impl From<UtxoType> for BlindedCommitmentType {
 
 #[cfg(test)]
 mod tests {
+    use ruint::uint;
     use tracing_test::traced_test;
-
-    use crate::crypto::keys::{bytes_to_fr, hex_to_fr};
 
     use super::*;
 
@@ -338,10 +308,11 @@ mod tests {
     #[traced_test]
     fn test_note_hash() {
         let note = test_note();
-        let hash: Fr = note.hash().into();
+        let hash: U256 = note.hash().into();
 
-        let expected =
-            hex_to_fr("0x229b1db0c6706d18ff9ce36673185530465d4575d2572b2cfc277262289b18b9");
+        let expected = uint!(
+            15652703063364460311785063361754318622468586649506025149049958389572383217849_U256
+        );
         assert_eq!(hash, expected);
     }
 
@@ -349,14 +320,19 @@ mod tests {
     #[traced_test]
     fn test_note_sign() {
         let note = test_note();
-        // let msg = vec![Fr::from(1u8), Fr::from(2u8), Fr::from(3u8)];
-        let msg = bytes_to_fr(&[4u8; 32]);
+        let msg = U256::from_be_slice(&[4u8; 32]);
         let signature = note.sign(&[msg]);
 
         let expected = [
-            hex_to_fr("0x0420e857bd171b340ce13449638af4b74945e568ef22186bf923a46753f572e4"),
-            hex_to_fr("0x0abfa9e53db7b1525b0b97094631a0ec110c92a1bd81c74d60e00fc6acb528ba"),
-            hex_to_fr("0x031341ceba9e1c9a76cabe5b4f9031915b9a8c61cdeb7e0a9ad1804a649a0fbe"),
+            uint!(
+                1867394070987317795558509038826002254704441391366761701569904580090171585252_U256
+            ),
+            uint!(
+                4861768850665346243728274192565754656957922526826151834514482394918148188346_U256
+            ),
+            uint!(
+                1390962826895272931277537517624004721994258503767807739809164177785130454974_U256
+            ),
         ];
 
         assert_eq!(signature, expected);
@@ -369,8 +345,12 @@ mod tests {
         let pub_key = note.spending_public_key();
 
         let expected = (
-            hex_to_fr("0x234056d968baf183fe8d237d496d1c04188220cd33e8f8d14df9b84479736b20"),
-            hex_to_fr("0x2624393fad9b71c04b3b14d8ac45202dbb4eaff4c2d1350c9453fc08d18651fe"),
+            uint!(
+                15944627324083773346390189001500210680939402028015651549526524193195473201952_U256
+            ),
+            uint!(
+                17251889856797524237981285661279357764562574766148660962999867467495459148286_U256
+            ),
         );
         assert_eq!(pub_key, expected);
     }
@@ -382,8 +362,9 @@ mod tests {
         let leaf_index = 5u32;
         let nullifier = note.nullifier(leaf_index);
 
-        let expected =
-            hex_to_fr("0x103cba8722ef9b21b85abe6286ec80771c918ff3400ee9d9b0673b98d3193e26");
+        let expected = uint!(
+            7344303769311454485041481768889762774214369760214733867852841155011901210150_U256
+        );
         assert_eq!(nullifier, expected);
     }
 
@@ -393,8 +374,9 @@ mod tests {
         let note = test_note();
         let nullifying_key = note.nullifying_key();
 
-        let expected =
-            hex_to_fr("0x186ab99ece60e112b37c660eaf7ca6dbcb04dc434e04aa5e106e94abc6c81936");
+        let expected = uint!(
+            11044075259344817595544633535096475825354771420816801683721629142825992460598_U256
+        );
         assert_eq!(nullifying_key, expected);
     }
 
@@ -404,8 +386,9 @@ mod tests {
         let note = test_note();
         let pub_key = note.note_public_key();
 
-        let expected =
-            hex_to_fr("0x0d8534b283818d7e3c855e07d28d3d6a04c0a88b488516f45c04d71c8833177e");
+        let expected = uint!(
+            6115421394727733128036252006164802934954447834850133641440670552529040512894_U256
+        );
         assert_eq!(pub_key, expected);
     }
 

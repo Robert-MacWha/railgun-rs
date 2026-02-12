@@ -35,7 +35,7 @@ impl ShieldBuilder {
         let shields = self
             .shields
             .into_iter()
-            .map(|(r, a, v)| create_shield_request(r, a, v))
+            .map(|(r, a, v)| create_shield_request(r, a, v, &mut rand::rng()))
             .collect::<Result<Vec<ShieldRequest>, ShieldError>>()?;
 
         let call = RailgunSmartWallet::shieldCall {

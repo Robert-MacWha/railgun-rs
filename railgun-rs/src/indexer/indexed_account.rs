@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
+use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use tracing::{info, trace};
+use tracing::info;
 
 use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
@@ -189,11 +190,10 @@ impl IndexedAccount {
         let tree_number: u32 = event.treeNumber as u32;
 
         for nullifier in event.nullifier.iter() {
-            let nullifier_bytes: &[u8; 32] = &(*nullifier).into();
             self.notebooks
                 .entry(tree_number)
                 .or_default()
-                .nullify(nullifier_bytes, timestamp);
+                .nullify(U256::from_be_bytes(**nullifier), timestamp);
         }
     }
 }

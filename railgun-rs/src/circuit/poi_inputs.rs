@@ -1,17 +1,16 @@
 use std::collections::HashMap;
 
-use ark_bn254::Fr;
-use num_bigint::BigInt;
+use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
 
 use crate::circuit::circuit_input::IntoSignalVec;
-use crate::circuit::prover::{PoiProver, Proof};
+use crate::crypto::keys::U256Key;
 use crate::{
     circuit_inputs,
     crypto::{
-        keys::{BigIntKey, NullifyingKey, SpendingPublicKey, bytes_to_bigint, fr_to_bigint},
+        keys::{NullifyingKey, SpendingPublicKey},
         railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
         railgun_zero::railgun_merkle_tree_zero,
     },
@@ -29,42 +28,42 @@ use crate::{
 pub struct PoiCircuitInputs {
     // Public Inputs
     /// A merkle root from the txid merkle tree after this note's
-    pub railgun_txid_merkle_root_after_transaction: BigInt,
-    pub poi_merkle_roots: Vec<BigInt>,
+    pub railgun_txid_merkle_root_after_transaction: U256,
+    pub poi_merkle_roots: Vec<U256>,
 
     // Private inputs
 
     // Railgun Transaction info
-    bound_params_hash: BigInt,
+    bound_params_hash: U256,
 
     //? Required for prover
-    pub nullifiers: Vec<BigInt>,
-    pub commitments: Vec<BigInt>,
+    pub nullifiers: Vec<U256>,
+    pub commitments: Vec<U256>,
 
     // Spender wallet info
-    spending_public_key: [BigInt; 2],
-    nullifying_key: BigInt,
+    spending_public_key: [U256; 2],
+    nullifying_key: U256,
 
     // Nullified notes data
-    token: BigInt,
-    randoms_in: Vec<BigInt>,
-    values_in: Vec<BigInt>,
-    utxo_positions_in: Vec<BigInt>,
-    utxo_tree_in: BigInt,
+    token: U256,
+    randoms_in: Vec<U256>,
+    values_in: Vec<U256>,
+    utxo_positions_in: Vec<U256>,
+    utxo_tree_in: U256,
 
     // Commitment notes data
-    npks_out: Vec<BigInt>,
-    values_out: Vec<BigInt>,
-    utxo_batch_global_start_position_out: BigInt,
+    npks_out: Vec<U256>,
+    values_out: Vec<U256>,
+    utxo_batch_global_start_position_out: U256,
 
     // Unshield data
-    railgun_txid_if_has_unshield: BigInt,
-    railgun_txid_merkle_proof_indices: BigInt,
-    railgun_txid_merkle_proof_path_elements: Vec<BigInt>,
+    railgun_txid_if_has_unshield: U256,
+    railgun_txid_merkle_proof_indices: U256,
+    railgun_txid_merkle_proof_path_elements: Vec<U256>,
 
     // POI tree
-    poi_in_merkle_proof_indices: Vec<BigInt>,
-    poi_in_merkle_proof_path_elements: Vec<Vec<BigInt>>,
+    poi_in_merkle_proof_indices: Vec<U256>,
+    poi_in_merkle_proof_path_elements: Vec<Vec<U256>>,
 }
 
 #[derive(Debug, Error)]
@@ -98,18 +97,17 @@ fn circuit_size(nullifiers_len: usize, commitments_len: usize) -> usize {
 }
 
 /// Pads a vector with the railgun merkle tree zero value.
-fn pad_with_zero_value(vec: Vec<BigInt>, target_len: usize) -> Vec<BigInt> {
-    let zero = fr_to_bigint(&railgun_merkle_tree_zero());
-    pad_with_value(vec, target_len, zero)
+fn pad_with_zero_value(vec: Vec<U256>, target_len: usize) -> Vec<U256> {
+    pad_with_value(vec, target_len, railgun_merkle_tree_zero())
 }
 
 /// Pads a vector with zero (0).
-fn pad_with_zero(vec: Vec<BigInt>, target_len: usize) -> Vec<BigInt> {
-    pad_with_value(vec, target_len, BigInt::from(0))
+fn pad_with_zero(vec: Vec<U256>, target_len: usize) -> Vec<U256> {
+    pad_with_value(vec, target_len, U256::from(0))
 }
 
 /// Pads a vector with the given value.
-fn pad_with_value(mut vec: Vec<BigInt>, target_len: usize, value: BigInt) -> Vec<BigInt> {
+fn pad_with_value(mut vec: Vec<U256>, target_len: usize, value: U256) -> Vec<U256> {
     while vec.len() < target_len {
         vec.push(value.clone());
     }
@@ -117,9 +115,9 @@ fn pad_with_value(mut vec: Vec<BigInt>, target_len: usize, value: BigInt) -> Vec
 }
 
 /// Pads a 2D vector (array of merkle proof paths) to the target length.
-fn pad_merkle_proof_paths(mut vec: Vec<Vec<BigInt>>, target_len: usize) -> Vec<Vec<BigInt>> {
-    let zero = fr_to_bigint(&railgun_merkle_tree_zero());
-    let empty_path: Vec<BigInt> = vec![zero; POI_MERKLE_PROOF_DEPTH];
+fn pad_merkle_proof_paths(mut vec: Vec<Vec<U256>>, target_len: usize) -> Vec<Vec<U256>> {
+    let zero = railgun_merkle_tree_zero();
+    let empty_path: Vec<U256> = vec![zero; POI_MERKLE_PROOF_DEPTH];
     while vec.len() < target_len {
         vec.push(empty_path.clone());
     }
@@ -127,36 +125,11 @@ fn pad_merkle_proof_paths(mut vec: Vec<Vec<BigInt>>, target_len: usize) -> Vec<V
 }
 
 impl PoiCircuitInputs {
-    pub fn prove<P: PoiProver>(
-        prover: P,
-        spending_pubkey: SpendingPublicKey,
-        nullifying_pubkey: NullifyingKey,
-        utxo_merkle_tree: &mut UtxoMerkleTree,
-        bound_params_hash: Fr,
-        operation: &Operation<PoiNote>,
-        list_key: ListKey,
-    ) -> Result<Proof, PoiCircuitProofError> {
-        let inputs = Self::from_inputs(
-            spending_pubkey,
-            nullifying_pubkey,
-            utxo_merkle_tree,
-            bound_params_hash,
-            operation,
-            list_key,
-        )?;
-
-        let proof = prover
-            .prove_poi(&inputs)
-            .map_err(|e| PoiCircuitProofError::ProofGenerationFailed(e))?;
-
-        Ok(proof)
-    }
-
     pub fn from_inputs(
         spending_pubkey: SpendingPublicKey,
         nullifying_pubkey: NullifyingKey,
         utxo_merkle_tree: &mut UtxoMerkleTree,
-        bound_params_hash: Fr,
+        bound_params_hash: U256,
         operation: &Operation<PoiNote>,
         list_key: ListKey,
     ) -> Result<Self, PoiCircuitInputsError> {
@@ -168,13 +141,13 @@ impl PoiCircuitInputs {
             .collect::<Result<_, _>>()?;
 
         info!("Nullifiers and commitments");
-        let nullifiers = operation
+        let nullifiers: Vec<U256> = operation
             .in_notes()
             .iter()
             .zip(utxo_proofs.iter())
             .map(|(note, proof)| note.nullifier(proof.indices))
-            .collect::<Vec<Fr>>();
-        let commitments: Vec<Fr> = operation
+            .collect();
+        let commitments: Vec<U256> = operation
             .out_notes()
             .iter()
             .map(|note| note.hash().into())
@@ -201,86 +174,72 @@ impl PoiCircuitInputs {
             .collect::<Result<Vec<_>, _>>()?;
 
         info!("Assembling circuit inputs");
-        let poi_merkle_roots = poi_proofs
-            .iter()
-            .map(|proof| fr_to_bigint(&proof.root))
-            .collect();
-        let poi_in_merkle_proof_indices = poi_proofs
-            .iter()
-            .map(|proof| BigInt::from(proof.indices))
-            .collect();
-        let poi_in_merkle_proof_path_elements = poi_proofs
-            .iter()
-            .map(|proof| proof.elements.iter().map(|e| fr_to_bigint(e)).collect())
-            .collect();
+        let poi_merkle_roots = poi_proofs.iter().map(|p| p.root).collect();
+        let poi_in_merkle_proof_indices =
+            poi_proofs.iter().map(|p| U256::from(p.indices)).collect();
+        let poi_in_merkle_proof_path_elements =
+            poi_proofs.iter().map(|p| p.elements.clone()).collect();
 
         let asset = operation.asset();
         let randoms_in = operation
             .in_notes()
             .iter()
-            .map(|n| bytes_to_bigint(&n.random()))
-            .collect::<Vec<BigInt>>();
+            .map(|n| U256::from_be_slice(&n.random()))
+            .collect();
         let values_in = operation
             .in_notes()
             .iter()
-            .map(|n| BigInt::from(n.value()))
-            .collect::<Vec<BigInt>>();
+            .map(|n| U256::from(n.value()))
+            .collect();
         let utxo_positions_in = operation
             .in_notes()
             .iter()
-            .map(|n| BigInt::from(n.leaf_index()))
+            .map(|n| U256::from(n.leaf_index()))
             .collect();
-        let utxo_tree_in = BigInt::from(operation.utxo_tree_number());
+        let utxo_tree_in = U256::from(operation.utxo_tree_number());
 
         //? Only include output note data for commitment notes. Unshield note
         //? data is included separately.
         let npks_out = operation
             .out_encryptable_notes()
             .iter()
-            .map(|n| fr_to_bigint(&n.note_public_key()))
+            .map(|n| n.note_public_key())
             .collect();
         let values_out = operation
             .out_encryptable_notes()
             .iter()
-            .map(|n| BigInt::from(n.value()))
-            .collect::<Vec<BigInt>>();
+            .map(|n| U256::from(n.value()))
+            .collect();
 
         let txid_if_has_unshield = match &operation.unshield_note() {
-            Some(_) => fr_to_bigint(&txid.into()),
-            None => BigInt::from(0),
+            Some(_) => txid.into(),
+            None => U256::from(0),
         };
 
         // Determine circuit size and apply padding
         let max_size = circuit_size(nullifiers.len(), commitments.len());
 
-        let nullifiers: Vec<BigInt> = nullifiers.iter().map(|n| fr_to_bigint(n)).collect();
-        let commitments: Vec<BigInt> = commitments.iter().map(|c| fr_to_bigint(c)).collect();
-
         Ok(PoiCircuitInputs {
-            railgun_txid_merkle_root_after_transaction: fr_to_bigint(&txid_proof.root),
+            railgun_txid_merkle_root_after_transaction: txid_proof.root,
             poi_merkle_roots: pad_with_zero_value(poi_merkle_roots, max_size),
-            bound_params_hash: fr_to_bigint(&bound_params_hash),
+            bound_params_hash: bound_params_hash,
             nullifiers: pad_with_zero_value(nullifiers, max_size),
             commitments: pad_with_zero_value(commitments, max_size),
-            spending_public_key: [spending_pubkey.x_bigint(), spending_pubkey.y_bigint()],
-            nullifying_key: nullifying_pubkey.to_bigint(),
-            token: fr_to_bigint(&asset.hash()),
+            spending_public_key: [spending_pubkey.x_u256(), spending_pubkey.y_u256()],
+            nullifying_key: nullifying_pubkey.to_u256(),
+            token: asset.hash(),
             randoms_in: pad_with_zero_value(randoms_in, max_size),
             values_in: pad_with_zero(values_in, max_size),
             utxo_positions_in: pad_with_zero_value(utxo_positions_in, max_size),
             utxo_tree_in,
             npks_out: pad_with_zero_value(npks_out, max_size),
             values_out: pad_with_zero(values_out, max_size),
-            utxo_batch_global_start_position_out: BigInt::from(
+            utxo_batch_global_start_position_out: U256::from(
                 UtxoTreeOut::PreInclusion.global_index(),
             ),
             railgun_txid_if_has_unshield: txid_if_has_unshield,
-            railgun_txid_merkle_proof_indices: BigInt::from(txid_proof.indices),
-            railgun_txid_merkle_proof_path_elements: txid_proof
-                .elements
-                .iter()
-                .map(|e| fr_to_bigint(e))
-                .collect(),
+            railgun_txid_merkle_proof_indices: U256::from(txid_proof.indices),
+            railgun_txid_merkle_proof_path_elements: txid_proof.elements,
             poi_in_merkle_proof_indices: pad_with_zero(poi_in_merkle_proof_indices, max_size),
             poi_in_merkle_proof_path_elements: pad_merkle_proof_paths(
                 poi_in_merkle_proof_path_elements,

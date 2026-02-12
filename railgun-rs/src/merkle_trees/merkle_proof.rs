@@ -1,20 +1,21 @@
-use ark_bn254::Fr;
-use poseidon_rust::poseidon_hash;
+use ruint::aliases::U256;
+
+use crate::crypto::poseidon::poseidon_hash;
 
 #[derive(Debug, Clone)]
 pub struct MerkleProof {
     /// The leaf element
-    pub element: Fr,
+    pub element: U256,
     /// Sibling elements along the proof path
-    pub elements: Vec<Fr>,
+    pub elements: Vec<U256>,
     /// Bit-packed indices of the proof path
     pub indices: u32,
     /// The expected Merkle root
-    pub root: Fr,
+    pub root: U256,
 }
 
 impl MerkleProof {
-    pub fn new(element: Fr, elements: Vec<Fr>, indices: u32, root: Fr) -> Self {
+    pub fn new(element: U256, elements: Vec<U256>, indices: u32, root: U256) -> Self {
         Self {
             element,
             elements,
@@ -27,14 +28,14 @@ impl MerkleProof {
     /// used when computing inputs for the POI circuit, where we need a Txid leaf
     /// for a txid that has not yet been submitted on-chain (and consequentially
     /// has not been added to the TXID merkle tree).
-    pub fn new_pre_inclusion(element: Fr) -> Self {
+    pub fn new_pre_inclusion(element: U256) -> Self {
         Self::new_deterministic(element)
     }
 
     /// Creates a deterministic proof with a given element where the proof path is all zeros.
-    pub fn new_deterministic(element: Fr) -> Self {
+    pub fn new_deterministic(element: U256) -> Self {
         let indices = 0;
-        let elements = [Fr::from(0); 16].to_vec();
+        let elements = [U256::ZERO; 16].to_vec();
 
         let mut root = element;
         for e in elements.iter() {
@@ -72,6 +73,6 @@ impl MerkleProof {
     }
 }
 
-fn hash_left_right(left: Fr, right: Fr) -> Fr {
+fn hash_left_right(left: U256, right: U256) -> U256 {
     poseidon_hash(&[left, right]).unwrap()
 }

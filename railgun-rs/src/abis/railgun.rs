@@ -4,8 +4,6 @@
 
 use alloy::primitives::{Address, ChainId, U256, aliases::U72};
 use alloy_sol_types::{SolValue, sol};
-use ark_bn254::Fr;
-use ark_ff::PrimeField;
 use serde::Deserialize;
 use thiserror::Error;
 
@@ -48,11 +46,11 @@ impl TokenData {
         })
     }
 
-    pub fn hash(&self) -> Vec<u8> {
+    pub fn hash(&self) -> ruint::aliases::U256 {
         if self.tokenType == TokenType::ERC20 {
             let mut bytes = [0u8; 32];
             bytes[12..].copy_from_slice(self.tokenAddress.as_slice());
-            return bytes.to_vec();
+            return U256::from_be_bytes(bytes);
         }
 
         let token_type = self.tokenType as u8;
@@ -71,7 +69,7 @@ impl TokenData {
         let mut bytes = [0u8; 32];
         let result_bytes = hash.to_be_bytes::<32>();
         bytes[32 - result_bytes.len()..].copy_from_slice(&result_bytes);
-        bytes.to_vec()
+        ruint::aliases::U256::from_be_bytes(bytes)
     }
 }
 
@@ -96,10 +94,9 @@ impl BoundParams {
         }
     }
 
-    pub fn hash(&self) -> Fr {
+    pub fn hash(&self) -> U256 {
         let encoded = self.abi_encode();
-        let hash = hash_to_scalar(&encoded);
-        Fr::from_be_bytes_mod_order(&hash.to_be_bytes::<32>())
+        hash_to_scalar(&encoded)
     }
 }
 
@@ -236,13 +233,10 @@ sol! {
 #[cfg(test)]
 mod tests {
     use alloy::primitives::{Bytes, FixedBytes, address};
-
+    use ruint::uint;
     use tracing_test::traced_test;
 
-    use crate::{
-        abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType},
-        crypto::keys::hex_to_fr,
-    };
+    use crate::abis::railgun::{BoundParams, CommitmentCiphertext, UnshieldType};
 
     #[test]
     #[traced_test]
@@ -270,7 +264,7 @@ mod tests {
 
         let hash = bound_params.hash();
         let expected =
-            hex_to_fr("0x0171c913baef93e5cf6f223442727c680a1a1844b9999032ac789638032822fb");
+            uint!(653354349844558206886319240777917397850034746873378410801880094244109558523_U256);
 
         assert_eq!(hash, expected);
     }

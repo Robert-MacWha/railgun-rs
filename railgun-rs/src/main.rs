@@ -70,8 +70,8 @@ async fn main() {
     indexer.sync_to(10217000).await.unwrap();
 
     // info!("Saving indexer");
-    // let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
-    // std::fs::write("./indexer_state_11155111.bincode", indexer_state).unwrap();
+    let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
+    std::fs::write("./indexer_state_11155111.bincode", indexer_state).unwrap();
 
     info!("Balance: {:?}", indexer.balance(account.address()));
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
@@ -91,7 +91,7 @@ async fn main() {
     let commitment_ciphertexts: Vec<CommitmentCiphertext> = operation
         .out_encryptable_notes()
         .iter()
-        .map(|n| n.encrypt())
+        .map(|n| n.encrypt(&mut rand::rng()))
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 

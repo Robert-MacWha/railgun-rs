@@ -23,7 +23,6 @@ use crate::{
     caip::AssetId,
     note::{
         IncludedNote, Note, operation::Operation, transfer::TransferNote, unshield::UnshieldNote,
-        utxo::UtxoNote,
     },
     railgun::address::RailgunAddress,
 };
