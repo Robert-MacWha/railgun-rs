@@ -17,7 +17,12 @@ use railgun_rs::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, SEPOLIA_CONFIG},
-    circuit::{native_prover::NativeProver, poi_inputs::PoiCircuitInputs, prover::PoiProver},
+    circuit::{
+        groth16_prover::Groth16Prover,
+        native::{FsArtifactLoader, WasmerWitnessCalculator},
+        poi_inputs::PoiCircuitInputs,
+        prover::PoiProver,
+    },
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
     indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
     merkle_trees::merkle_tree::TxidMerkleTree,
@@ -107,7 +112,10 @@ async fn main() {
     let bound_params_hash = bound_params.hash();
 
     info!("Creating POI inputs");
-    let prover = Box::new(NativeProver::new());
+    let prover = Groth16Prover::new(
+        WasmerWitnessCalculator::new("./artifacts"),
+        FsArtifactLoader::new("./artifacts"),
+    );
     let list_keys = poi_client.list_keys();
     for key in list_keys {
         let mut utxo_merkle_tree = indexer
@@ -125,7 +133,7 @@ async fn main() {
         )
         .unwrap();
 
-        let proof = prover.prove_poi(&poi_circuit_inputs).unwrap();
+        let proof = prover.prove_poi(&poi_circuit_inputs).await.unwrap();
     }
 
     // // Creates a transaction builder for our desired set of operations.

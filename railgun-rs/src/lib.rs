@@ -11,3 +11,6 @@ pub mod poi;
 pub mod railgun;
 pub mod transact;
 pub mod transaction;
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm;

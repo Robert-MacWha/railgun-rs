@@ -1,5 +1,3 @@
-use std::pin::Pin;
-
 use alloy::{
     primitives::FixedBytes,
     providers::{DynProvider, Provider},
@@ -13,7 +11,10 @@ use tracing::{info, warn};
 use crate::{
     abis::railgun::RailgunSmartWallet,
     chain_config::ChainConfig,
-    indexer::syncer::{RootVerifier, SyncEvent, Syncer},
+    indexer::{
+        compat::{BoxedError, BoxedSyncStream},
+        syncer::{RootVerifier, SyncEvent, Syncer},
+    },
 };
 
 pub struct RpcSyncer {
@@ -44,11 +45,29 @@ impl RpcSyncer {
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn event_stream(
         &self,
         from_block: u64,
         to_block: u64,
     ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        self.event_stream_inner(from_block, to_block)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn event_stream(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
+        self.event_stream_inner(from_block, to_block)
+    }
+
+    fn event_stream_inner(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
         // State for batch fetching: current_block position
         stream::unfold(from_block, move |current_block| async move {
             // If we've processed all blocks, we're done
@@ -135,13 +154,14 @@ impl RpcSyncer {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl RootVerifier for RpcSyncer {
     async fn seen(
         &self,
         tree_number: u32,
         utxo_merkle_root: U256,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<bool, BoxedError> {
         let root: FixedBytes<32> = FixedBytes::from(utxo_merkle_root.to_be_bytes::<32>());
         let contract = RailgunSmartWallet::new(self.chain.railgun_smart_wallet, &self.provider);
 
@@ -153,7 +173,8 @@ impl RootVerifier for RpcSyncer {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Syncer for RpcSyncer {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let block_number = self.provider.get_block_number().await?;
@@ -173,7 +194,7 @@ impl Syncer for RpcSyncer {
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> Result<Pin<Box<dyn Stream<Item = SyncEvent> + Send + '_>>, Box<dyn std::error::Error>>
+    ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>>
     {
         info!(
             "Starting RPC sync from block {} to block {}",

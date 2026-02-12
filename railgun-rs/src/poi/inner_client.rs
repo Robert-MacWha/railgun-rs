@@ -62,12 +62,17 @@ pub struct InnerPoiClient {
 
 impl InnerPoiClient {
     pub fn new(url: impl Into<String>) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
         let http = Client::builder()
             .http1_only()
             .pool_max_idle_per_host(0)
             .timeout(std::time::Duration::from_secs(60))
             .build()
             .expect("failed to build HTTP client");
+
+        #[cfg(target_arch = "wasm32")]
+        let http = Client::new();
+
         Self {
             http,
             url: url.into(),

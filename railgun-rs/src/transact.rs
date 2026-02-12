@@ -21,7 +21,7 @@ use crate::{
     note::{operation::Operation, utxo::UtxoNote},
 };
 
-pub fn create_txdata<R: Rng>(
+pub async fn create_txdata<R: Rng>(
     prover: &impl TransactProver,
     merkle_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
     min_gas_price: u128,
@@ -40,7 +40,8 @@ pub fn create_txdata<R: Rng>(
         adapt_input,
         operations,
         rng,
-    )?;
+    )
+    .await?;
 
     let call = RailgunSmartWallet::transactCall {
         _transactions: transactions,
@@ -53,7 +54,7 @@ pub fn create_txdata<R: Rng>(
     })
 }
 
-pub fn create_transactions<R: Rng>(
+pub async fn create_transactions<R: Rng>(
     prover: &impl TransactProver,
     merkle_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
     min_gas_price: u128,
@@ -102,7 +103,7 @@ pub fn create_transactions<R: Rng>(
         .unwrap();
 
         info!("Proving transaction");
-        let proof = prover.prove_transact(&inputs).unwrap();
+        let proof = prover.prove_transact(&inputs).await.unwrap();
         let transaction = Transaction {
             proof: proof.into(),
             merkleRoot: inputs.merkle_root.into(),

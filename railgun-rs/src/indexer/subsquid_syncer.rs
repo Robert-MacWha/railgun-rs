@@ -1,4 +1,4 @@
-use std::{array::TryFromSliceError, pin::Pin, time::Duration};
+use std::{array::TryFromSliceError, time::Duration};
 
 use alloy::primitives::{Bytes, FixedBytes, U256, ruint::ParseError};
 use futures::StreamExt;
@@ -15,6 +15,7 @@ use crate::{
         TokenType,
     },
     indexer::{
+        compat::{BoxedError, BoxedSyncStream},
         graphql_bigint,
         syncer::{LegacyCommitment, Operation, RootVerifier, SyncEvent, Syncer},
     },
@@ -91,11 +92,17 @@ const RETRY_DELAY: Duration = Duration::from_secs(1);
 
 impl SubsquidSyncer {
     pub fn new(endpoint: &str) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap();
+
+        #[cfg(target_arch = "wasm32")]
+        let client = Client::new();
+
         SubsquidSyncer {
-            client: Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .unwrap(),
+            client,
             endpoint: endpoint.to_string(),
             batch_size: 50000,
         }
@@ -156,13 +163,14 @@ impl SubsquidSyncer {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl RootVerifier for SubsquidSyncer {
     async fn seen(
         &self,
         _tree_number: u32,
         utxo_merkle_root: U256,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<bool, BoxedError> {
         let request_body = SeenRootQuery::build_query(seen_root_query::Variables {
             root: Some(Bytes::from(utxo_merkle_root.to_be_bytes::<32>())),
         });
@@ -173,7 +181,8 @@ impl RootVerifier for SubsquidSyncer {
     }
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 impl Syncer for SubsquidSyncer {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let request_body = BlockNumberQuery::build_query(block_number_query::Variables {});
@@ -205,7 +214,7 @@ impl Syncer for SubsquidSyncer {
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> Result<Pin<Box<dyn Stream<Item = SyncEvent> + Send + '_>>, Box<dyn std::error::Error>>
+    ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>>
     {
         info!(
             "Starting sync from block {} to block {}",
@@ -225,11 +234,29 @@ impl Syncer for SubsquidSyncer {
 }
 
 impl SubsquidSyncer {
+    #[cfg(not(target_arch = "wasm32"))]
     fn commitment_stream(
         &self,
         from_block: u64,
         to_block: u64,
     ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        self.commitment_stream_inner(from_block, to_block)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn commitment_stream(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
+        self.commitment_stream_inner(from_block, to_block)
+    }
+
+    fn commitment_stream_inner(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
         stream::unfold(String::new(), move |last_id| async move {
             info!("Fetching commitments");
 
@@ -268,11 +295,29 @@ impl SubsquidSyncer {
         .flatten()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn nullified_stream(
         &self,
         from_block: u64,
         to_block: u64,
     ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        self.nullified_stream_inner(from_block, to_block)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn nullified_stream(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
+        self.nullified_stream_inner(from_block, to_block)
+    }
+
+    fn nullified_stream_inner(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
         stream::unfold(String::new(), move |last_id| async move {
             info!("Fetching nullifieds");
 
@@ -304,11 +349,29 @@ impl SubsquidSyncer {
         .flatten()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn operation_stream(
         &self,
         from_block: u64,
         to_block: u64,
     ) -> impl Stream<Item = SyncEvent> + Send + '_ {
+        self.operation_stream_inner(from_block, to_block)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn operation_stream(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
+        self.operation_stream_inner(from_block, to_block)
+    }
+
+    fn operation_stream_inner(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> impl Stream<Item = SyncEvent> + '_ {
         stream::unfold(String::new(), move |last_id| async move {
             info!("Fetching operations");
 

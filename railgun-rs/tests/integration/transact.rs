@@ -11,7 +11,10 @@ use railgun_rs::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, MAINNET_CONFIG},
-    circuit::native_prover::NativeProver,
+    circuit::{
+        groth16_prover::Groth16Prover,
+        native::{FsArtifactLoader, WasmerWitnessCalculator},
+    },
     indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
     transact::create_transactions,
     transaction::{
@@ -47,6 +50,12 @@ async fn test_transact() {
     let fork_url = std::env::var("FORK_URL_MAINNET").expect("Fork URL Must be set");
     let _anvil =
         common::anvil::AnvilInstance::fork_with_state(&fork_url, FORK_BLOCK, STATE_PATH).await;
+
+    info!("Setting up prover");
+    let prover = Groth16Prover::new(
+        WasmerWitnessCalculator::new("./artifacts"),
+        FsArtifactLoader::new("./artifacts"),
+    );
 
     // Setup provider, indexer, and accounts
     info!("Setting up provider");
@@ -111,7 +120,7 @@ async fn test_transact() {
         .unwrap();
 
     let transfer_txns = create_transactions(
-        &NativeProver::new(),
+        &prover,
         &mut indexer.utxo_trees,
         0,
         CHAIN,
@@ -120,6 +129,7 @@ async fn test_transact() {
         transfer_operations,
         &mut rand::rng(),
     )
+    .await
     .unwrap();
     let transfer_tx = TxData::new(CHAIN.railgun_smart_wallet, transfer_txns);
 
@@ -152,7 +162,7 @@ async fn test_transact() {
         .unwrap();
 
     let unshield_txns = create_transactions(
-        &NativeProver::new(),
+        &prover,
         &mut indexer.utxo_trees,
         0,
         CHAIN,
@@ -161,6 +171,7 @@ async fn test_transact() {
         unshield_operations,
         &mut rand::rng(),
     )
+    .await
     .unwrap();
     let unshield_tx = TxData::new(CHAIN.railgun_smart_wallet, unshield_txns);
 

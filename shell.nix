@@ -17,7 +17,6 @@ pkgs.mkShell {
     rustToolchain
     pkgs.rust-analyzer
     pkgs.just
-    pkgs.cmake
     pkgs.foundry
 
     pkgs.cargo-bloat

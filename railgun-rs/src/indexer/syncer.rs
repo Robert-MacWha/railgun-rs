@@ -1,8 +1,6 @@
-use std::pin::Pin;
-
-use futures::Stream;
 use ruint::aliases::U256;
 
+use super::compat::{BoxedError, BoxedSyncStream};
 use crate::abis::railgun::RailgunSmartWallet;
 
 /// TODO: Consider making types for shield, transact, and nullified so we don't need to use the anvil
@@ -34,17 +32,19 @@ pub struct LegacyCommitment {
 }
 
 /// Verifies merkle roots against on-chain state.
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait RootVerifier: Send + Sync {
     /// Check if a UTXO merkle root has been seen on-chain for a specific tree.
     async fn seen(
         &self,
         tree_number: u32,
         utxo_merkle_root: U256,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
+    ) -> Result<bool, BoxedError>;
 }
 
-#[async_trait::async_trait]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 pub trait Syncer: Send + Sync {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>>;
     async fn seen(&self, utxo_merkle_root: U256) -> Result<bool, Box<dyn std::error::Error>>;
@@ -53,5 +53,5 @@ pub trait Syncer: Send + Sync {
         &self,
         from_block: u64,
         to_block: u64,
-    ) -> Result<Pin<Box<dyn Stream<Item = SyncEvent> + Send + '_>>, Box<dyn std::error::Error>>;
+    ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>>;
 }

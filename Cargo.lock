@@ -1723,6 +1723,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-hex"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4815,6 +4825,7 @@ dependencies = [
  "bech32",
  "bitcode",
  "byteorder",
+ "console_error_panic_hook",
  "criterion",
  "ctr",
  "curve25519-dalek",
@@ -4822,9 +4833,12 @@ dependencies = [
  "ed25519-dalek",
  "ff_ce",
  "futures",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
  "graphql_client",
  "hex",
  "insta",
+ "js-sys",
  "num-bigint 0.4.6",
  "num-traits",
  "paste",
@@ -4836,6 +4850,7 @@ dependencies = [
  "reqwest 0.13.2",
  "ruint",
  "serde",
+ "serde-wasm-bindgen 0.6.5",
  "serde_json",
  "serial_test",
  "sha2",
@@ -4845,6 +4860,7 @@ dependencies = [
  "tracing-subscriber 0.3.22",
  "tracing-test",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "wasmer",
 ]
 
@@ -5700,6 +5716,17 @@ name = "serde-wasm-bindgen"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3b4c031cd0d9014307d82b8abf653c0290fbdaeb4c02d00c63cf52f728628bf"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
 dependencies = [
  "js-sys",
  "serde",
@@ -7101,7 +7128,7 @@ dependencies = [
  "more-asserts",
  "rustc-demangle",
  "serde",
- "serde-wasm-bindgen",
+ "serde-wasm-bindgen 0.4.5",
  "shared-buffer",
  "target-lexicon",
  "thiserror 1.0.69",

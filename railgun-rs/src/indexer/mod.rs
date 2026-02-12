@@ -1,3 +1,4 @@
+pub mod compat;
 mod graphql_bigint;
 pub mod indexed_account;
 pub mod indexer;

@@ -1,4 +1,4 @@
-use rand::{Rng, random};
+use rand::Rng;
 use thiserror::Error;
 
 use crate::{

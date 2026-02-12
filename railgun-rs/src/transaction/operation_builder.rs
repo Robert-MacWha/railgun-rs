@@ -29,11 +29,11 @@ use crate::{
 
 /// A builder for construction railgun transactions
 pub struct OperationBuilder {
-    pub transfers: Vec<TransferData>,
-    pub unshields: HashMap<AssetId, UnshieldData>,
+    transfers: Vec<TransferData>,
+    unshields: HashMap<AssetId, UnshieldData>,
 }
 
-pub struct TransferData {
+struct TransferData {
     //? Required for viewing key
     pub from: RailgunAccount,
     pub to: RailgunAddress,
@@ -42,7 +42,7 @@ pub struct TransferData {
     pub memo: String,
 }
 
-pub struct UnshieldData {
+struct UnshieldData {
     pub from: RailgunAccount,
     pub to: Address,
     pub asset: AssetId,
