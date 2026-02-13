@@ -127,7 +127,10 @@ async fn call_js_prover(
     inputs: HashMap<String, Vec<U256>>,
 ) -> Result<Proof, JsProverError> {
     let js_inputs: JsCircuitInputs = inputs.into();
-    let js_value = serde_wasm_bindgen::to_value(&js_inputs)?;
+    let serializer = serde_wasm_bindgen::Serializer::new()
+        .serialize_maps_as_objects(true)
+        .serialize_large_number_types_as_bigints(true);
+    let js_value = js_inputs.serialize(&serializer)?;
 
     let this = JsValue::NULL;
     let circuit_name_js = JsValue::from_str(circuit_name);

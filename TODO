@@ -9,11 +9,13 @@
     - [x] Setup syncing to download TXID merkle tree from subsquid
     - [x] Verify the root against the poi API
 - [x] Fix the transact integration test
-- [ ] Impl managed merkle trees that are dependency-injected into the indexer.  This way the merkle trees can verify / save / manage themselves and the indexer can just call them.
-  - [ ] Generate POI proof inputs for a transfer operation
-  - [ ] Send to a broadcaster
-  - [ ] Send a POI for a transfer note 
-- [ ] Implement broadcasters
+- [ ] Finish implementing JS SDK
+- [ ] Setup broadcasters in JS SDK
+  - Seems like waku's rust SDK is pretty bad, so we should just use the JS one and worry about native support later.
+- [ ] Generate POI proof inputs for a transfer operation
+- [ ] Send to a broadcaster
+- [ ] Send a POI for a transfer note 
+
 - [ ] Refactor and tidy up
   - [x] Pick and STICK WITH a consistent type for representing proof values / amounts. Right now I'm in conversion hell.  ruint seems like a good choice.
 - Optimize performance
@@ -27,7 +29,7 @@
       - circom-witness-rs would work perfectly, but only works with circom v2.2+.  The generated witnesses are different across ~170 points, which is infuriatingly small.
       - rust-witness and circom-witnesscale both rely on c/c++ code.  
     - The final solution might be wasmi.  I can generate the witness from the wasm.  So just fork ark-circom's `WitnessCalculator` and swap wasmer for wasmi.  I already know that can run in wasm environments.  It won't be as fast as native by a long shot, but it will work.  And I could always provide APIs for users to dependency-inject their own witness generators so in web environments they can just use snarkjs or something directly.
-- Get working tested on WASM
+- [x] Get working tested on WASM
   - Try switching to `https://github.com/iden3/circom-witnesscalc/tree/045320ecbafbff0617ab37eb6d85950ea8cc15ef`.  Need to fork it
   - to disable some C api stuff, but it might be possible?
 - Implement native token support for shield / unshield

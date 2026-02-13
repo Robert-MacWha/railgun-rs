@@ -122,17 +122,15 @@ impl JsShieldBuilder {
 #[wasm_bindgen]
 pub struct JsTransactionBuilder {
     account: RailgunAccount,
-    prover: JsProver,
     inner: RefCell<OperationBuilder>,
 }
 
 #[wasm_bindgen]
 impl JsTransactionBuilder {
     #[wasm_bindgen(constructor)]
-    pub fn new(account: &JsRailgunAccount, prover: JsProver) -> JsTransactionBuilder {
+    pub fn new(account: &JsRailgunAccount) -> JsTransactionBuilder {
         JsTransactionBuilder {
             account: account.inner.clone(),
-            prover,
             inner: RefCell::new(OperationBuilder::new()),
         }
     }
@@ -194,16 +192,20 @@ impl JsTransactionBuilder {
         Ok(())
     }
 
-    /// Build the transaction using the provided indexer state.
+    /// Build the transaction using the provided indexer state and prover.
     /// Returns encoded calldata for RailgunSmartWallet.transact()
-    pub async fn build(&mut self, indexer: &mut JsIndexer) -> Result<JsTxData, JsError> {
+    pub async fn build(
+        &mut self,
+        indexer: &mut JsIndexer,
+        prover: &JsProver,
+    ) -> Result<JsTxData, JsError> {
         let chain = indexer.chain();
         let mut rng = rand::rng();
 
         let tx_data = self
             .inner
             .borrow_mut()
-            .build_transaction(&self.prover, indexer.inner_mut(), chain, &mut rng)
+            .build_transaction(prover, indexer.inner_mut(), chain, &mut rng)
             .await
             .map_err(|e| JsError::new(&format!("Failed to build transaction: {}", e)))?;
 

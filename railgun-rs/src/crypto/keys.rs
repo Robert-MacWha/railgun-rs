@@ -3,7 +3,6 @@ use ark_ff::{BigInteger, PrimeField};
 use curve25519_dalek::edwards::CompressedEdwardsY;
 use curve25519_dalek::{EdwardsPoint, Scalar};
 use ed25519_dalek::SigningKey;
-use num_bigint::BigInt;
 use rand::Rng;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
@@ -13,7 +12,7 @@ use thiserror::Error;
 use crate::crypto::aes::{
     AesError, Ciphertext, CiphertextCtr, decrypt_ctr, decrypt_gcm, encrypt_ctr, encrypt_gcm,
 };
-use crate::crypto::poseidon::{poseidon_fr_to_uint, poseidon_hash};
+use crate::crypto::poseidon::poseidon_hash;
 
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -133,26 +132,39 @@ impl_byte_key!(MasterPublicKey);
 
 impl SpendingKey {
     pub fn public_key(&self) -> SpendingPublicKey {
-        let sk = babyjubjub_rs::PrivateKey::import(self.0.to_vec()).unwrap();
+        let sk = crate::crypto::babyjubjub::PrivateKey::new(self.0);
         let pk = sk.public();
-        let (x, y) = (poseidon_fr_to_uint(&pk.x), poseidon_fr_to_uint(&pk.y));
 
-        SpendingPublicKey {
-            x: x.to_be_bytes(),
-            y: y.to_be_bytes(),
-        }
+        let x = pk.x.into_bigint().to_bytes_be();
+        let y = pk.y.into_bigint().to_bytes_be();
+
+        let mut x32 = [0u8; 32];
+        let mut y32 = [0u8; 32];
+
+        x32[32 - x.len()..].copy_from_slice(&x);
+        y32[32 - y.len()..].copy_from_slice(&y);
+
+        SpendingPublicKey { x: x32, y: y32 }
     }
 
     pub fn sign(&self, message: U256) -> SpendingSignature {
-        let sk = babyjubjub_rs::PrivateKey::import(self.0.to_vec()).unwrap();
-        let signature = sk.sign(BigInt::from(message)).unwrap();
+        let sk = crate::crypto::babyjubjub::PrivateKey::new(self.0);
+        let sig = sk.sign(message.into()).unwrap();
 
         SpendingSignature {
-            r8_x: poseidon_fr_to_uint(&signature.r_b8.x),
-            r8_y: poseidon_fr_to_uint(&signature.r_b8.y),
-            s: U256::from(signature.s),
+            r8_x: U256::from_be_bytes(fr_to_be_bytes(sig.r_b8.x)),
+            r8_y: U256::from_be_bytes(fr_to_be_bytes(sig.r_b8.y)),
+            s: U256::from_le_slice(&sig.s.to_bytes_le().1),
         }
     }
+}
+
+fn fr_to_be_bytes(f: Fr) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let le = f.into_bigint().to_bytes_le();
+    out[..le.len()].copy_from_slice(&le);
+    out.reverse(); // convert LE -> BE
+    out
 }
 
 impl SpendingPublicKey {
@@ -320,6 +332,7 @@ pub fn hex_to_u256(hex_str: &str) -> U256 {
 
 #[cfg(test)]
 mod tests {
+    use ruint::uint;
     use tracing_test::traced_test;
 
     use super::*;
@@ -446,5 +459,25 @@ mod tests {
 
         let expected = "186ab99ece60e112b37c660eaf7ca6dbcb04dc434e04aa5e106e94abc6c81936";
         assert_eq!(expected, nullifying_key.to_hex());
+    }
+
+    #[test]
+    #[traced_test]
+    fn test_sign() {
+        let spending_key = SpendingKey::from_bytes([1u8; 32]);
+        let message = U256::from(42u64);
+        let signature = spending_key.sign(message);
+
+        let expected_r8_x = uint!(
+            14021219264176114698656285200925183015004950119566700345808626607587007258652_U256
+        );
+        let expected_r8_y =
+            uint!(722845713210012403245093368934831287436133400350912012728600696178479669333_U256);
+        let expected_s =
+            uint!(719423466960100536815219984091461547618047721989819848960065284130969424009_U256);
+
+        assert_eq!(expected_r8_x, signature.r8_x);
+        assert_eq!(expected_r8_y, signature.r8_y);
+        assert_eq!(expected_s, signature.s);
     }
 }

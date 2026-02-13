@@ -3,6 +3,7 @@ use std::str::FromStr;
 use alloy::primitives::{U256, utils::keccak256_cached};
 
 pub mod aes;
+pub mod babyjubjub;
 pub mod keys;
 pub mod poseidon;
 pub mod railgun_base_37;

@@ -117,10 +117,11 @@ impl IndexedAccount {
             };
 
             info!(
-                "Decrypted Shield Note: index={}, value={}, asset={:?}",
+                "Decrypted Shield Note: index={}, value={}, asset={:?}, account={}",
                 index,
                 note.value(),
-                note.asset()
+                note.asset(),
+                self.inner.address()
             );
             self.notebooks
                 .entry(tree_number)

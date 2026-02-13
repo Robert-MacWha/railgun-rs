@@ -44,3 +44,54 @@ impl JsRailgunAccount {
 pub fn init_panic_hook() {
     console_error_panic_hook::set_once();
 }
+
+/// Chain configuration exposed to JS
+#[wasm_bindgen]
+pub struct JsChainConfig {
+    inner: crate::chain_config::ChainConfig,
+}
+
+#[wasm_bindgen]
+impl JsChainConfig {
+    #[wasm_bindgen(getter)]
+    pub fn id(&self) -> u64 {
+        self.inner.id
+    }
+
+    #[wasm_bindgen(getter, js_name = "railgunWallet")]
+    pub fn railgun_wallet(&self) -> String {
+        format!("{:?}", self.inner.railgun_smart_wallet)
+    }
+
+    #[wasm_bindgen(getter, js_name = "deploymentBlock")]
+    pub fn deployment_block(&self) -> u64 {
+        self.inner.deployment_block
+    }
+
+    #[wasm_bindgen(getter, js_name = "poiStartBlock")]
+    pub fn poi_start_block(&self) -> u64 {
+        self.inner.poi_start_block
+    }
+
+    #[wasm_bindgen(getter, js_name = "subsquidEndpoint")]
+    pub fn subsquid_endpoint(&self) -> Option<String> {
+        self.inner.subsquid_endpoint.map(|s| s.to_string())
+    }
+
+    #[wasm_bindgen(getter, js_name = "poiEndpoint")]
+    pub fn poi_endpoint(&self) -> Option<String> {
+        self.inner.poi_endpoint.map(|s| s.to_string())
+    }
+}
+
+/// Get chain config by chain ID. Returns undefined if chain is not supported.
+#[wasm_bindgen]
+pub fn get_chain_config(chain_id: u64) -> Option<JsChainConfig> {
+    crate::chain_config::get_chain_config(chain_id).map(|inner| JsChainConfig { inner })
+}
+
+/// Format an ERC20 address as an asset ID
+#[wasm_bindgen]
+pub fn erc20_asset(address: &str) -> String {
+    format!("erc20:{}", address.to_lowercase())
+}

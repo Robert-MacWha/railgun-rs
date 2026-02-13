@@ -3,8 +3,11 @@ name = "railgun-rs"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
-default = ["native"]
+default = ["wasm"]
 native = ["wasmer", "ark-circom", "reqwest/rustls"]
 wasm = [
     "wasm-bindgen-futures",
@@ -13,7 +16,12 @@ wasm = [
     "console_error_panic_hook",
     "getrandom_02",
     "getrandom/wasm_js",
+    "tracing-wasm",
 ]
+console_error_panic_hook = ["dep:console_error_panic_hook"]
+
+[profile.release]
+debug = true
 
 [dependencies]
 aes = { workspace = true }
@@ -32,7 +40,6 @@ ark-relations = { workspace = true }
 ark-serialize = { workspace = true }
 ark-std = { workspace = true }
 async-trait = { workspace = true }
-babyjubjub-rs = { workspace = true }
 bech32 = { workspace = true }
 bitcode = { workspace = true, features = ["serde"] }
 byteorder = { workspace = true }
@@ -59,7 +66,6 @@ wasm-bindgen = { workspace = true }
 rayon = { workspace = true }
 tokio = { workspace = true }
 poseidon-rust = { workspace = true }
-poseidon-rs = { workspace = true }
 ruint = { version = "1.17.2", features = ["num-bigint", "serde", "ark-ff-05"] }
 wasmer = { workspace = true, optional = true }
 ark-circom = { workspace = true, optional = true }
@@ -71,6 +77,8 @@ getrandom_02 = { package = "getrandom", version = "0.2", features = [
     "js",
 ], optional = true }
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
+blake-hash = { version = "0.2.0", default-features = false }
+tracing-wasm = { optional = true, version = "0.2.1" }
 
 [dev-dependencies]
 insta = { version = "1.46.3" }

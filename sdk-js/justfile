@@ -1,0 +1,27 @@
+fork_url := env_var("FORK_URL_MAINNET")
+fork_block := "24379760"
+
+wasm:
+    wasm-pack build --target web ../railgun-rs --out-dir ../sdk-js/pkg --features wasm --no-default-features
+
+test: wasm integration unit
+
+unit:
+    bun test --test-name-pattern "wasm:"
+
+integration:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Start anvil in background
+    anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --port 8545 --load-state ../railgun-rs/tests/fixtures/state.json &
+    ANVIL_PID=$!
+    trap "kill $ANVIL_PID 2>/dev/null" EXIT
+
+    # Wait for anvil to be ready
+    sleep 2
+
+    bun test --test-name-pattern "transact:" --timeout 120000
+
+anvil:
+    anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --port 8545 --auto-impersonate --load-state ../railgun-rs/tests/fixtures/state.json

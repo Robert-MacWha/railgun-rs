@@ -23,5 +23,7 @@ pkgs.mkShell {
     pkgs.cargo-machete
     pkgs.binaryen
     pkgs.wasm-pack
+
+    pkgs.bun
   ];
 }

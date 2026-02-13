@@ -1,0 +1,17 @@
+{
+  "name": "@railgun/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/mod.ts",
+  "scripts": {
+    "build:wasm": "wasm-pack build ../railgun-rs --target web --out-dir ../sdk-js/pkg --features wasm --no-default-features",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "snarkjs": "^0.7.6",
+    "viem": "^2.45.3"
+  },
+  "devDependencies": {
+    "@types/snarkjs": "^0.7.9"
+  }
+}

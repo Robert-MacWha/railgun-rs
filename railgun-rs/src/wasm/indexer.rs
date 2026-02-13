@@ -1,5 +1,12 @@
 use std::collections::HashMap;
 
+use alloy::{
+    network::Ethereum,
+    providers::{Provider, ProviderBuilder},
+};
+use serde::Serialize;
+use serde_wasm_bindgen::Serializer;
+use tracing::info;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 
 use crate::{
@@ -7,6 +14,7 @@ use crate::{
     chain_config::get_chain_config,
     indexer::{
         indexer::{Indexer, IndexerState},
+        rpc_syncer::RpcSyncer,
         subsquid_syncer::SubsquidSyncer,
         syncer::Syncer,
     },
@@ -32,6 +40,23 @@ impl JsSyncer {
         JsSyncer {
             inner: Box::new(SubsquidSyncer::new(endpoint)),
         }
+    }
+
+    #[wasm_bindgen(js_name = "withRpc")]
+    pub async fn with_rpc(rpc_url: &str, chain_id: u64) -> Result<JsSyncer, JsError> {
+        let provider = ProviderBuilder::new()
+            .network::<Ethereum>()
+            .connect(rpc_url)
+            .await
+            .unwrap()
+            .erased();
+
+        let chain = get_chain_config(chain_id)
+            .ok_or_else(|| JsError::new(&format!("Unsupported chain ID: {}", chain_id)))?;
+
+        Ok(JsSyncer {
+            inner: Box::new(RpcSyncer::new(provider, chain)),
+        })
     }
 }
 
@@ -68,17 +93,24 @@ impl JsIndexer {
         Ok(self.inner.sync_to(block_number).await?)
     }
 
-    /// Returns balances as a JSON object mapping asset IDs to amounts
     pub fn balance(&self, address: &str) -> Result<JsValue, JsError> {
         let address: RailgunAddress = address.parse()?;
-        let balance: HashMap<AssetId, u128> = self.inner.balance(address);
-        let balance_map: HashMap<String, String> = balance
+        info!("Getting balance for address: {}", address);
+
+        let balance: HashMap<String, u128> = self
+            .inner
+            .balance(address)
             .into_iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .map(|(k, v)| (k.to_string(), v))
             .collect();
 
-        serde_wasm_bindgen::to_value(&balance_map)
-            .map_err(|e| JsError::new(&format!("Failed to serialize balance: {}", e)))
+        info!("Balance for {}: {:?}", address, balance);
+        let serializer = Serializer::new()
+            .serialize_large_number_types_as_bigints(true)
+            .serialize_maps_as_objects(true);
+        balance
+            .serialize(&serializer)
+            .map_err(|e| JsError::new(&e.to_string()))
     }
 
     pub async fn export_state(&mut self) -> Vec<u8> {
