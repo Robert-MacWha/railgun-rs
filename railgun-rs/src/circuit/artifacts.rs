@@ -4,8 +4,7 @@ use ark_relations::r1cs::ConstraintMatrices;
 
 use crate::circuit::witness::CircuitType;
 
-#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
-#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
+#[async_trait::async_trait]
 pub trait ArtifactLoader {
     async fn load_proving_key(&self, circuit: CircuitType) -> Result<ProvingKey<Bn254>, String>;
     async fn load_matrices(&self, circuit: CircuitType) -> Result<ConstraintMatrices<Fr>, String>;

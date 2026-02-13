@@ -6,7 +6,6 @@ use ark_std::rand::random;
 
 use tracing::info;
 
-#[cfg(not(feature = "wasm"))]
 use crate::circuit::native::{FsArtifactLoader, WasmerWitnessCalculator};
 use crate::circuit::{
     artifacts::ArtifactLoader,
@@ -31,7 +30,6 @@ impl<W: WitnessCalculator, A: ArtifactLoader> Groth16Prover<W, A> {
     }
 }
 
-#[cfg(not(feature = "wasm"))]
 impl Groth16Prover<WasmerWitnessCalculator, FsArtifactLoader> {
     pub fn new_native(path: &str) -> Self {
         let witness_calculator = WasmerWitnessCalculator::new(path);
@@ -40,8 +38,7 @@ impl Groth16Prover<WasmerWitnessCalculator, FsArtifactLoader> {
     }
 }
 
-#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
-#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
+#[async_trait::async_trait]
 impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> TransactProver for Groth16Prover<W, A> {
     async fn prove_transact(
         &self,
@@ -90,8 +87,7 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> TransactProver for G
     }
 }
 
-#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
-#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
+#[async_trait::async_trait]
 impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> PoiProver for Groth16Prover<W, A> {
     async fn prove_poi(
         &self,

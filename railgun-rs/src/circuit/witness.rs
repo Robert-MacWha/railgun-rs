@@ -2,8 +2,7 @@ use std::collections::HashMap;
 
 use ruint::aliases::U256;
 
-#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
-#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
+#[async_trait::async_trait]
 pub trait WitnessCalculator {
     async fn calculate_witness(
         &self,
