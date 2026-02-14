@@ -23,10 +23,10 @@ pub struct JsTxData {
 
 #[wasm_bindgen]
 impl JsTxData {
-    /// Contract address to send the transaction to
+    /// Contract address to send the transaction to (checksummed 0x...)
     #[wasm_bindgen(getter)]
     pub fn to(&self) -> String {
-        format!("{:?}", self.inner.to)
+        self.inner.to.to_checksum(None)
     }
 
     /// Raw calldata bytes
@@ -35,15 +35,15 @@ impl JsTxData {
         self.inner.data.clone()
     }
 
-    /// ETH value to send (usually "0")
+    /// ETH value to send (decimal string, usually "0")
     #[wasm_bindgen(getter)]
     pub fn value(&self) -> String {
         self.inner.value.to_string()
     }
 
     /// Returns 0x-prefixed hex-encoded calldata
-    #[wasm_bindgen(js_name = "toHex")]
-    pub fn to_hex(&self) -> String {
+    #[wasm_bindgen(getter, js_name = "dataHex")]
+    pub fn data_hex(&self) -> String {
         format!("0x{}", hex::encode(&self.inner.data))
     }
 }

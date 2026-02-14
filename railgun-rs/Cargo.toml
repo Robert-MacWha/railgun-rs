@@ -17,6 +17,7 @@ wasm = [
     "getrandom_02",
     "getrandom/wasm_js",
     "tracing-wasm",
+    "tsify-next",
 ]
 console_error_panic_hook = ["dep:console_error_panic_hook"]
 
@@ -79,6 +80,7 @@ getrandom_02 = { package = "getrandom", version = "0.2", features = [
 getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 blake-hash = { version = "0.2.0", default-features = false }
 tracing-wasm = { optional = true, version = "0.2.1" }
+tsify-next = { workspace = true, optional = true, features = ["js"] }
 
 [dev-dependencies]
 insta = { version = "1.46.3" }

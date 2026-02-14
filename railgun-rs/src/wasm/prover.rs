@@ -4,6 +4,7 @@ use js_sys::Function;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tsify_next::Tsify;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
@@ -14,6 +15,15 @@ use crate::circuit::{
     transact_inputs::TransactCircuitInputs,
 };
 
+/// JavaScript-backed prover that delegates to snarkjs or similar.
+///
+/// The prove functions must have the signature:
+/// ```typescript
+/// type ProveFunction = (
+///   circuitName: string,  // e.g., "transact/01x02" or "poi/01x02"
+///   inputs: Record<string, string[]>  // circuit inputs as decimal strings
+/// ) => Promise<ProofResponse>;
+/// ```
 #[wasm_bindgen]
 pub struct JsProver {
     prove_transact_fn: Function,
@@ -28,12 +38,17 @@ struct JsCircuitInputs {
     inputs: HashMap<String, Vec<String>>,
 }
 
-/// Proof format expected from JS callbacks.
-/// All values should be decimal strings.
-#[derive(Deserialize)]
+/// Groth16 proof format for JS interop.
+/// All coordinate values are decimal strings representing field elements.
+#[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
 pub struct JsProofResponse {
+    /// G1 point A: [x, y] as decimal strings
     pub a: [String; 2],
+    /// G2 point B: [[x0, x1], [y0, y1]] as decimal strings
     pub b: [[String; 2]; 2],
+    /// G1 point C: [x, y] as decimal strings
     pub c: [String; 2],
 }
 
@@ -49,6 +64,13 @@ pub enum JsProverError {
 
 #[wasm_bindgen]
 impl JsProver {
+    /// Create a new JsProver with the given prove functions.
+    ///
+    /// @param prove_transact_fn - Function to prove transact circuits
+    /// @param prove_poi_fn - Function to prove POI circuits
+    ///
+    /// Both functions must match the ProveFunction signature:
+    /// `(circuitName: string, inputs: Record<string, string[]>) => Promise<ProofResponse>`
     #[wasm_bindgen(constructor)]
     pub fn new(prove_transact_fn: Function, prove_poi_fn: Function) -> Self {
         Self {

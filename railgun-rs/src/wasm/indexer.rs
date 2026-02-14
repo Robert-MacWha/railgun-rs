@@ -4,9 +4,6 @@ use alloy::{
     network::Ethereum,
     providers::{Provider, ProviderBuilder},
 };
-use serde::Serialize;
-use serde_wasm_bindgen::Serializer;
-use tracing::info;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 
 use crate::{
@@ -33,8 +30,12 @@ pub struct JsSyncer {
 }
 
 #[wasm_bindgen]
+pub struct JsBalanceMap {
+    inner: HashMap<AssetId, u128>,
+}
+
+#[wasm_bindgen]
 impl JsSyncer {
-    /// Create a syncer with Subsquid (recommended for historical sync)
     #[wasm_bindgen(js_name = "withSubsquid")]
     pub fn with_subsquid(endpoint: &str) -> JsSyncer {
         JsSyncer {
@@ -93,24 +94,13 @@ impl JsIndexer {
         Ok(self.inner.sync_to(block_number).await?)
     }
 
-    pub fn balance(&self, address: &str) -> Result<JsValue, JsError> {
+    /// Get the balance for a Railgun address.
+    ///
+    /// @param address - Railgun address (0zk...)
+    pub fn balance(&self, address: &str) -> Result<JsBalanceMap, JsError> {
         let address: RailgunAddress = address.parse()?;
-        info!("Getting balance for address: {}", address);
-
-        let balance: HashMap<String, u128> = self
-            .inner
-            .balance(address)
-            .into_iter()
-            .map(|(k, v)| (k.to_string(), v))
-            .collect();
-
-        info!("Balance for {}: {:?}", address, balance);
-        let serializer = Serializer::new()
-            .serialize_large_number_types_as_bigints(true)
-            .serialize_maps_as_objects(true);
-        balance
-            .serialize(&serializer)
-            .map_err(|e| JsError::new(&e.to_string()))
+        let balance = self.inner.balance(address);
+        Ok(JsBalanceMap { inner: balance })
     }
 
     pub async fn export_state(&mut self) -> Vec<u8> {
@@ -119,15 +109,29 @@ impl JsIndexer {
     }
 }
 
-// Non-wasm_bindgen helper methods for internal use
 impl JsIndexer {
-    /// Returns the chain config for this indexer
     pub(crate) fn chain(&self) -> crate::chain_config::ChainConfig {
         self.inner.chain()
     }
 
-    /// Returns a mutable reference to the inner indexer
     pub(crate) fn inner_mut(&mut self) -> &mut Indexer {
         &mut self.inner
+    }
+}
+
+#[wasm_bindgen]
+impl JsBalanceMap {
+    pub fn get(&self, asset_id: &str) -> Option<js_sys::BigInt> {
+        let asset_id: AssetId = asset_id.parse().ok()?;
+        self.inner
+            .get(&asset_id)
+            .map(|balance| js_sys::BigInt::from(*balance))
+    }
+
+    pub fn keys(&self) -> Vec<String> {
+        self.inner
+            .keys()
+            .map(|asset_id| asset_id.to_string())
+            .collect()
     }
 }

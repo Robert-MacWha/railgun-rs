@@ -3,6 +3,15 @@ use wasm_bindgen::prelude::*;
 use crate::account::RailgunAccount;
 use crate::crypto::keys::{ByteKey, SpendingKey, ViewingKey};
 
+/// Parse a 32-byte hex string (with or without 0x prefix)
+fn parse_hex_32(s: &str, name: &str) -> Result<[u8; 32], JsError> {
+    let s = s.strip_prefix("0x").unwrap_or(s);
+    let bytes = hex::decode(s).map_err(|e| JsError::new(&format!("Invalid {name}: {e}")))?;
+    bytes
+        .try_into()
+        .map_err(|_| JsError::new(&format!("{name} must be 32 bytes (64 hex chars)")))
+}
+
 #[wasm_bindgen]
 pub struct JsRailgunAccount {
     pub(crate) inner: RailgunAccount,
@@ -10,21 +19,19 @@ pub struct JsRailgunAccount {
 
 #[wasm_bindgen]
 impl JsRailgunAccount {
+    /// Create a new Railgun account from hex-encoded keys.
+    ///
+    /// @param spending_key - 32-byte hex string (with or without 0x prefix)
+    /// @param viewing_key - 32-byte hex string (with or without 0x prefix)
+    /// @param chain_id - The chain ID for this account
     #[wasm_bindgen(constructor)]
     pub fn new(
-        spending_key: &[u8],
-        viewing_key: &[u8],
+        spending_key: &str,
+        viewing_key: &str,
         chain_id: u64,
     ) -> Result<JsRailgunAccount, JsError> {
-        if spending_key.len() != 32 {
-            return Err(JsError::new("Spending key must be 32 bytes"));
-        }
-        if viewing_key.len() != 32 {
-            return Err(JsError::new("Viewing key must be 32 bytes"));
-        }
-
-        let spending_key: [u8; 32] = spending_key.try_into().unwrap();
-        let viewing_key: [u8; 32] = viewing_key.try_into().unwrap();
+        let spending_key = parse_hex_32(spending_key, "spending_key")?;
+        let viewing_key = parse_hex_32(viewing_key, "viewing_key")?;
 
         let spending_key = SpendingKey::from_bytes(spending_key);
         let viewing_key = ViewingKey::from_bytes(viewing_key);
@@ -34,6 +41,7 @@ impl JsRailgunAccount {
         })
     }
 
+    /// The Railgun address (0zk...) for this account
     #[wasm_bindgen(getter)]
     pub fn address(&self) -> String {
         self.inner.address().to_string()
@@ -58,9 +66,10 @@ impl JsChainConfig {
         self.inner.id
     }
 
+    /// The Railgun smart wallet contract address (checksummed 0x...)
     #[wasm_bindgen(getter, js_name = "railgunWallet")]
     pub fn railgun_wallet(&self) -> String {
-        format!("{:?}", self.inner.railgun_smart_wallet)
+        self.inner.railgun_smart_wallet.to_checksum(None)
     }
 
     #[wasm_bindgen(getter, js_name = "deploymentBlock")]

@@ -5,7 +5,6 @@ export {
   initWasm,
   getWasm,
   type WasmModule,
-  type ProofResponse,
   type ProveFunction,
   type JsRailgunAccount,
   type JsIndexer,
@@ -14,6 +13,8 @@ export {
   type JsShieldBuilder,
   type JsTransactionBuilder,
   type JsTxData,
+  type JsBalanceMap,
+  type JsProofResponse,
 } from "./wasm.ts";
 
 export {
@@ -24,11 +25,3 @@ export {
   type ArtifactPaths,
 } from "./prover.ts";
 
-// After initWasm(), the following are available on the wasm module:
-//
-//   get_chain_config(chainId: bigint) -> JsChainConfig | undefined
-//     Returns chain config with: id, railgunWallet, deploymentBlock,
-//     poiStartBlock, subsquidEndpoint, poiEndpoint
-//
-//   erc20_asset(address: string) -> string
-//     Formats an address as "erc20:0x..."

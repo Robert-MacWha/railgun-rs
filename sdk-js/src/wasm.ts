@@ -1,5 +1,6 @@
 // WASM module initialization and re-exports
-// Re-exports the wasm-bindgen generated types
+
+import type { JsProofResponse } from "../pkg/railgun_rs.d.ts";
 
 export type {
   JsRailgunAccount,
@@ -9,22 +10,24 @@ export type {
   JsShieldBuilder,
   JsTransactionBuilder,
   JsTxData,
+  JsProofResponse,
+  JsBalanceMap,
   InitOutput as WasmModule,
 } from "../pkg/railgun_rs.d.ts";
 
 export { default as initWasmModule } from "../pkg/railgun_rs.js";
 export { init_panic_hook } from "../pkg/railgun_rs.js";
 
+/**
+ * Function signature for proving circuits.
+ * @param circuitName - Circuit identifier, e.g., "transact/01x02" or "poi/01x02"
+ * @param inputs - Circuit inputs as decimal strings
+ * @returns Groth16 proof with G1/G2 points as decimal strings
+ */
 export type ProveFunction = (
   circuitName: string,
   inputs: Record<string, string[]>
-) => Promise<ProofResponse>;
-
-export interface ProofResponse {
-  a: [string, string];
-  b: [[string, string], [string, string]];
-  c: [string, string];
-}
+) => Promise<JsProofResponse>;
 
 // Module state
 let wasmInitialized = false;
