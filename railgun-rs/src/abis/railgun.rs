@@ -2,12 +2,13 @@
 //!
 //! https://github.com/Railgun-Privacy/contract/blob/9ec09123eb140fdaaf3a5ff1f29d634c353630cd/contracts/logic/Globals.sol
 
-use alloy::primitives::{Address, ChainId, U256, aliases::U72};
+use alloy::primitives::{Address, ChainId, aliases::U72, utils::keccak256_cached};
 use alloy_sol_types::{SolValue, sol};
+use ruint::aliases::U256;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::crypto::hash_to_scalar;
+use crate::crypto::railgun_zero::SNARK_PRIME;
 
 #[derive(Debug, Error)]
 pub enum TokenDataError {
@@ -98,6 +99,12 @@ impl BoundParams {
         let encoded = self.abi_encode();
         hash_to_scalar(&encoded)
     }
+}
+
+fn hash_to_scalar(data: &[u8]) -> U256 {
+    let hash = keccak256_cached(data);
+    let hash_bigint = U256::from_be_bytes::<32>(hash.as_slice().try_into().unwrap());
+    hash_bigint % SNARK_PRIME
 }
 
 sol! {

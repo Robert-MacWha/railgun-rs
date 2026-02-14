@@ -1,6 +1,7 @@
 // snarkjs-based prover implementation
 import * as snarkjs from "snarkjs";
-import type { ProofResponse, ProveFunction } from "./wasm.ts";
+import type { ProveFunction } from "./wasm.ts";
+import { JsProofResponse } from "../pkg/railgun_rs";
 
 export interface ArtifactPaths {
   wasmPath: string;
@@ -70,7 +71,7 @@ export function createProveFunction(config: ProverConfig): ProveFunction {
   return async (
     circuitName: string,
     inputs: Record<string, string[]>
-  ): Promise<ProofResponse> => {
+  ): Promise<JsProofResponse> => {
     const { wasmPath, zkeyPath } = resolveArtifacts(
       circuitName,
       config.artifactsPath
@@ -132,7 +133,7 @@ export function createProverFunctions(config: ProverConfig): {
 export async function verifyProof(
   zkeyPath: string,
   publicSignals: string[],
-  proof: ProofResponse
+  proof: JsProofResponse
 ): Promise<boolean> {
   const zkeyBuffer = await Bun.file(zkeyPath).arrayBuffer();
   const zkey = new Uint8Array(zkeyBuffer);

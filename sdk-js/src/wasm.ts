@@ -2,22 +2,6 @@
 
 import type { JsProofResponse } from "../pkg/railgun_rs.d.ts";
 
-export type {
-  JsRailgunAccount,
-  JsIndexer,
-  JsSyncer,
-  JsProver,
-  JsShieldBuilder,
-  JsTransactionBuilder,
-  JsTxData,
-  JsProofResponse,
-  JsBalanceMap,
-  InitOutput as WasmModule,
-} from "../pkg/railgun_rs.d.ts";
-
-export { default as initWasmModule } from "../pkg/railgun_rs.js";
-export { init_panic_hook } from "../pkg/railgun_rs.js";
-
 /**
  * Function signature for proving circuits.
  * @param circuitName - Circuit identifier, e.g., "transact/01x02" or "poi/01x02"

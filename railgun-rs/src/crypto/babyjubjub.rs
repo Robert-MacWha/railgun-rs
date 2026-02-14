@@ -7,8 +7,9 @@ use poseidon_rust::poseidon_hash;
 use ruint::{aliases::U256, uint};
 use std::str::FromStr;
 
-const Q: U256 =
-    uint!(21888242871839275222246405745257275088548364400416034343698204186575808495617_U256);
+use crate::crypto::railgun_zero::SNARK_PRIME;
+
+const Q: U256 = SNARK_PRIME;
 
 const ORDER: U256 =
     uint!(21888242871839275222246405745257275088614511777268538073601725287587578984328_U256);

@@ -6,7 +6,6 @@ use ark_bn254::{Bn254, Fr};
 use ark_circom::read_zkey;
 use ark_groth16::ProvingKey;
 use ark_relations::r1cs::ConstraintMatrices;
-use ark_serialize::CanonicalSerialize;
 
 use crate::circuit::artifacts::ArtifactLoader;
 use crate::circuit::witness::CircuitType;

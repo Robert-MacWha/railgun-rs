@@ -1,3 +1,5 @@
+//! Railgun Base 37 encoding and decoding implementation in Rust.
+
 use thiserror::Error;
 
 const CHARSET: &[u8] = b" 0123456789abcdefghijklmnopqrstuvwxyz";
@@ -11,6 +13,7 @@ pub enum EncodingError {
     OutputTooLong(usize),
 }
 
+/// Encodes a string into a 16-byte array using Railgun's base 37 encoding.
 pub fn encode(text: &str) -> Result<[u8; 16], EncodingError> {
     let mut value: u128 = 0;
 
@@ -29,6 +32,7 @@ pub fn encode(text: &str) -> Result<[u8; 16], EncodingError> {
     Ok(value.to_be_bytes())
 }
 
+/// Decodes a 16-byte array back into a string using Railgun's base 37 encoding.
 pub fn decode(bytes: &[u8; 16]) -> String {
     let mut value = u128::from_be_bytes(*bytes);
 

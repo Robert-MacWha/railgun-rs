@@ -4,18 +4,22 @@
 export {
   initWasm,
   getWasm,
-  type WasmModule,
-  type ProveFunction,
-  type JsRailgunAccount,
-  type JsIndexer,
-  type JsSyncer,
-  type JsProver,
-  type JsShieldBuilder,
-  type JsTransactionBuilder,
-  type JsTxData,
-  type JsBalanceMap,
-  type JsProofResponse,
 } from "./wasm.ts";
+
+export type {
+  JsRailgunAccount,
+  JsIndexer,
+  JsSyncer,
+  JsProver,
+  JsShieldBuilder,
+  JsTransactionBuilder,
+  JsTxData,
+  JsProofResponse,
+  JsBalanceMap,
+  InitOutput as WasmModule,
+  JsBroadcaster,
+  WakuMessage,
+} from "../pkg/railgun_rs.d.ts";
 
 export {
   createProveFunction,
@@ -25,3 +29,8 @@ export {
   type ArtifactPaths,
 } from "./prover.ts";
 
+export {
+  createWakuTransport,
+  type SubscribeFn,
+  type SendFn,
+} from "./waku-transport.ts";

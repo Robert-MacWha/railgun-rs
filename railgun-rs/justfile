@@ -23,6 +23,9 @@ snapshot:
     # dump
     kill $ANVIL_PID
 
+test: 
+    cargo test
+
 integration: integration-sync integration-transact
 
 integration-sync:
@@ -40,4 +43,4 @@ integration-transact:
     # Wait for anvil to be ready
     sleep 2
 
-    RUST_LOG=info cargo test -- test_transact --ignored --nocapture
+    RUST_LOG=info cargo test --release -- test_transact --ignored --nocapture

@@ -7,9 +7,9 @@ use alloy::{
 use railgun_rs::{
     abis::railgun::RailgunSmartWallet,
     chain_config::{ChainConfig, MAINNET_CONFIG},
-    indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
-    merkle_trees::merkle_tree::{TxidMerkleTree, UtxoMerkleTree},
-    poi::client::PoiClient,
+    railgun::indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
+    railgun::merkle_tree::merkle_tree::{TxidMerkleTree, UtxoMerkleTree},
+    railgun::poi::poi_client::PoiClient,
 };
 use ruint::aliases::U256;
 use tracing::info;

@@ -26,11 +26,11 @@ use railgun_rs::{
         prover::PoiProver,
     },
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
-    indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
-    merkle_trees::merkle_tree::TxidMerkleTree,
-    poi::{client::PoiClient, poi_note::PoiNote},
     railgun::address::RailgunAddress,
-    transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
+    railgun::indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
+    railgun::merkle_tree::merkle_tree::TxidMerkleTree,
+    railgun::poi::{poi_client::PoiClient, poi_note::PoiNote},
+    railgun::transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
 };
 
 const CHAIN: ChainConfig = SEPOLIA_CONFIG;

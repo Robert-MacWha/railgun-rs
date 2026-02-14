@@ -11,12 +11,9 @@ use railgun_rs::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, MAINNET_CONFIG},
-    circuit::{
-        groth16_prover::Groth16Prover,
-        native::{FsArtifactLoader, WasmerWitnessCalculator},
-    },
-    indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
-    transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
+    circuit::groth16_prover::Groth16Prover,
+    railgun::indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
+    railgun::transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
 };
 use rand::random;
 use tracing::info;

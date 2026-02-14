@@ -4,7 +4,9 @@ fork_block := "24379760"
 wasm:
     wasm-pack build --target web ../railgun-rs --out-dir ../sdk-js/pkg --features wasm --no-default-features
 
-test: wasm integration unit
+test: wasm unit integration
+
+test-only: unit integration
 
 unit:
     bun test --test-name-pattern "wasm:"

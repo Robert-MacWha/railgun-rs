@@ -5,8 +5,8 @@ use thiserror::Error;
 
 use crate::{
     circuit_inputs,
-    merkle_trees::merkle_tree::{MerkleTreeError, UtxoMerkleTree},
-    note::{Note, utxo::UtxoNote},
+    railgun::merkle_tree::merkle_tree::{MerkleTreeError, UtxoMerkleTree},
+    railgun::note::{Note, utxo::UtxoNote},
 };
 
 use crate::circuit::circuit_input::IntoSignalVec;

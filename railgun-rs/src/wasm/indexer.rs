@@ -4,18 +4,18 @@ use alloy::{
     network::Ethereum,
     providers::{Provider, ProviderBuilder},
 };
-use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
+use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 
 use crate::{
     caip::AssetId,
     chain_config::get_chain_config,
-    indexer::{
+    railgun::address::RailgunAddress,
+    railgun::indexer::{
         indexer::{Indexer, IndexerState},
         rpc_syncer::RpcSyncer,
         subsquid_syncer::SubsquidSyncer,
         syncer::Syncer,
     },
-    railgun::address::RailgunAddress,
     wasm::JsRailgunAccount,
 };
 

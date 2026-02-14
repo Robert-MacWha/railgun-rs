@@ -9,9 +9,9 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    note::shield::create_shield_request,
     railgun::address::RailgunAddress,
-    transaction::{operation_builder::OperationBuilder, tx_data::TxData},
+    railgun::note::shield::create_shield_request,
+    railgun::transaction::{operation_builder::OperationBuilder, tx_data::TxData},
     wasm::{JsProver, JsRailgunAccount, indexer::JsIndexer},
 };
 
@@ -100,8 +100,8 @@ impl JsShieldBuilder {
             .map(|(r, a, v)| create_shield_request(*r, *a, *v, &mut rng))
             .collect();
 
-        let shields =
-            shields.map_err(|e| JsError::new(&format!("Failed to create shield request: {}", e)))?;
+        let shields = shields
+            .map_err(|e| JsError::new(&format!("Failed to create shield request: {}", e)))?;
 
         let call = RailgunSmartWallet::shieldCall {
             _shieldRequests: shields,

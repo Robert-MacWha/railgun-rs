@@ -14,12 +14,12 @@ use crate::{
         railgun_txid::{Txid, TxidLeaf, UtxoTreeOut},
         railgun_zero::railgun_merkle_tree_zero,
     },
-    merkle_trees::{
+    railgun::merkle_tree::{
         merkle_proof::MerkleProof,
         merkle_tree::{MerkleTreeError, UtxoMerkleTree},
     },
-    note::{IncludedNote, Note, operation::Operation},
-    poi::{client::ListKey, poi_note::PoiNote},
+    railgun::note::{IncludedNote, Note, operation::Operation},
+    railgun::poi::{poi_client::ListKey, poi_note::PoiNote},
 };
 
 // TODO: Consider making me into an enum with two variants on a generic Inner, so

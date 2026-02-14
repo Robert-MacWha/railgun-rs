@@ -2,7 +2,7 @@ use ruint::{aliases::U256};
 
 use crate::{
     crypto::{poseidon::poseidon_hash, railgun_zero::railgun_merkle_tree_zero},
-    indexer::indexer::TOTAL_LEAVES,
+    railgun::indexer::indexer::TOTAL_LEAVES,
 };
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

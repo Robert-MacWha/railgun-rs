@@ -1,7 +1,7 @@
 use ruint::aliases::U256;
 use ruint::uint;
 
-const SNARK_PRIME: U256 =
+pub const SNARK_PRIME: U256 =
     uint!(21888242871839275222246405745257275088548364400416034343698204186575808495617_U256);
 
 pub fn railgun_merkle_tree_zero() -> U256 {
