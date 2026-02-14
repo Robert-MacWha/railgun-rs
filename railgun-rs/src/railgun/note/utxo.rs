@@ -205,58 +205,44 @@ impl IncludedNote for UtxoNote {
         self.leaf_index
     }
 
-    fn viewing_public_key(&self) -> ViewingPublicKey {
+    fn viewing_pubkey(&self) -> ViewingPublicKey {
         self.viewing_key.public_key()
-    }
-}
-
-impl UtxoNote {
-    pub fn random(&self) -> [u8; 16] {
-        self.random
-    }
-
-    pub fn utxo_type(&self) -> UtxoType {
-        self.type_.clone()
-    }
-
-    pub fn sign_circuit_inputs(
-        &self,
-        merkle_root: U256,
-        bound_params_hash: U256,
-        nullifiers: &Vec<U256>,
-        commitments: &Vec<U256>,
-    ) -> [U256; 3] {
-        let mut inputs = vec![merkle_root, bound_params_hash];
-        inputs.extend_from_slice(nullifiers);
-        inputs.extend_from_slice(commitments);
-
-        self.sign(&inputs)
-    }
-
-    pub fn sign(&self, inputs: &[U256]) -> [U256; 3] {
-        let sig_hash = poseidon_hash(inputs).unwrap();
-        let signature = self.spending_key.sign(sig_hash);
-        [signature.r8_x, signature.r8_y, signature.s]
-    }
-
-    /// Returns the note's spending public key
-    pub fn spending_public_key(&self) -> (U256, U256) {
-        let pubkey = self.spending_key.public_key();
-        (pubkey.x_u256(), pubkey.y_u256())
     }
 
     /// Returns the note's nullifier for a given leaf index
     ///
     /// Hash of (nullifying_key, leaf_index)
-    pub fn nullifier(&self, leaf_index: u32) -> U256 {
+    fn nullifier(&self, leaf_index: u32) -> U256 {
         poseidon_hash(&[self.nullifying_key(), U256::from(leaf_index)]).unwrap()
+    }
+
+    /// Returns the note's spending public key
+    fn spending_pubkey(&self) -> [U256; 2] {
+        let pubkey = self.spending_key.public_key();
+        [pubkey.x_u256(), pubkey.y_u256()]
+    }
+
+    fn sign(&self, inputs: &[U256]) -> [U256; 3] {
+        let sig_hash = poseidon_hash(inputs).unwrap();
+        let signature = self.spending_key.sign(sig_hash);
+        [signature.r8_x, signature.r8_y, signature.s]
     }
 
     /// Returns the note's nullifying key
     ///
     /// Hash of (viewing_private_key)
-    pub fn nullifying_key(&self) -> U256 {
+    fn nullifying_key(&self) -> U256 {
         poseidon_hash(&[self.viewing_key.to_u256()]).unwrap()
+    }
+
+    fn random(&self) -> [u8; 16] {
+        self.random
+    }
+}
+
+impl UtxoNote {
+    pub fn utxo_type(&self) -> UtxoType {
+        self.type_.clone()
     }
 
     pub fn blinded_commitment(&self) -> U256 {
@@ -325,9 +311,9 @@ mod tests {
 
     #[test]
     #[traced_test]
-    fn test_note_spending_public_key() {
+    fn test_note_spending_pubkey() {
         let note = test_note();
-        let pub_key = note.spending_public_key();
+        let pub_key = note.spending_pubkey();
 
         insta::assert_debug_snapshot!(pub_key);
     }

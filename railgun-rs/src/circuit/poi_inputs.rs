@@ -57,13 +57,17 @@ pub struct PoiCircuitInputs {
     utxo_batch_global_start_position_out: U256,
 
     // Unshield data
-    railgun_txid_if_has_unshield: U256,
+    pub railgun_txid_if_has_unshield: U256,
     railgun_txid_merkle_proof_indices: U256,
     railgun_txid_merkle_proof_path_elements: Vec<U256>,
 
     // POI tree
     poi_in_merkle_proof_indices: Vec<U256>,
     poi_in_merkle_proof_path_elements: Vec<Vec<U256>>,
+
+    // Helper fields. Not part of circuit inputs, but useful in other contexts
+    pub txid: Txid,
+    pub txid_leaf_hash: TxidLeaf,
 }
 
 #[derive(Debug, Error)]
@@ -180,7 +184,7 @@ impl PoiCircuitInputs {
         let poi_in_merkle_proof_path_elements =
             poi_proofs.iter().map(|p| p.elements.clone()).collect();
 
-        let asset = operation.asset();
+        let asset = operation.asset;
         let randoms_in = operation
             .in_notes()
             .iter()
@@ -245,6 +249,8 @@ impl PoiCircuitInputs {
                 poi_in_merkle_proof_path_elements,
                 max_size,
             ),
+            txid,
+            txid_leaf_hash,
         })
     }
 

@@ -39,7 +39,7 @@ impl std::fmt::Display for JsonRpcError {
 impl std::error::Error for JsonRpcError {}
 
 #[derive(Debug, thiserror::Error)]
-pub enum ClientError {
+pub enum PoiClientError {
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
     #[error("JSON-RPC error: {0}")]
@@ -92,7 +92,7 @@ impl InnerPoiClient {
         &self,
         method: &'static str,
         params: P,
-    ) -> Result<R, ClientError> {
+    ) -> Result<R, PoiClientError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let req = JsonRpcRequest {
             jsonrpc: "2.0",
@@ -115,15 +115,15 @@ impl InnerPoiClient {
             .await?;
 
         if let Some(err) = resp.error {
-            return Err(ClientError::Rpc(err));
+            return Err(PoiClientError::Rpc(err));
         }
-        resp.result.ok_or(ClientError::NullResult)
+        resp.result.ok_or(PoiClientError::NullResult)
     }
 
     async fn call_no_params<R: DeserializeOwned>(
         &self,
         method: &'static str,
-    ) -> Result<R, ClientError> {
+    ) -> Result<R, PoiClientError> {
         self.call::<serde_json::Value, R>(method, serde_json::json!({}))
             .await
     }
@@ -131,17 +131,19 @@ impl InnerPoiClient {
     // -- Health & status ---------------------------------------------------
 
     /// `ppoi_health`
-    pub async fn health(&self) -> Result<String, ClientError> {
+    pub async fn health(&self) -> Result<String, PoiClientError> {
         self.call::<Vec<()>, _>("ppoi_health", vec![]).await
     }
 
     /// `ppoi_node_status` — full status across all networks
-    pub async fn node_status(&self) -> Result<NodeStatusAllNetworks, ClientError> {
+    pub async fn node_status(&self) -> Result<NodeStatusAllNetworks, PoiClientError> {
         self.call_no_params("ppoi_node_status").await
     }
 
     /// `ppoi_node_status_forwardedList`
-    pub async fn node_status_forwarded_list(&self) -> Result<NodeStatusAllNetworks, ClientError> {
+    pub async fn node_status_forwarded_list(
+        &self,
+    ) -> Result<NodeStatusAllNetworks, PoiClientError> {
         self.call_no_params("ppoi_node_status_forwardedList").await
     }
 
@@ -151,7 +153,7 @@ impl InnerPoiClient {
     pub async fn poi_events(
         &self,
         params: PoiEventsParams,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_poi_events", params).await
     }
 
@@ -159,7 +161,7 @@ impl InnerPoiClient {
     pub async fn poi_merkletree_leaves(
         &self,
         params: PoiMerkletreeLeavesParams,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_poi_merkletree_leaves", params).await
     }
 
@@ -169,7 +171,7 @@ impl InnerPoiClient {
     pub async fn transact_proofs(
         &self,
         params: GetTransactProofsParams,
-    ) -> Result<Vec<TransactProofData>, ClientError> {
+    ) -> Result<Vec<TransactProofData>, PoiClientError> {
         self.call("ppoi_transact_proofs", params).await
     }
 
@@ -177,7 +179,7 @@ impl InnerPoiClient {
     pub async fn legacy_transact_proofs(
         &self,
         params: ChainParams,
-    ) -> Result<Vec<LegacyTransactProofData>, ClientError> {
+    ) -> Result<Vec<LegacyTransactProofData>, PoiClientError> {
         self.call("ppoi_legacy_transact_proofs", params).await
     }
 
@@ -187,7 +189,7 @@ impl InnerPoiClient {
     pub async fn blocked_shields(
         &self,
         params: GetBlockedShieldsParams,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_blocked_shields", params).await
     }
 
@@ -197,7 +199,7 @@ impl InnerPoiClient {
     pub async fn submit_poi_events(
         &self,
         params: serde_json::Value,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_submit_poi_events", params).await
     }
 
@@ -205,7 +207,7 @@ impl InnerPoiClient {
     pub async fn submit_validated_txid(
         &self,
         params: serde_json::Value,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_submit_validated_txid", params).await
     }
 
@@ -213,7 +215,7 @@ impl InnerPoiClient {
     pub async fn remove_transact_proof(
         &self,
         params: serde_json::Value,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_remove_transact_proof", params).await
     }
 
@@ -221,7 +223,7 @@ impl InnerPoiClient {
     pub async fn submit_transact_proof(
         &self,
         params: SubmitTransactProofParams,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_submit_transact_proof", params).await
     }
 
@@ -229,7 +231,7 @@ impl InnerPoiClient {
     pub async fn submit_legacy_transact_proofs(
         &self,
         params: SubmitLegacyTransactProofParams,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_submit_legacy_transact_proofs", params)
             .await
     }
@@ -238,7 +240,7 @@ impl InnerPoiClient {
     pub async fn submit_single_commitment_proofs(
         &self,
         params: SubmitSingleCommitmentProofsParams,
-    ) -> Result<serde_json::Value, ClientError> {
+    ) -> Result<serde_json::Value, PoiClientError> {
         self.call("ppoi_submit_single_commitment_proofs", params)
             .await
     }
@@ -249,7 +251,7 @@ impl InnerPoiClient {
     pub async fn pois_per_list(
         &self,
         params: GetPoisPerListParams,
-    ) -> Result<PoisPerListMap, ClientError> {
+    ) -> Result<PoisPerListMap, PoiClientError> {
         self.call("ppoi_pois_per_list", params).await
     }
 
@@ -257,7 +259,7 @@ impl InnerPoiClient {
     pub async fn pois_per_blinded_commitment(
         &self,
         params: GetPoisPerListParams,
-    ) -> Result<PoisPerListMap, ClientError> {
+    ) -> Result<PoisPerListMap, PoiClientError> {
         self.call("ppoi_pois_per_blinded_commitment", params).await
     }
 
@@ -265,7 +267,7 @@ impl InnerPoiClient {
     pub async fn merkle_proofs(
         &self,
         params: GetMerkleProofsParams,
-    ) -> Result<Vec<MerkleProof>, ClientError> {
+    ) -> Result<Vec<MerkleProof>, PoiClientError> {
         self.call("ppoi_merkle_proofs", params).await
     }
 
@@ -275,7 +277,7 @@ impl InnerPoiClient {
     pub async fn validated_txid(
         &self,
         params: ChainParams,
-    ) -> Result<ValidatedRailgunTxidStatus, ClientError> {
+    ) -> Result<ValidatedRailgunTxidStatus, PoiClientError> {
         self.call("ppoi_validated_txid", params).await
     }
 
@@ -283,7 +285,7 @@ impl InnerPoiClient {
     pub async fn validate_txid_merkleroot(
         &self,
         params: ValidateTxidMerklerootParams,
-    ) -> Result<bool, ClientError> {
+    ) -> Result<bool, PoiClientError> {
         self.call("ppoi_validate_txid_merkleroot", params).await
     }
 
@@ -291,7 +293,7 @@ impl InnerPoiClient {
     pub async fn validate_poi_merkleroots(
         &self,
         params: ValidatePoiMerklerootsParams,
-    ) -> Result<bool, ClientError> {
+    ) -> Result<bool, PoiClientError> {
         self.call("ppoi_validate_poi_merkleroots", params).await
     }
 }

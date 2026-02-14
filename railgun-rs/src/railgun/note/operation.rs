@@ -1,4 +1,5 @@
 use crate::{
+    account::RailgunAccount,
     caip::AssetId,
     railgun::note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote},
 };
@@ -22,14 +23,18 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct Operation<N> {
     /// The UTXO tree number that the in_notes being spent are from
-    utxo_tree_number: u32,
+    pub utxo_tree_number: u32,
+
+    /// The holder of the assets being spent.
+    pub from: RailgunAccount,
 
     /// The asset this operation is spending.
-    asset: AssetId,
+    pub asset: AssetId,
 
-    in_notes: Vec<N>,
-    out_notes: Vec<TransferNote>,
-    unshield_note: Option<UnshieldNote>,
+    pub in_notes: Vec<N>,
+    pub out_notes: Vec<TransferNote>,
+    pub unshield_note: Option<UnshieldNote>,
+    pub fee_note: Option<TransferNote>,
 }
 
 impl<N: Note> Operation<N> {
@@ -43,40 +48,62 @@ impl<N: Note> Operation<N> {
     /// - notes_out.len() + unshield_note.is_some() <= 13
     pub fn new(
         tree_number: u32,
+        from: RailgunAccount,
+        asset: AssetId,
         in_notes: Vec<N>,
         out_notes: Vec<TransferNote>,
         unshield: Option<UnshieldNote>,
+        fee: Option<TransferNote>,
     ) -> Self {
-        let asset = in_notes.first().unwrap().asset();
-
         Operation {
             utxo_tree_number: tree_number,
+            from,
             asset,
             in_notes,
             out_notes,
             unshield_note: unshield,
+            fee_note: fee,
+        }
+    }
+
+    pub fn new_empty(tree_number: u32, from: RailgunAccount, asset: AssetId) -> Self {
+        Operation {
+            utxo_tree_number: tree_number,
+            from,
+            asset,
+            in_notes: Vec::new(),
+            out_notes: Vec::new(),
+            unshield_note: None,
+            fee_note: None,
         }
     }
 }
 
-impl<N> Operation<N> {
+impl<N: Note> Operation<N> {
     /// UTXO tree number for these in_notes
     pub fn utxo_tree_number(&self) -> u32 {
         self.utxo_tree_number
     }
 
-    /// Asset ID for these notes
-    pub fn asset(&self) -> AssetId {
-        self.asset
+    pub fn in_value(&self) -> u128 {
+        self.in_notes.iter().map(|n| n.value()).sum()
+    }
+
+    /// Total value being transfered to other railgun addresses in this operation
+    pub fn out_value(&self) -> u128 {
+        self.out_notes().iter().map(|n| n.value()).sum()
     }
 
     pub fn in_notes(&self) -> &[N] {
         &self.in_notes
     }
 
-    // TODO: Convert me to return &[Box] if possible
     pub fn out_notes(&self) -> Vec<Box<dyn Note>> {
         let mut notes: Vec<Box<dyn Note>> = Vec::new();
+
+        if let Some(fee) = &self.fee_note {
+            notes.push(Box::new(fee.clone()));
+        }
 
         for transfer in &self.out_notes {
             notes.push(Box::new(transfer.clone()));
@@ -93,8 +120,16 @@ impl<N> Operation<N> {
         self.unshield_note.clone()
     }
 
+    pub fn fee_note(&self) -> Option<TransferNote> {
+        self.fee_note.clone()
+    }
+
     pub fn out_encryptable_notes(&self) -> Vec<Box<dyn EncryptableNote>> {
         let mut notes: Vec<Box<dyn EncryptableNote>> = Vec::new();
+
+        if let Some(fee) = &self.fee_note {
+            notes.push(Box::new(fee.clone()));
+        }
 
         for transfer in &self.out_notes {
             notes.push(Box::new(transfer.clone()));
@@ -111,41 +146,40 @@ mod tests {
     use tracing_test::traced_test;
 
     use crate::{
+        account::RailgunAccount,
         caip::AssetId,
         crypto::keys::{ByteKey, SpendingKey, ViewingKey},
-        railgun::address::RailgunAddress,
         railgun::note::{
             Note,
             operation::{self},
             transfer::TransferNote,
             unshield::UnshieldNote,
-            utxo::{UtxoNote, UtxoType},
+            utxo::UtxoNote,
         },
     };
 
-    /// Railgun requires that, if a transaction includes an unshield operation,
-    /// it must be the last commitment in the transaction.
+    /// Test that the ordering of out_notes is fee note, then transfer notes, then unshield note.
     #[test]
     #[traced_test]
-    fn test_last_commitment_is_unshield() {
-        let in_note = UtxoNote::new(
-            random(),
-            random(),
-            0,
-            0,
+    fn test_operation_ordering() {
+        let from_account = RailgunAccount::new(
+            SpendingKey::from_bytes([1u8; 32]),
+            ViewingKey::from_bytes([2u8; 32]),
+            1,
+        );
+
+        let in_note = UtxoNote::new_test_note(random(), random());
+        let fee_note = TransferNote::new(
+            ViewingKey::from_bytes([3u8; 32]),
+            from_account.address(),
             AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
-            10,
-            &random(),
-            "",
-            UtxoType::Transact,
+            5,
+            [1u8; 16],
+            "fee memo",
         );
         let transfer_note = TransferNote::new(
             ViewingKey::from_bytes([3u8; 32]),
-            RailgunAddress::from_private_keys(
-                SpendingKey::from_bytes([1u8; 32]),
-                ViewingKey::from_bytes([2u8; 32]),
-                1,
-            ),
+            from_account.address(),
             AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
             90,
             [2u8; 16],
@@ -153,18 +187,22 @@ mod tests {
         );
         let unshield_note = UnshieldNote::new(
             address!("0x1234567890123456789012345678901234567890"),
-            AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
+            AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
             10,
         );
 
         let operation = operation::Operation::new(
             1,
+            from_account,
+            AssetId::Erc20(address!("0x1234567890123456789012345678901234567890")),
             vec![in_note],
             vec![transfer_note],
             Some(unshield_note.clone()),
+            Some(fee_note.clone()),
         );
 
         let notes_out = operation.out_notes();
         assert_eq!(notes_out.last().unwrap().hash(), unshield_note.hash());
+        assert_eq!(notes_out.first().unwrap().hash(), fee_note.hash());
     }
 }

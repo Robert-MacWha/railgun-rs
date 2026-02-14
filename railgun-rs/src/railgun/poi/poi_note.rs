@@ -7,7 +7,7 @@ use crate::{
     crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeaf},
     railgun::merkle_tree::merkle_proof::MerkleProof,
     railgun::note::{IncludedNote, Note, utxo::UtxoNote},
-    railgun::poi::poi_client::{ClientError, ListKey, PoiClient},
+    railgun::poi::poi_client::{ListKey, PoiClient, PoiClientError},
 };
 
 #[derive(Debug, Clone)]
@@ -32,7 +32,7 @@ impl PoiNote {
     pub async fn from_utxo_notes(
         inner: Vec<UtxoNote>,
         client: &PoiClient,
-    ) -> Result<Vec<Self>, ClientError> {
+    ) -> Result<Vec<Self>, PoiClientError> {
         let blinded_commitments = inner
             .iter()
             .map(|n| n.blinded_commitment().to_be_bytes())
@@ -63,12 +63,8 @@ impl PoiNote {
         &self.poi_merkle_proofs
     }
 
-    pub fn random(&self) -> [u8; 16] {
-        self.inner.random()
-    }
-
-    pub fn nullifier(&self, leaf_index: u32) -> U256 {
-        self.inner.nullifier(leaf_index)
+    pub fn blinded_commitment(&self) -> U256 {
+        self.inner.blinded_commitment()
     }
 }
 
@@ -81,8 +77,28 @@ impl IncludedNote for PoiNote {
         self.inner.leaf_index()
     }
 
-    fn viewing_public_key(&self) -> ViewingPublicKey {
-        self.inner.viewing_public_key()
+    fn viewing_pubkey(&self) -> ViewingPublicKey {
+        self.inner.viewing_pubkey()
+    }
+
+    fn nullifier(&self, leaf_index: u32) -> U256 {
+        self.inner.nullifier(leaf_index)
+    }
+
+    fn nullifying_key(&self) -> U256 {
+        self.inner.nullifying_key()
+    }
+
+    fn random(&self) -> [u8; 16] {
+        self.inner.random()
+    }
+
+    fn sign(&self, inputs: &[U256]) -> [U256; 3] {
+        self.inner.sign(inputs)
+    }
+
+    fn spending_pubkey(&self) -> [U256; 2] {
+        self.inner.spending_pubkey()
     }
 }
 

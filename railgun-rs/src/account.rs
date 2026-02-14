@@ -5,7 +5,7 @@ use crate::crypto::keys::SpendingKey;
 use crate::crypto::keys::ViewingKey;
 use crate::railgun::address::RailgunAddress;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RailgunAccount {
     address: RailgunAddress,
     viewing_key: ViewingKey,

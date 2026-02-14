@@ -61,6 +61,12 @@ impl JsBroadcaster {
     }
 }
 
+impl JsBroadcaster {
+    pub(crate) fn inner_mut(&mut self) -> &mut Broadcaster {
+        &mut self.inner
+    }
+}
+
 impl JsWakuTransport {
     pub fn new(subscribe_fn: Function, send_fn: Function) -> Self {
         Self {

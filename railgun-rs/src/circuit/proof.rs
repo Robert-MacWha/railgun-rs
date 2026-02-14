@@ -1,7 +1,7 @@
 use ark_bn254::Bn254;
 use ruint::aliases::U256;
 
-use crate::abis;
+use crate::{abis, railgun};
 
 pub struct Proof {
     pub a: G1Affine,
@@ -60,6 +60,19 @@ impl From<Proof> for abis::railgun::SnarkProof {
                 x: proof.c.x,
                 y: proof.c.y,
             },
+        }
+    }
+}
+
+impl From<Proof> for railgun::poi::poi_client::SnarkProof {
+    fn from(proof: Proof) -> Self {
+        railgun::poi::poi_client::SnarkProof {
+            pi_a: (proof.a.x.to_string(), proof.a.y.to_string()),
+            pi_b: (
+                (proof.b.x[0].to_string(), proof.b.x[1].to_string()),
+                (proof.b.y[0].to_string(), proof.b.y[1].to_string()),
+            ),
+            pi_c: (proof.c.x.to_string(), proof.c.y.to_string()),
         }
     }
 }

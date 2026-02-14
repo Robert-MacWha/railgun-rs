@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 
-use crate::railgun::note::utxo::UtxoNote;
+use crate::railgun::note::{IncludedNote, utxo::UtxoNote};
 
 /// A Notebook holds a collection of spent and unspent notes for a Railgun account,
 /// on a single tree.

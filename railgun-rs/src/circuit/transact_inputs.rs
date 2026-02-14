@@ -5,8 +5,10 @@ use thiserror::Error;
 
 use crate::{
     circuit_inputs,
-    railgun::merkle_tree::merkle_tree::{MerkleTreeError, UtxoMerkleTree},
-    railgun::note::{Note, utxo::UtxoNote},
+    railgun::{
+        merkle_tree::merkle_tree::{MerkleTreeError, UtxoMerkleTree},
+        note::{IncludedNote, Note},
+    },
 };
 
 use crate::circuit::circuit_input::IntoSignalVec;
@@ -41,10 +43,10 @@ pub enum TransactCircuitInputsError {
 }
 
 impl TransactCircuitInputs {
-    pub fn from_inputs(
+    pub fn from_inputs<N: IncludedNote>(
         merkle_tree: &mut UtxoMerkleTree,
         bound_params_hash: U256,
-        notes_in: &[UtxoNote],
+        notes_in: &[N],
         notes_out: &[Box<dyn Note>],
     ) -> Result<Self, TransactCircuitInputsError> {
         if notes_in.is_empty() || notes_out.is_empty() {
@@ -57,23 +59,22 @@ impl TransactCircuitInputs {
             .map(|note| merkle_tree.generate_proof(note.hash()))
             .collect::<Result<_, _>>()?;
 
-        let nullifiers = notes_in
+        let nullifiers: Vec<U256> = notes_in
             .iter()
             .zip(merkle_proofs.iter())
             .map(|(note, proof)| note.nullifier(proof.indices))
             .collect();
-        let commitments = notes_out.iter().map(|note| note.hash().into()).collect();
+        let commitments: Vec<U256> = notes_out.iter().map(|note| note.hash().into()).collect();
 
         let note_zero = &notes_in[0];
         let token = note_zero.asset().hash();
-        let public_key = note_zero.spending_public_key();
-        let public_key = [public_key.0, public_key.1];
-        let signature = note_zero.sign_circuit_inputs(
-            merkle_root.into(),
-            bound_params_hash,
-            &nullifiers,
-            &commitments,
-        );
+        let public_key = note_zero.spending_pubkey();
+        let public_key = [public_key[0], public_key[1]];
+
+        let mut unsigned = vec![merkle_root.into(), bound_params_hash];
+        unsigned.extend_from_slice(&nullifiers);
+        unsigned.extend_from_slice(&commitments);
+        let signature = note_zero.sign(&unsigned);
 
         let random_in = notes_in
             .iter()

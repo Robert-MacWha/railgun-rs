@@ -14,7 +14,11 @@ pub struct TxData {
 }
 
 impl TxData {
-    pub fn new(to: Address, transactions: Vec<Transaction>) -> Self {
+    pub fn new(to: Address, data: Vec<u8>, value: U256) -> Self {
+        TxData { to, data, value }
+    }
+
+    pub fn from_transactions(to: Address, transactions: Vec<Transaction>) -> Self {
         let call = RailgunSmartWallet::transactCall {
             _transactions: transactions,
         };

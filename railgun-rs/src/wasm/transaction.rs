@@ -9,10 +9,12 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    railgun::address::RailgunAddress,
-    railgun::note::shield::create_shield_request,
-    railgun::transaction::{operation_builder::OperationBuilder, tx_data::TxData},
-    wasm::{JsProver, JsRailgunAccount, indexer::JsIndexer},
+    railgun::{
+        address::RailgunAddress,
+        note::shield::create_shield_request,
+        transaction::{operation_builder::OperationBuilder, tx_data::TxData},
+    },
+    wasm::{JsBroadcaster, JsProver, JsRailgunAccount, indexer::JsIndexer},
 };
 
 /// Transaction data output for EVM submission
@@ -205,10 +207,39 @@ impl JsTransactionBuilder {
         let tx_data = self
             .inner
             .borrow_mut()
-            .build_transaction(prover, indexer.inner_mut(), chain, &mut rng)
+            .build_transaction(indexer.inner_mut(), prover, chain, &mut rng)
             .await
             .map_err(|e| JsError::new(&format!("Failed to build transaction: {}", e)))?;
 
         Ok(JsTxData { inner: tx_data })
+    }
+
+    /// Prepares a broadcastable transaction using the provided indexer, prover,
+    /// and broadcaster.
+    pub async fn prepare_broadcast(
+        &mut self,
+        indexer: &mut JsIndexer,
+        prover: &JsProver,
+        broadcaster: &mut JsBroadcaster,
+    ) -> Result<(), JsError> {
+        let chain = indexer.chain();
+        let mut rng = rand::rng();
+
+        todo!();
+
+        // let broadcast = self
+        //     .inner
+        //     .borrow_mut()
+        //     .prepare_broadcast(
+        //         indexer.inner_mut(),
+        //         prover,
+        //         broadcaster.inner_mut(),
+        //         chain,
+        //         &mut rng,
+        //     )
+        //     .await
+        //     .map_err(|e| JsError::new(&format!("Failed to broadcast transaction: {}", e)))?;
+
+        // Ok(broadcast)
     }
 }

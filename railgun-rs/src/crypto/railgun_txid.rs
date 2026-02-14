@@ -1,14 +1,15 @@
 use ruint::{aliases::U256};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     crypto::{poseidon::poseidon_hash, railgun_zero::railgun_merkle_tree_zero},
     railgun::indexer::indexer::TOTAL_LEAVES,
 };
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct TxidLeaf(U256);
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
 pub struct Txid(U256);
 
 pub enum UtxoTreeOut {

@@ -17,10 +17,15 @@ pub mod utxo;
 
 /// Included notes are notes that have been included in a transaction and are
 /// on-chain in railgun's merkle tree.
-pub trait IncludedNote: Note {
+pub trait IncludedNote: Note + Clone {
     fn tree_number(&self) -> u32;
     fn leaf_index(&self) -> u32;
-    fn viewing_public_key(&self) -> ViewingPublicKey;
+    fn viewing_pubkey(&self) -> ViewingPublicKey;
+    fn nullifier(&self, leaf_index: u32) -> U256;
+    fn spending_pubkey(&self) -> [U256; 2];
+    fn sign(&self, inputs: &[U256]) -> [U256; 3];
+    fn nullifying_key(&self) -> U256;
+    fn random(&self) -> [u8; 16];
 }
 
 pub trait EncryptableNote: Note {

@@ -5,8 +5,11 @@ use ruint::aliases::U256;
 use thiserror::Error;
 
 pub use crate::railgun::poi::{
-    inner_client::ClientError,
-    inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap},
+    inner_client::PoiClientError,
+    inner_types::{
+        BlindedCommitmentType, ListKey, PoisPerListMap, PreTransactionPoi,
+        PreTransactionPoisPerTxidLeafPerList, SnarkProof, TxidVersion,
+    },
 };
 use crate::{
     crypto::{keys::hex_to_u256, railgun_txid::Txid},
@@ -40,7 +43,7 @@ pub enum PoiMerkleProofError {
 }
 
 impl PoiClient {
-    pub async fn new(url: impl Into<String>, chain: ChainId) -> Result<Self, ClientError> {
+    pub async fn new(url: impl Into<String>, chain: ChainId) -> Result<Self, PoiClientError> {
         let inner = crate::railgun::poi::inner_client::InnerPoiClient::new(url);
         let status = inner.node_status().await?;
         let list_keys = status.list_keys;
@@ -68,7 +71,7 @@ impl PoiClient {
     pub async fn pois(
         &self,
         blinded_commitment_data: Vec<BlindedCommitmentData>,
-    ) -> Result<PoisPerListMap, ClientError> {
+    ) -> Result<PoisPerListMap, PoiClientError> {
         let blinded_commitment_datas: Vec<crate::railgun::poi::inner_types::BlindedCommitmentData> =
             blinded_commitment_data
                 .into_iter()
@@ -92,7 +95,7 @@ impl PoiClient {
     pub async fn merkle_proofs(
         &self,
         blinded_commitments: Vec<[u8; 32]>,
-    ) -> Result<HashMap<ListKey, Vec<MerkleProof>>, ClientError> {
+    ) -> Result<HashMap<ListKey, Vec<MerkleProof>>, PoiClientError> {
         let blinded_commitments: Vec<crate::railgun::poi::inner_types::BlindedCommitment> =
             blinded_commitments
                 .into_iter()
@@ -122,18 +125,18 @@ impl PoiClient {
     }
 
     /// Returns the current validated txid status from the POI node.
-    pub async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, ClientError> {
+    pub async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, PoiClientError> {
         let resp: crate::railgun::poi::inner_types::ValidatedRailgunTxidStatus =
             self.inner.validated_txid(self.chain()).await?;
 
         let Some(merkle_root) = resp.validated_merkleroot else {
-            return Err(ClientError::UnexpectedResponse(
+            return Err(PoiClientError::UnexpectedResponse(
                 "validated_merkleroot is None".to_string(),
             ));
         };
 
         let Some(global_index) = resp.validated_txid_index else {
-            return Err(ClientError::UnexpectedResponse(
+            return Err(PoiClientError::UnexpectedResponse(
                 "validated_txid_index is None".to_string(),
             ));
         };
@@ -154,7 +157,7 @@ impl PoiClient {
         tree: u32,
         index: u64,
         merkleroot: Txid,
-    ) -> Result<bool, ClientError> {
+    ) -> Result<bool, PoiClientError> {
         let txid: U256 = merkleroot.into();
 
         self.inner
