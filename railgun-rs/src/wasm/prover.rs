@@ -25,6 +25,7 @@ use crate::circuit::{
 /// ) => Promise<ProofResponse>;
 /// ```
 #[wasm_bindgen]
+#[derive(Debug, Clone)]
 pub struct JsProver {
     prove_transact_fn: Function,
     prove_poi_fn: Function,

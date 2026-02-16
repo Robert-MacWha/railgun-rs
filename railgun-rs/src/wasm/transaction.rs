@@ -14,7 +14,10 @@ use crate::{
         note::shield::create_shield_request,
         transaction::{operation_builder::OperationBuilder, tx_data::TxData},
     },
-    wasm::{JsBroadcaster, JsProver, JsRailgunAccount, indexer::JsIndexer},
+    wasm::{
+        JsBroadcaster, JsProver, JsRailgunAccount, broadcast_data::JsBroadcastData,
+        fee_info::JsFeeInfo, indexer::JsIndexer, poi_client::JsPoiClient, provider::JsProvider,
+    },
 };
 
 /// Transaction data output for EVM submission
@@ -221,25 +224,28 @@ impl JsTransactionBuilder {
         indexer: &mut JsIndexer,
         prover: &JsProver,
         broadcaster: &mut JsBroadcaster,
-    ) -> Result<(), JsError> {
+        poi_client: &mut JsPoiClient,
+        provider: &mut JsProvider,
+        fee_info: &mut JsFeeInfo,
+    ) -> Result<JsBroadcastData, JsError> {
         let chain = indexer.chain();
-        let rng = rand::rng();
+        let mut rng = rand::rng();
 
-        todo!();
+        let broadcast_data = self
+            .inner
+            .borrow_mut()
+            .prepare_broadcast(
+                indexer.inner_mut(),
+                prover,
+                poi_client.inner_mut(),
+                provider.inner_mut(),
+                fee_info.inner().clone(),
+                chain,
+                &mut rng,
+            )
+            .await
+            .map_err(|e| JsError::new(&format!("Failed to broadcast transaction: {}", e)))?;
 
-        // let broadcast = self
-        //     .inner
-        //     .borrow_mut()
-        //     .prepare_broadcast(
-        //         indexer.inner_mut(),
-        //         prover,
-        //         broadcaster.inner_mut(),
-        //         chain,
-        //         &mut rng,
-        //     )
-        //     .await
-        //     .map_err(|e| JsError::new(&format!("Failed to broadcast transaction: {}", e)))?;
-
-        // Ok(broadcast)
+        Ok(JsBroadcastData::new(broadcast_data))
     }
 }

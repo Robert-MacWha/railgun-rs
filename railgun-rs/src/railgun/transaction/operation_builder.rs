@@ -44,6 +44,7 @@ use crate::{
         },
         transaction::{
             broadcaster_data::{BroadcastData, Chain, ChainType},
+            gas_estimator::GasEstimator,
             tx_data::TxData,
         },
     },
@@ -58,10 +59,21 @@ pub struct OperationBuilder {
     accounts: HashMap<ViewingPublicKey, RailgunAccount>,
 }
 
-#[async_trait::async_trait]
-pub trait GasEstimator {
-    async fn estimate_gas(&self, tx_data: &TxData) -> Result<u128, Box<dyn std::error::Error>>;
-    async fn gas_price_wei(&self) -> Result<u128, Box<dyn std::error::Error>>;
+#[derive(Debug, Clone)]
+pub struct FeeInfo {
+    /// Account that pays for this transaction's fee.
+    pub payee: RailgunAccount,
+    /// Asset used to pay for the fee.  Must be an ERC-20 token.
+    pub asset: Address,
+    /// Fee rate in basis points of the EVM gas cost. For example, if `fee_bps`
+    /// is 100 then the fee would be 1% of the gas cost.
+    pub bps: u32,
+    /// Address that receives the fee. Must be a valid railgun 0zk address.
+    pub recipient: RailgunAddress,
+    /// Fee UUID from the broadcaster's API.
+    pub id: String,
+    /// List keys for the POI proofs required for this broadcaster.
+    pub list_keys: Vec<ListKey>,
 }
 
 #[derive(Clone)]
@@ -294,15 +306,17 @@ impl OperationBuilder {
         prover: &(impl TransactProver + PoiProver),
         poi_client: &PoiClient,
         estimator: &impl GasEstimator,
+        fee_info: FeeInfo,
         chain: ChainConfig,
-        fee_payee: RailgunAccount,
-        fee_token: Address,
-        fee_bps: u32,
-        fee_recipient: RailgunAddress,
-        fee_id: String,
-        list_keys: Vec<ListKey>,
         rng: &mut R,
     ) -> Result<BroadcastData, BuildError> {
+        let fee_payee = fee_info.payee;
+        let fee_token = fee_info.asset;
+        let fee_bps = fee_info.bps;
+        let fee_recipient = fee_info.recipient;
+        let fee_id = fee_info.id;
+        let list_keys = fee_info.list_keys;
+
         //? The broadcaster's fee must be paid as the first transfer note in the
         //? first operation. Because adding this note will change the gas cost,
         //? we need to iteratively build the tx until the fee converges.

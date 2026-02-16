@@ -1,7 +1,11 @@
 mod bindings;
+mod broadcast_data;
 mod broadcaster;
+mod fee_info;
 mod indexer;
+mod poi_client;
 mod prover;
+mod provider;
 mod transaction;
 
 pub use bindings::{
