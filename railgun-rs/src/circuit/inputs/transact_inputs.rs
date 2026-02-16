@@ -44,7 +44,7 @@ pub enum TransactCircuitInputsError {
 
 impl TransactCircuitInputs {
     pub fn from_inputs<N: IncludedNote>(
-        merkle_tree: &mut UtxoMerkleTree,
+        merkle_tree: &UtxoMerkleTree,
         bound_params_hash: U256,
         notes_in: &[N],
         notes_out: &[Box<dyn Note>],

@@ -77,6 +77,10 @@ pub struct MerkleTree<C: TreeConfig> {
     _config: PhantomData<C>,
 }
 
+pub struct MerkleTreeMut<'a, C: TreeConfig> {
+    tree: &'a mut MerkleTree<C>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerkleTreeState {
     pub number: u32,
@@ -127,8 +131,12 @@ impl<C: TreeConfig> MerkleTree<C> {
         self.number
     }
 
-    pub fn root(&mut self) -> U256 {
-        self.rebuild_dirty();
+    pub fn root(&self) -> U256 {
+        debug_assert!(
+            self.dirty_parents.is_empty(),
+            "Merkle tree has dirty parents, root may be outdated"
+        );
+
         self.tree[self.depth][0]
     }
 
@@ -140,8 +148,7 @@ impl<C: TreeConfig> MerkleTree<C> {
         self.clone().into_state()
     }
 
-    pub fn into_state(mut self) -> MerkleTreeState {
-        self.rebuild_dirty();
+    pub fn into_state(self) -> MerkleTreeState {
         MerkleTreeState {
             number: self.number,
             depth: self.depth,
@@ -149,25 +156,12 @@ impl<C: TreeConfig> MerkleTree<C> {
         }
     }
 
-    pub fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
-        if leaves.is_empty() {
-            return;
-        }
+    pub fn generate_proof(&self, element: C::LeafType) -> Result<MerkleProof, MerkleTreeError> {
+        debug_assert!(
+            self.dirty_parents.is_empty(),
+            "Merkle tree has dirty parents, root may be outdated"
+        );
 
-        let end_position = start_position + leaves.len();
-        if self.tree[0].len() < end_position {
-            self.tree[0].resize(end_position, self.zeros[0]);
-        }
-
-        for (i, leaf) in leaves.iter().cloned().enumerate() {
-            let leaf_index = start_position + i;
-            self.tree[0][leaf_index] = leaf.into();
-            self.dirty_parents.insert(leaf_index / 2);
-        }
-    }
-
-    pub fn generate_proof(&mut self, element: C::LeafType) -> Result<MerkleProof, MerkleTreeError> {
-        self.rebuild_dirty();
         let element = element.into();
 
         let initial_index = self.tree[0]
@@ -199,8 +193,31 @@ impl<C: TreeConfig> MerkleTree<C> {
         Ok(proof)
     }
 
+    pub fn edit(&mut self) -> MerkleTreeMut<C> {
+        MerkleTreeMut { tree: self }
+    }
+
+    /// Inserts leaves starting at the given position. Marks parent nodes as dirty
+    /// for later rebuilding.
+    fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
+        if leaves.is_empty() {
+            return;
+        }
+
+        let end_position = start_position + leaves.len();
+        if self.tree[0].len() < end_position {
+            self.tree[0].resize(end_position, self.zeros[0]);
+        }
+
+        for (i, leaf) in leaves.iter().cloned().enumerate() {
+            let leaf_index = start_position + i;
+            self.tree[0][leaf_index] = leaf.into();
+            self.dirty_parents.insert(leaf_index / 2);
+        }
+    }
+
     /// Rebuild only the nodes whose descendants were modified.
-    fn rebuild_dirty(&mut self) {
+    fn rebuild(&mut self) {
         if self.dirty_parents.is_empty() {
             return;
         }
@@ -242,6 +259,18 @@ impl<C: TreeConfig> MerkleTree<C> {
     }
 }
 
+impl<'a, C: TreeConfig> MerkleTreeMut<'a, C> {
+    pub fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
+        self.tree.insert_leaves(leaves, start_position);
+    }
+}
+
+impl<'a, C: TreeConfig> Drop for MerkleTreeMut<'a, C> {
+    fn drop(&mut self) {
+        self.tree.rebuild();
+    }
+}
+
 fn zero_value_levels<C: TreeConfig>(depth: usize) -> Vec<U256> {
     let mut levels = Vec::with_capacity(depth + 1);
     let mut current = C::zero_value();
@@ -265,7 +294,7 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_merkle_root() {
-        let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
+        let tree = MerkleTree::<UtxoTreeConfig>::new(0);
         let expected_root = uint!(
             9493149700940509817378043077993653487291699154667385859234945399563579865744_U256
         );
@@ -283,7 +312,7 @@ mod tests {
             13360826432759445967430837006844965422592495092152969583910134058984357610665_U256
         );
 
-        tree.insert_leaves(&leaves, 0);
+        tree.edit().insert_leaves(&leaves, 0);
 
         let root = tree.root();
         assert_eq!(root, expected_root);
@@ -303,10 +332,10 @@ mod tests {
     fn test_state() {
         let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
         let leaves: Vec<UtxoLeaf> = (0..10).map(|i| U256::from(i + 1).into()).collect();
-        tree.insert_leaves(&leaves, 0);
+        tree.edit().insert_leaves(&leaves, 0);
 
         let state = tree.state();
-        let mut rebuilt_tree = MerkleTree::<UtxoTreeConfig>::from_state(state);
+        let rebuilt_tree = MerkleTree::<UtxoTreeConfig>::from_state(state);
 
         assert_eq!(tree.root(), rebuilt_tree.root());
     }

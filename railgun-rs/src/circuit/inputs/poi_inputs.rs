@@ -124,7 +124,7 @@ impl PoiCircuitInputs {
     pub fn from_inputs(
         spending_pubkey: SpendingPublicKey,
         nullifying_pubkey: NullifyingKey,
-        utxo_merkle_tree: &mut UtxoMerkleTree,
+        utxo_merkle_tree: &UtxoMerkleTree,
         bound_params_hash: U256,
         operation: &Operation<PoiNote>,
         list_key: ListKey,

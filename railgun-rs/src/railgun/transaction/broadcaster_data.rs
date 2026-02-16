@@ -77,9 +77,9 @@ impl PoiProvedOperation {
         &mut self,
         prover: &impl PoiProver,
         list_keys: &[ListKey],
-        utxo_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
+        utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
     ) -> Result<(), PoiProvedOperationError> {
-        let utxo_merkle_tree = utxo_trees.get_mut(&self.operation.utxo_tree_number).ok_or(
+        let utxo_merkle_tree = utxo_trees.get(&self.operation.utxo_tree_number).ok_or(
             PoiProvedOperationError::MissingTree(self.operation.utxo_tree_number),
         )?;
 

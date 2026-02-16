@@ -368,6 +368,7 @@ fn insert_leaves<C: TreeConfig>(
         trees
             .entry(current_tree)
             .or_insert_with(|| MerkleTree::new(current_tree))
+            .edit()
             .insert_leaves(&remaining[..to_insert], position);
 
         remaining = &remaining[to_insert..];

@@ -41,10 +41,7 @@ use crate::{
             unshield::UnshieldNote,
             utxo::UtxoNote,
         },
-        poi::{
-            poi_client::{ListKey, PoiClient, PoiClientError},
-            poi_note::PoiNote,
-        },
+        poi::poi_client::{ListKey, PoiClient, PoiClientError},
         transaction::{
             broadcaster_data::{
                 PoiProvedOperation, PoiProvedOperationError, PoiProvedTransaction, ProvedOperation,
@@ -245,7 +242,7 @@ impl OperationBuilder {
     /// and generates POI proofs.
     pub async fn build_with_broadcast<R: Rng>(
         &self,
-        indexer: &mut Indexer,
+        indexer: &Indexer,
         prover: &(impl TransactProver + PoiProver),
         poi_client: &PoiClient,
         estimator: &impl GasEstimator,
@@ -259,7 +256,7 @@ impl OperationBuilder {
             self,
             &in_notes,
             prover,
-            &mut indexer.utxo_trees,
+            &indexer.utxo_trees,
             estimator,
             &fee_info,
             chain,
@@ -268,14 +265,8 @@ impl OperationBuilder {
         .await?;
 
         let list_keys = fee_info.list_keys;
-        self.prove_poi(
-            prover,
-            poi_client,
-            proved,
-            &mut indexer.utxo_trees,
-            &list_keys,
-        )
-        .await
+        self.prove_poi(prover, poi_client, proved, &indexer.utxo_trees, &list_keys)
+            .await
     }
 
     /// Proves the operations and returns a proved transaction that can be
@@ -407,7 +398,7 @@ impl OperationBuilder {
         poi_prover: &impl PoiProver,
         poi_client: &PoiClient,
         proved: ProvedTransaction,
-        utxo_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
+        utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
         list_keys: &[ListKey],
     ) -> Result<PoiProvedTransaction, BuildError> {
         // Rebuild operations with PoiNote inputs (needed for POI merkle proofs)
@@ -522,119 +513,13 @@ fn add_change_note<N: IncludedNote>(operation: Operation<N>) -> Operation<N> {
     }
 }
 
-async fn create_transactions<R: Rng, N: IncludedNote>(
-    prover: &impl TransactProver,
-    utxo_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
-    operations: &[Operation<N>],
-    chain: ChainConfig,
-    min_gas_price: u128,
-    adapt_contract: Address,
-    adapt_input: &[u8; 32],
-    rng: &mut R,
-) -> Result<Vec<(TransactCircuitInputs, abis::railgun::Transaction)>, BuildError> {
-    let mut transactions = Vec::new();
-    for operation in operations {
-        operation.verify()?;
-
-        let tree_number = operation.utxo_tree_number();
-        let mut tree = utxo_trees
-            .get_mut(&tree_number)
-            .ok_or(BuildError::MissingTree(tree_number))?;
-
-        let tx = create_transaction(
-            prover,
-            &mut tree,
-            operation,
-            chain,
-            min_gas_price,
-            adapt_contract,
-            adapt_input,
-            rng,
-        )
-        .await?;
-
-        transactions.push(tx);
-    }
-
-    Ok(transactions)
-}
-
-async fn create_transaction<R: Rng, N: IncludedNote>(
-    prover: &impl TransactProver,
-    utxo_tree: &mut UtxoMerkleTree,
-    operation: &Operation<N>,
-    chain: ChainConfig,
-    min_gas_price: u128,
-    adapt_contract: Address,
-    adapt_input: &[u8; 32],
-    rng: &mut R,
-) -> Result<(TransactCircuitInputs, abis::railgun::Transaction), BuildError> {
-    let notes_in = operation.in_notes();
-    let notes_out = operation.out_notes();
-
-    info!("Constructing circuit inputs");
-    let unshield_type = operation
-        .unshield_note()
-        .map(|n| n.unshield_type())
-        .unwrap_or_default();
-
-    let commitment_ciphertexts: Vec<abis::railgun::CommitmentCiphertext> = operation
-        .out_encryptable_notes()
-        .iter()
-        .map(|n| n.encrypt(rng))
-        .collect::<Result<_, _>>()?;
-
-    let bound_params = abis::railgun::BoundParams::new(
-        utxo_tree.number() as u16,
-        min_gas_price,
-        unshield_type,
-        chain.id,
-        adapt_contract,
-        adapt_input,
-        commitment_ciphertexts,
-    );
-
-    let inputs =
-        TransactCircuitInputs::from_inputs(utxo_tree, bound_params.hash(), notes_in, &notes_out)?;
-
-    info!("Proving transaction");
-    let proof = prover
-        .prove_transact(&inputs)
-        .await
-        .map_err(BuildError::Prover)?;
-
-    let transaction = abis::railgun::Transaction {
-        proof: proof.into(),
-        merkleRoot: inputs.merkle_root.into(),
-        nullifiers: inputs.nullifiers.iter().map(|n| n.clone().into()).collect(),
-        commitments: inputs
-            .commitments_out
-            .iter()
-            .map(|c| c.clone().into())
-            .collect(),
-        boundParams: bound_params,
-        unshieldPreimage: operation
-            .unshield_note()
-            .map(|n| n.preimage())
-            .unwrap_or_default(),
-    };
-
-    Ok((inputs, transaction))
-}
-
-/// Calculate the broadcaster's fee based on the estimated gas cost, gas price in wei,
-/// and broadcaster's fee rate.
-fn fee(gas_cost: u128, gas_price_wei: u128, fee_rate: u128) -> u128 {
-    gas_cost * gas_price_wei * fee_rate / 10_u128.pow(18)
-}
-
 /// Calculate fee iteratively until convergence. It iteratively builds and proves
 /// transactions until the fee converges to a stable value.
 async fn calculate_fee_to_convergence<R: Rng>(
     builder: &OperationBuilder,
     in_notes: &[UtxoNote],
     prover: &impl TransactProver,
-    utxo_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
+    utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
     estimator: &impl GasEstimator,
     fee_info: &FeeInfo,
     chain: ChainConfig,
@@ -718,4 +603,112 @@ async fn calculate_fee_to_convergence<R: Rng>(
         tx_data,
         min_gas_price: gas_price_wei,
     })
+}
+
+/// Creates a list of railgun transactions for a list of operations.
+async fn create_transactions<R: Rng, N: IncludedNote>(
+    prover: &impl TransactProver,
+    utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
+    operations: &[Operation<N>],
+    chain: ChainConfig,
+    min_gas_price: u128,
+    adapt_contract: Address,
+    adapt_input: &[u8; 32],
+    rng: &mut R,
+) -> Result<Vec<(TransactCircuitInputs, abis::railgun::Transaction)>, BuildError> {
+    let mut transactions = Vec::new();
+    for operation in operations {
+        operation.verify()?;
+
+        let tree_number = operation.utxo_tree_number();
+        let tree = utxo_trees
+            .get(&tree_number)
+            .ok_or(BuildError::MissingTree(tree_number))?;
+
+        let tx = create_transaction(
+            prover,
+            tree,
+            operation,
+            chain,
+            min_gas_price,
+            adapt_contract,
+            adapt_input,
+            rng,
+        )
+        .await?;
+
+        transactions.push(tx);
+    }
+
+    Ok(transactions)
+}
+
+/// Creates a railgun transaction for a single operation.
+async fn create_transaction<R: Rng, N: IncludedNote>(
+    prover: &impl TransactProver,
+    utxo_tree: &UtxoMerkleTree,
+    operation: &Operation<N>,
+    chain: ChainConfig,
+    min_gas_price: u128,
+    adapt_contract: Address,
+    adapt_input: &[u8; 32],
+    rng: &mut R,
+) -> Result<(TransactCircuitInputs, abis::railgun::Transaction), BuildError> {
+    let notes_in = operation.in_notes();
+    let notes_out = operation.out_notes();
+
+    info!("Constructing circuit inputs");
+    let unshield_type = operation
+        .unshield_note()
+        .map(|n| n.unshield_type())
+        .unwrap_or_default();
+
+    let commitment_ciphertexts: Vec<abis::railgun::CommitmentCiphertext> = operation
+        .out_encryptable_notes()
+        .iter()
+        .map(|n| n.encrypt(rng))
+        .collect::<Result<_, _>>()?;
+
+    let bound_params = abis::railgun::BoundParams::new(
+        utxo_tree.number() as u16,
+        min_gas_price,
+        unshield_type,
+        chain.id,
+        adapt_contract,
+        adapt_input,
+        commitment_ciphertexts,
+    );
+
+    let inputs =
+        TransactCircuitInputs::from_inputs(utxo_tree, bound_params.hash(), notes_in, &notes_out)?;
+
+    info!("Proving transaction");
+    let proof = prover
+        .prove_transact(&inputs)
+        .await
+        .map_err(BuildError::Prover)?;
+
+    let transaction = abis::railgun::Transaction {
+        proof: proof.into(),
+        merkleRoot: inputs.merkle_root.into(),
+        nullifiers: inputs.nullifiers.iter().map(|n| n.clone().into()).collect(),
+        commitments: inputs
+            .commitments_out
+            .iter()
+            .map(|c| c.clone().into())
+            .collect(),
+        boundParams: bound_params,
+        unshieldPreimage: operation
+            .unshield_note()
+            .map(|n| n.preimage())
+            .unwrap_or_default(),
+    };
+
+    Ok((inputs, transaction))
+}
+
+/// Calculate the broadcaster's fee based on the estimated gas cost, gas price in wei,
+/// and broadcaster's fee rate.
+fn fee(gas_cost: u128, gas_price_wei: u128, fee_rate: u128) -> u128 {
+    gas_cost * gas_price_wei * fee_rate / 10_u128.pow(18)
 }
