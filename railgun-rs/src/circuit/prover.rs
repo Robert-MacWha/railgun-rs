@@ -1,6 +1,4 @@
-use crate::circuit::{
-    poi_inputs::PoiCircuitInputs, proof::Proof, transact_inputs::TransactCircuitInputs,
-};
+use crate::circuit::{inputs::PoiCircuitInputs, inputs::TransactCircuitInputs, proof::Proof};
 
 #[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
 #[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]

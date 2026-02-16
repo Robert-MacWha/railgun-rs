@@ -124,6 +124,14 @@ impl JsShieldBuilder {
 }
 
 /// Builder for transact transactions (transfers and unshields)
+///
+/// @example
+/// ```typescript
+/// const builder = new JsTransactionBuilder(account);
+/// builder.transfer("0zk...", wasm.erc20_asset("0x..."), "100", "Optional memo");
+/// builder.unshield("0x...", wasm.erc20_asset("0x..."), "50");
+/// const txData = await builder.build(indexer, prover);
+/// ```
 #[wasm_bindgen]
 pub struct JsTransactionBuilder {
     account: RailgunAccount,
@@ -223,7 +231,6 @@ impl JsTransactionBuilder {
         &mut self,
         indexer: &mut JsIndexer,
         prover: &JsProver,
-        broadcaster: &mut JsBroadcaster,
         poi_client: &mut JsPoiClient,
         provider: &mut JsProvider,
         fee_info: &mut JsFeeInfo,
@@ -244,7 +251,7 @@ impl JsTransactionBuilder {
                 &mut rng,
             )
             .await
-            .map_err(|e| JsError::new(&format!("Failed to broadcast transaction: {}", e)))?;
+            .map_err(|e| JsError::new(&format!("Failed to prepare broadcast: {}", e)))?;
 
         Ok(JsBroadcastData::new(broadcast_data))
     }

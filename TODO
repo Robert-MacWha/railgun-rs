@@ -15,7 +15,7 @@
 - [ ] Generate POI proof inputs for a transfer operation
 - [ ] Send to a broadcaster
 - [ ] Send a POI for a transfer note 
-
+- [ ] Make managed merke trees that verify themselves
 - [ ] Refactor and tidy up
   - [x] Pick and STICK WITH a consistent type for representing proof values / amounts. Right now I'm in conversion hell.  ruint seems like a good choice.
 - Optimize performance

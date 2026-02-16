@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use alloy::primitives::ChainId;
 use ruint::aliases::U256;
 use thiserror::Error;
+use tracing::info;
 
 pub use crate::railgun::poi::{
     inner_client::PoiClientError,
@@ -47,6 +48,10 @@ impl PoiClient {
         let inner = crate::railgun::poi::inner_client::InnerPoiClient::new(url);
         let status = inner.node_status().await?;
         let list_keys = status.list_keys;
+        info!(
+            "Initialized POI client for chain {}, found list keys: {:?}",
+            chain, list_keys
+        );
 
         Ok(Self {
             inner,

@@ -17,7 +17,7 @@ use alloy::primitives::Address;
 use rand::{Rng, random};
 use ruint::aliases::U256;
 use thiserror::Error;
-use tracing::{info, warn};
+use tracing::{Instrument, info, warn};
 
 use crate::{
     abis,
@@ -25,9 +25,9 @@ use crate::{
     caip::AssetId,
     chain_config::ChainConfig,
     circuit::{
-        poi_inputs::{PoiCircuitInputs, PoiCircuitInputsError},
+        inputs::{PoiCircuitInputs, PoiCircuitInputsError},
+        inputs::{TransactCircuitInputs, TransactCircuitInputsError},
         prover::{PoiProver, TransactProver},
-        transact_inputs::{TransactCircuitInputs, TransactCircuitInputsError},
     },
     crypto::keys::ViewingPublicKey,
     railgun::{
@@ -35,7 +35,10 @@ use crate::{
         indexer::indexer::Indexer,
         merkle_tree::merkle_tree::UtxoMerkleTree,
         note::{
-            IncludedNote, encrypt::EncryptError, operation::Operation, transfer::TransferNote,
+            IncludedNote,
+            encrypt::EncryptError,
+            operation::{Operation, OperationVerificationError},
+            transfer::TransferNote,
             unshield::UnshieldNote,
         },
         poi::{
@@ -65,9 +68,8 @@ pub struct FeeInfo {
     pub payee: RailgunAccount,
     /// Asset used to pay for the fee.  Must be an ERC-20 token.
     pub asset: Address,
-    /// Fee rate in basis points of the EVM gas cost. For example, if `fee_bps`
-    /// is 100 then the fee would be 1% of the gas cost.
-    pub bps: u32,
+    /// TODO: Figure out exactly what this represents.
+    pub rate: u128,
     /// Address that receives the fee. Must be a valid railgun 0zk address.
     pub recipient: RailgunAddress,
     /// Fee UUID from the broadcaster's API.
@@ -109,6 +111,8 @@ pub enum BuildError {
     PoiClient(#[from] PoiClientError),
     #[error("Poi Circuit input error: {0}")]
     PoiCircuitInput(#[from] PoiCircuitInputsError),
+    #[error("Operation verification error: {0}")]
+    OperationVerification(#[from] OperationVerificationError),
 }
 
 impl OperationBuilder {
@@ -292,14 +296,6 @@ impl OperationBuilder {
     }
 
     /// Builds the transaction a broadcast-ready transaction.
-    ///
-    /// - `fee_payee`: account that pays the broadcaster's fee.
-    /// - `fee_token`: asset used to pay the broadcaster's fee.
-    /// - `fee_bps`: broadcaster fee rate in basis points of the EVM gas cost.
-    /// For example, if `fee_bps` is 100 and the transaction costs 100k gas at a gas price of 10 gwei,
-    /// the fee would be 100k * 10 gwei * 1% = 10k gwei.
-    /// - `fee_recipient`: address that receives the broadcaster's fee.
-    /// - `fee_id`: Unique identifier for the broadcaster's token fee.
     pub async fn prepare_broadcast<R: Rng>(
         &self,
         indexer: &mut Indexer,
@@ -310,70 +306,11 @@ impl OperationBuilder {
         chain: ChainConfig,
         rng: &mut R,
     ) -> Result<BroadcastData, BuildError> {
-        let fee_payee = fee_info.payee;
-        let fee_token = fee_info.asset;
-        let fee_bps = fee_info.bps;
-        let fee_recipient = fee_info.recipient;
-        let fee_id = fee_info.id;
-        let list_keys = fee_info.list_keys;
-
-        //? The broadcaster's fee must be paid as the first transfer note in the
-        //? first operation. Because adding this note will change the gas cost,
-        //? we need to iteratively build the tx until the fee converges.
-
-        const MAX_ITERS: usize = 5;
-
-        //? Initial gas estimate, approximately what a simple transfer would cost.
-        let mut last_fee: u128 = 50_000 * 10u128.pow(10) * fee_bps as u128 / 10_000;
-
-        let mut builder = self.clone();
-        builder.set_broadcaster_fee(
-            fee_payee.clone(),
-            fee_recipient,
-            AssetId::Erc20(fee_token),
-            last_fee,
-        );
-
-        let in_notes = indexer.all_unspent();
-        let in_notes = PoiNote::from_utxo_notes(in_notes, &poi_client).await?;
-        let utxo_trees = &mut indexer.utxo_trees;
-
-        //? Iteratively build transactions until the fee converges.
-        let mut operations = Vec::new();
-        let mut transactions = Vec::new();
-        let mut tx_data = TxData::new(Address::ZERO, vec![], U256::ZERO);
-        let gas_price_wei = estimator.gas_price_wei().await?;
-        for _ in 0..MAX_ITERS {
-            operations = builder.build(in_notes.clone(), rng)?;
-            transactions = create_transactions(
-                prover,
-                utxo_trees,
-                &operations,
-                chain,
-                0,
-                Address::ZERO,
-                &[0u8; 32],
-                rng,
+        let (operations, transactions, tx_data, gas_price_wei) = self
+            .calculate_fee(
+                indexer, prover, poi_client, estimator, &fee_info, chain, rng,
             )
             .await?;
-            let txns = transactions.iter().map(|(_, t)| t.clone()).collect();
-            tx_data = TxData::from_transactions(chain.railgun_smart_wallet, txns);
-
-            let gas = estimator.estimate_gas(&tx_data).await?;
-            let fee = gas * gas_price_wei * fee_bps as u128 / 10_000;
-
-            if fee == last_fee {
-                break;
-            }
-
-            builder.set_broadcaster_fee(
-                fee_payee.clone(),
-                fee_recipient,
-                AssetId::Erc20(fee_token),
-                fee,
-            );
-            last_fee = fee;
-        }
 
         // prover.prove_poi(inputs)
         let mut nullifiers = Vec::new();
@@ -381,15 +318,17 @@ impl OperationBuilder {
             ListKey,
             HashMap<String, PreTransactionPoi>,
         > = HashMap::new();
-        for list_key in list_keys {
+        for list_key in fee_info.list_keys.iter() {
             for (operation, transaction) in operations.iter().zip(transactions.iter()) {
                 let tx_circuit_inputs = &transaction.0;
                 nullifiers.extend(tx_circuit_inputs.nullifiers.clone());
 
-                let mut utxo_merkle_tree = utxo_trees
+                let mut utxo_merkle_tree = indexer
+                    .utxo_trees
                     .get_mut(&operation.utxo_tree_number)
                     .ok_or(BuildError::MissingTree(operation.utxo_tree_number))?;
 
+                info!("Constructing POI inputs for list key {}", list_key);
                 let inputs = PoiCircuitInputs::from_inputs(
                     operation.from.spending_key().public_key(),
                     operation.from.viewing_key().nullifying_key(),
@@ -436,8 +375,8 @@ impl OperationBuilder {
             txid_version_for_inputs: TxidVersion::V2PoseidonMerkle,
             to: tx_data.to,
             data: tx_data.data,
-            broadcaster_railgun_address: fee_recipient,
-            broadcaster_fee_id: fee_id,
+            broadcaster_railgun_address: fee_info.recipient,
+            broadcaster_fee_id: fee_info.id,
             chain: Chain {
                 chain_type: ChainType::EVM,
                 chain_id: chain.id,
@@ -449,6 +388,94 @@ impl OperationBuilder {
         };
 
         Ok(data)
+    }
+
+    /// Calculates the broadcaster fee by iteratively building the transaction and
+    /// estimating the gas cost until they converge.
+    ///
+    /// The broadcaster's fee must be paid as the first transfer note in the first
+    /// operation. Because adding this note will change the transaction's gas cost,
+    /// and may also require additional input notes, we need to iterate until the
+    /// fee converges to a stable value.
+    #[tracing::instrument(skip_all)]
+    async fn calculate_fee<R: Rng>(
+        &self,
+        indexer: &mut Indexer,
+        prover: &(impl TransactProver + PoiProver),
+        poi_client: &PoiClient,
+        estimator: &impl GasEstimator,
+        fee_info: &FeeInfo,
+        chain: ChainConfig,
+        rng: &mut R,
+    ) -> Result<
+        (
+            Vec<Operation<PoiNote>>,
+            Vec<(TransactCircuitInputs, abis::railgun::Transaction)>,
+            TxData,
+            u128,
+        ),
+        BuildError,
+    > {
+        const MAX_ITERS: usize = 5;
+        let mut builder = self.clone();
+        let mut last_fee: u128 = fee(1000, 1000, fee_info.rate);
+        builder.set_broadcaster_fee(
+            fee_info.payee.clone(),
+            fee_info.recipient.clone(),
+            AssetId::Erc20(fee_info.asset),
+            last_fee,
+        );
+
+        let in_notes = indexer.all_unspent();
+        let in_notes = PoiNote::from_utxo_notes(in_notes, &poi_client).await?;
+        let utxo_trees = &mut indexer.utxo_trees;
+
+        let mut operations = Vec::new();
+        let mut transactions = Vec::new();
+        let mut tx_data = TxData::new(Address::ZERO, vec![], U256::ZERO);
+        let gas_price_wei = estimator.gas_price_wei().await?;
+
+        for _ in 0..MAX_ITERS {
+            operations = builder.build(in_notes.clone(), rng)?;
+            transactions = create_transactions(
+                prover,
+                utxo_trees,
+                &operations,
+                chain,
+                0,
+                Address::ZERO,
+                &[0u8; 32],
+                rng,
+            )
+            .await?;
+            let txns = transactions.iter().map(|(_, t)| t.clone()).collect();
+            tx_data = TxData::from_transactions(chain.railgun_smart_wallet, txns);
+
+            let gas = estimator.estimate_gas(&tx_data).await?;
+            let fee = fee(gas, gas_price_wei, fee_info.rate);
+
+            if fee == last_fee {
+                info!(
+                    "Fee converged at {} after {} iterations",
+                    fee,
+                    operations.len()
+                );
+                break;
+            }
+
+            info!(
+                "Estimated gas: {}, gas price (wei): {}, fee: {}",
+                gas, gas_price_wei, fee
+            );
+            builder.set_broadcaster_fee(
+                fee_info.payee.clone(),
+                fee_info.recipient.clone(),
+                AssetId::Erc20(fee_info.asset),
+                fee,
+            );
+            last_fee = fee;
+        }
+        Ok((operations, transactions, tx_data, gas_price_wei))
     }
 }
 
@@ -525,11 +552,6 @@ fn add_change_note<N: IncludedNote>(operation: Operation<N>) -> Operation<N> {
     }
 }
 
-// async fn create_pre_transaction_pois_per_txid_leaf_per_list(
-//     prover: &impl PoiProver,
-
-// )
-
 async fn create_transactions<R: Rng, N: IncludedNote>(
     prover: &impl TransactProver,
     utxo_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
@@ -542,6 +564,8 @@ async fn create_transactions<R: Rng, N: IncludedNote>(
 ) -> Result<Vec<(TransactCircuitInputs, abis::railgun::Transaction)>, BuildError> {
     let mut transactions = Vec::new();
     for operation in operations {
+        operation.verify()?;
+
         let tree_number = operation.utxo_tree_number();
         let mut tree = utxo_trees
             .get_mut(&tree_number)
@@ -623,4 +647,10 @@ async fn create_transaction<R: Rng, N: IncludedNote>(
     };
 
     Ok((inputs, transaction))
+}
+
+/// Calculate the broadcaster's fee based on the estimated gas cost, gas price in wei,
+/// and broadcaster's fee rate.
+fn fee(gas_cost: u128, gas_price_wei: u128, fee_rate: u128) -> u128 {
+    gas_cost * gas_price_wei * fee_rate / 10_u128.pow(18)
 }

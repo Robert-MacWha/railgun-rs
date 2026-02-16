@@ -30,7 +30,6 @@ export {
 } from "./prover.ts";
 
 export {
-  createWakuTransport,
   type SubscribeFn,
   type SendFn,
 } from "./waku-transport.ts";

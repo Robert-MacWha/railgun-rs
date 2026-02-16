@@ -47,17 +47,17 @@ export type SendFn = (topic: string, payload: Uint8Array) => Promise<void>;
  * Creates a JsBroadcaster instance by initializing a Waku LightNode with the 
  * provided options.
  */
-export async function createWakuTransport(chain_id: bigint, options: CreateNodeOptions = { defaultBootstrap: true }): Promise<JsBroadcaster> {
+export async function createBroadcaster(chain_id: bigint, options: CreateNodeOptions = { defaultBootstrap: true }): Promise<JsBroadcaster> {
   const node = await createLightNode(options);
   await node.start();
 
-  return createWakuTransportFromNode(chain_id, node);
+  return createBroadcasterFromNode(chain_id, node);
 }
 
 /**
  * Create a JsBroadcaster instance from an existing Waku LightNode.
  */
-export function createWakuTransportFromNode(chain_id: bigint, node: LightNode): JsBroadcaster {
+export function createBroadcasterFromNode(chain_id: bigint, node: LightNode): JsBroadcaster {
   const { JsBroadcaster } = getWasm();
 
   const subscribeFn: SubscribeFn = async (topics, onMessage) => {

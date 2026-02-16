@@ -7,16 +7,19 @@ use crate::railgun::{
 };
 
 /// Serialize to EVM = 0
+#[derive(Debug)]
 pub enum ChainType {
     EVM,
 }
 
+#[derive(Debug)]
 pub struct Chain {
     pub chain_type: ChainType,
     /// EIP-155 Chain ID
     pub chain_id: u64,
 }
 
+#[derive(Debug)]
 pub struct BroadcastData {
     pub txid_version_for_inputs: TxidVersion,
     pub to: Address,

@@ -15,9 +15,9 @@ use crate::crypto::aes::{
 use crate::crypto::poseidon::poseidon_hash;
 
 /// Private key for signing transactions (BabyJubJub curve).
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SpendingKey([u8; 32]);
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SpendingPublicKey {
     x: [u8; 32],
     y: [u8; 32],
@@ -30,25 +30,25 @@ pub struct SpendingSignature {
 }
 
 /// Private key for viewing transactions and ECDH.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ViewingKey([u8; 32]);
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ViewingPublicKey([u8; 32]);
 
 /// Master public key (wallet identifier).
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct MasterPublicKey([u8; 32]);
 
 /// Symmetric key for AES encryption.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SharedKey([u8; 32]);
 
 /// Key for nullifier derivation.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct NullifyingKey([u8; 32]);
 
 /// Blinded public key for stealth addresses.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct BlindedKey([u8; 32]);
 
 #[derive(Debug, Error)]
@@ -107,6 +107,16 @@ macro_rules! impl_byte_key {
             }
             fn as_bytes(&self) -> &[u8; 32] {
                 &self.0
+            }
+        }
+        impl std::fmt::Display for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.to_hex())
+            }
+        }
+        impl std::fmt::Debug for $name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}({})", stringify!($name), self.to_hex())
             }
         }
         impl rand::distr::Distribution<$name> for rand::distr::StandardUniform {
@@ -186,6 +196,18 @@ impl SpendingPublicKey {
 
     pub fn y_u256(&self) -> U256 {
         U256::from_be_bytes(self.y)
+    }
+}
+
+impl std::fmt::Debug for SpendingPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SpendingPublicKey({}, {})", self.x_hex(), self.y_hex())
+    }
+}
+
+impl std::fmt::Display for SpendingPublicKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "({}, {})", self.x_hex(), self.y_hex())
     }
 }
 

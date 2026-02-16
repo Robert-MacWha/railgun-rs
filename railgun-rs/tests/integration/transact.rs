@@ -11,7 +11,7 @@ use railgun_rs::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, MAINNET_CONFIG},
-    circuit::groth16_prover::Groth16Prover,
+    circuit::native::Groth16Prover,
     railgun::indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
     railgun::transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
 };

@@ -1,3 +1,6 @@
+use alloy::rpc::types::error;
+use thiserror::Error;
+
 use crate::{
     account::RailgunAccount,
     caip::AssetId,
@@ -35,6 +38,16 @@ pub struct Operation<N> {
     pub out_notes: Vec<TransferNote>,
     pub unshield_note: Option<UnshieldNote>,
     pub fee_note: Option<TransferNote>,
+}
+
+#[derive(Debug, Error)]
+pub enum OperationVerificationError {
+    #[error("Insufficient input: {0} < {1} + {2} + {3}")]
+    InsufficientInput(u128, u128, u128, u128),
+    #[error("Too many output notes: {0} > 13")]
+    TooManyOutputNotes(usize),
+    #[error("Too many input notes: {0} > 13")]
+    TooManyInputNotes(usize),
 }
 
 impl<N: Note> Operation<N> {
@@ -76,6 +89,36 @@ impl<N: Note> Operation<N> {
             unshield_note: None,
             fee_note: None,
         }
+    }
+
+    pub fn verify(&self) -> Result<(), OperationVerificationError> {
+        let in_value: u128 = self.in_notes.iter().map(|n| n.value()).sum();
+        let out_value: u128 = self.out_notes.iter().map(|n| n.value()).sum();
+        let unshield_value: u128 = self.unshield_note.as_ref().map_or(0, |n| n.value());
+        let fee_value: u128 = self.fee_note.as_ref().map_or(0, |n| n.value());
+
+        if in_value < out_value + unshield_value + fee_value {
+            return Err(OperationVerificationError::InsufficientInput(
+                in_value,
+                out_value,
+                unshield_value,
+                fee_value,
+            ));
+        }
+
+        if self.out_notes.len() + self.unshield_note.is_some() as usize > 13 {
+            return Err(OperationVerificationError::TooManyOutputNotes(
+                self.out_notes.len(),
+            ));
+        }
+
+        if self.in_notes.len() > 13 {
+            return Err(OperationVerificationError::TooManyInputNotes(
+                self.in_notes.len(),
+            ));
+        }
+
+        Ok(())
     }
 }
 

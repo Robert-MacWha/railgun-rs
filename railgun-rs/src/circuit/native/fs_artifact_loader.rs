@@ -7,7 +7,7 @@ use ark_circom::read_zkey;
 use ark_groth16::ProvingKey;
 use ark_relations::r1cs::ConstraintMatrices;
 
-use crate::circuit::artifacts::ArtifactLoader;
+use crate::circuit::artifact_loader::ArtifactLoader;
 use crate::circuit::witness::CircuitType;
 
 pub struct FsArtifactLoader {
