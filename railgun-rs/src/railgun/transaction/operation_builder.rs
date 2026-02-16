@@ -36,7 +36,7 @@ use crate::{
         merkle_tree::merkle_tree::UtxoMerkleTree,
         note::{
             IncludedNote, encrypt::EncryptError, operation::Operation, transfer::TransferNote,
-            unshield::UnshieldNote, utxo::UtxoNote,
+            unshield::UnshieldNote,
         },
         poi::{
             poi_client::{ListKey, PoiClient, PoiClientError, PreTransactionPoi, TxidVersion},

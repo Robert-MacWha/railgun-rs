@@ -223,7 +223,7 @@ impl JsTransactionBuilder {
         broadcaster: &mut JsBroadcaster,
     ) -> Result<(), JsError> {
         let chain = indexer.chain();
-        let mut rng = rand::rng();
+        let rng = rand::rng();
 
         todo!();
 

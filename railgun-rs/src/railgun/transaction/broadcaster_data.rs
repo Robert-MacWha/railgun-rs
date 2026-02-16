@@ -1,4 +1,4 @@
-use alloy::primitives::{Address, FixedBytes};
+use alloy::primitives::Address;
 use ruint::aliases::U256;
 
 use crate::railgun::{
