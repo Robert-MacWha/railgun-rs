@@ -29,32 +29,6 @@ impl PoiNote {
         }
     }
 
-    pub async fn from_utxo_notes(
-        inner: Vec<UtxoNote>,
-        client: &PoiClient,
-    ) -> Result<Vec<Self>, PoiClientError> {
-        let blinded_commitments = inner
-            .iter()
-            .map(|n| n.blinded_commitment().to_be_bytes())
-            .collect();
-        let proofs = client.merkle_proofs(blinded_commitments).await?;
-        let mut poi_notes = Vec::new();
-
-        for (i, note) in inner.into_iter().enumerate() {
-            let mut note_proofs = HashMap::new();
-
-            for (list_key, proofs) in proofs.iter() {
-                let proof = proofs.get(i).unwrap();
-                note_proofs.insert(list_key.clone(), proof.clone());
-            }
-
-            let poi_note = PoiNote::new(note, note_proofs);
-            poi_notes.push(poi_note);
-        }
-
-        Ok(poi_notes)
-    }
-
     pub fn note(&self) -> &UtxoNote {
         &self.inner
     }

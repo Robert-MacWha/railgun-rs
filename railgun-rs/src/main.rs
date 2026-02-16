@@ -81,7 +81,7 @@ async fn main() {
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
     builder.set_unshield(account1.clone(), address, USDC, 100);
     let prepared = builder
-        .prepare_broadcast(
+        .build_with_broadcast(
             &mut indexer,
             &prover,
             &poi_client,
@@ -103,5 +103,8 @@ async fn main() {
         .await
         .unwrap();
 
-    info!("Prepared operation: {:?}", prepared);
+    info!(
+        "Prepared operation with {} operations",
+        prepared.operations.len()
+    );
 }

@@ -97,7 +97,7 @@ async fn test_transact() {
         "test transfer",
     );
     let transfer_tx = builder
-        .build_transaction(&mut indexer, &prover, CHAIN, &mut rand::rng())
+        .build(&mut indexer, &prover, CHAIN, &mut rand::rng())
         .await
         .unwrap();
 
@@ -126,7 +126,7 @@ async fn test_transact() {
         1_000,
     );
     let unshield_tx = builder
-        .build_transaction(&mut indexer, &prover, CHAIN, &mut rand::rng())
+        .build(&mut indexer, &prover, CHAIN, &mut rand::rng())
         .await
         .unwrap();
 

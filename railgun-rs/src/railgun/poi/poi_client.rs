@@ -14,7 +14,11 @@ pub use crate::railgun::poi::{
 };
 use crate::{
     crypto::{keys::hex_to_u256, railgun_txid::Txid},
-    railgun::merkle_tree::merkle_proof::MerkleProof,
+    railgun::{
+        merkle_tree::merkle_proof::MerkleProof,
+        note::{Note, utxo::UtxoNote},
+        poi::poi_note::PoiNote,
+    },
 };
 
 pub struct PoiClient {
@@ -95,6 +99,32 @@ impl PoiClient {
                 blinded_commitment_datas,
             })
             .await
+    }
+
+    pub async fn note_to_poi_note(
+        &self,
+        notes: Vec<UtxoNote>,
+    ) -> Result<Vec<PoiNote>, PoiClientError> {
+        let blinded_commitments = notes
+            .iter()
+            .map(|n| n.blinded_commitment().to_be_bytes())
+            .collect();
+        let proofs = self.merkle_proofs(blinded_commitments).await?;
+
+        let mut poi_notes = Vec::new();
+        for (i, note) in notes.into_iter().enumerate() {
+            let mut note_proofs = HashMap::new();
+
+            for (list_key, proofs) in proofs.iter() {
+                let proof = proofs.get(i).unwrap();
+                note_proofs.insert(list_key.clone(), proof.clone());
+            }
+
+            let poi_note = PoiNote::new(note, note_proofs);
+            poi_notes.push(poi_note);
+        }
+
+        Ok(poi_notes)
     }
 
     pub async fn merkle_proofs(
@@ -183,6 +213,47 @@ impl PoiClient {
             chain_id: self.chain.to_string(),
             txid_version: crate::railgun::poi::inner_types::TxidVersion::V2PoseidonMerkle,
         }
+    }
+
+    /// Submit POI proofs to the POI node after self-broadcasting.
+    ///
+    /// Call this after the transaction is confirmed on-chain to register the
+    /// POI proofs with the POI node. The `data` should be obtained from
+    /// `OperationBuilder::build_self_broadcast_with_poi`.
+    pub async fn submit_poi(
+        &self,
+        data: &crate::railgun::transaction::broadcaster_data::PoiProvedTransaction,
+    ) -> Result<(), PoiClientError> {
+        for poi_op in &data.operations {
+            for (list_key, poi) in &poi_op.pois {
+                let params = crate::railgun::poi::inner_types::SubmitTransactProofParams {
+                    chain: self.chain(),
+                    list_key: list_key.clone(),
+                    transact_proof_data: crate::railgun::poi::inner_types::TransactProofData {
+                        snark_proof: poi.snark_proof.clone().into(),
+                        poi_merkleroots: poi
+                            .poi_merkleroots
+                            .iter()
+                            .map(|r| r.to_string())
+                            .collect(),
+                        txid_merkleroot: poi.txid_merkleroot.to_string(),
+                        // TODO: This index should come from the circuit inputs
+                        txid_merkleroot_index: 0,
+                        blinded_commitments_out: poi
+                            .blinded_commitments_out
+                            .iter()
+                            .map(|c| c.to_string())
+                            .collect(),
+                        railgun_txid_if_has_unshield: poi.railgun_txid_if_has_unshield.to_string(),
+                    },
+                };
+
+                self.inner.submit_transact_proof(params).await?;
+                info!("Submitted POI proof for list key {}", list_key);
+            }
+        }
+
+        Ok(())
     }
 }
 

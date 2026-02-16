@@ -1,10 +1,14 @@
 use alloy::rpc::types::error;
+use ruint::aliases::U256;
 use thiserror::Error;
 
 use crate::{
     account::RailgunAccount,
     caip::AssetId,
-    railgun::note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote},
+    railgun::{
+        note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote},
+        poi::poi_note::PoiNote,
+    },
 };
 
 /// An Operation represents a single "operation" within a railgun transaction.
@@ -179,6 +183,15 @@ impl<N: Note> Operation<N> {
         }
 
         notes.into_iter().filter(|n| n.value() > 0).collect()
+    }
+}
+
+impl Operation<PoiNote> {
+    pub fn blinded_commitments(&self) -> Vec<U256> {
+        self.in_notes
+            .iter()
+            .map(|n| n.blinded_commitment())
+            .collect()
     }
 }
 

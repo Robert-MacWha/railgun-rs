@@ -3,17 +3,20 @@ use ruint::aliases::U256;
 
 use crate::{abis, railgun};
 
+#[derive(Clone)]
 pub struct Proof {
     pub a: G1Affine,
     pub b: G2Affine,
     pub c: G1Affine,
 }
 
+#[derive(Clone)]
 pub struct G1Affine {
     pub x: U256,
     pub y: U256,
 }
 
+#[derive(Clone)]
 pub struct G2Affine {
     pub x: [U256; 2],
     pub y: [U256; 2],

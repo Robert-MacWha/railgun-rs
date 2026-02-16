@@ -218,7 +218,7 @@ impl JsTransactionBuilder {
         let tx_data = self
             .inner
             .borrow_mut()
-            .build_transaction(indexer.inner_mut(), prover, chain, &mut rng)
+            .build_self_broadcast(indexer.inner_mut(), prover, chain, &mut rng)
             .await
             .map_err(|e| JsError::new(&format!("Failed to build transaction: {}", e)))?;
 
