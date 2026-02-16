@@ -8,7 +8,7 @@ use tracing::warn;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-use crate::railgun::broadcaster::broadcaster::Broadcaster;
+use crate::railgun::broadcaster::broadcaster_manager::BroadcasterManager;
 use crate::railgun::broadcaster::transport::{MessageStream, WakuTransport, WakuTransportError};
 use crate::railgun::broadcaster::types::WakuMessage;
 
@@ -41,7 +41,7 @@ pub enum JsWakuTransportError {
 /// ```
 #[wasm_bindgen]
 pub struct JsBroadcaster {
-    inner: Broadcaster,
+    inner: BroadcasterManager,
 }
 
 struct JsWakuTransport {
@@ -56,13 +56,22 @@ impl JsBroadcaster {
     #[wasm_bindgen(constructor)]
     pub fn new(chain_id: u64, subscribe_fn: Function, send_fn: Function) -> Self {
         let transport = JsWakuTransport::new(subscribe_fn, send_fn);
-        let inner = Broadcaster::new(chain_id, transport);
+        let inner = BroadcasterManager::new(chain_id, transport);
         Self { inner }
+    }
+
+    pub fn start(&mut self) {
+        let inner = self.inner.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(e) = inner.start().await {
+                warn!("BroadcasterManager error: {}", e);
+            }
+        });
     }
 }
 
 impl JsBroadcaster {
-    pub(crate) fn inner_mut(&mut self) -> &mut Broadcaster {
+    pub(crate) fn inner_mut(&mut self) -> &mut BroadcasterManager {
         &mut self.inner
     }
 }
@@ -109,8 +118,7 @@ impl WakuTransport for JsWakuTransport {
 
         // Keep the closure alive for the lifetime of the subscription.
         // This leaks memory, but the subscription is expected to live for the
-        // lifetime of the application. A more sophisticated approach would store
-        // the closure in a struct that outlives the stream.
+        // lifetime of the application.
         on_message.forget();
 
         // Call subscribe_fn(topics, onMessage)

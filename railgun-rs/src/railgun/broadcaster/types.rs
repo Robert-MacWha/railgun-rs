@@ -47,7 +47,7 @@ pub struct BroadcasterFeeMessageData {
     #[serde(rename = "requiredPOIListKeys")]
     pub required_poi_list_keys: Vec<String>,
     /// Reliability score (0-100)
-    pub reliability: u32,
+    pub reliability: f64,
 }
 
 /// Fee information for a specific token from a broadcaster.

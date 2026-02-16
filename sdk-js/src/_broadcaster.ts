@@ -100,7 +100,9 @@ export class Broadcasters {
 
         const feeDecoder = createDecoder(feeContentTopic(chain_id), WAKU_RAILGUN_DEFAULT_SHARD)
         const decoders = [feeDecoder];
-        await node.filter.subscribe(decoders, (msg) => {
+        console.log("Subscribing to broadcaster fee topic:", decoders);
+        node.filter.subscribe(decoders, (msg) => {
+            console.log("Received message on topic:", msg.contentTopic);
             try {
                 if (msg.contentTopic === feeContentTopic(chain_id)) {
                     broadcaster.handleFeesMessage(msg);

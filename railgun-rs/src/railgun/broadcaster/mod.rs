@@ -3,5 +3,6 @@
 //! network to railgun.
 
 pub mod broadcaster;
+pub mod broadcaster_manager;
 pub mod transport;
 pub mod types;

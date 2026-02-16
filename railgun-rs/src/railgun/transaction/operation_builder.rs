@@ -194,7 +194,7 @@ impl OperationBuilder {
     /// any POI proofs.
     pub async fn build<R: Rng>(
         &self,
-        indexer: &mut Indexer,
+        indexer: &Indexer,
         prover: &impl TransactProver,
         chain: ChainConfig,
         rng: &mut R,
@@ -203,7 +203,7 @@ impl OperationBuilder {
         let operations = self.build_operations(in_notes, rng)?;
 
         let proved = self
-            .prove_operations(prover, &mut indexer.utxo_trees, &operations, chain, 0, rng)
+            .prove_operations(prover, &indexer.utxo_trees, &operations, chain, 0, rng)
             .await?;
 
         Ok(proved.tx_data)
@@ -274,7 +274,7 @@ impl OperationBuilder {
     async fn prove_operations<R: Rng>(
         &self,
         prover: &impl TransactProver,
-        utxo_trees: &mut BTreeMap<u32, UtxoMerkleTree>,
+        utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
         operations: &[Operation<UtxoNote>],
         chain: ChainConfig,
         min_gas_price: u128,

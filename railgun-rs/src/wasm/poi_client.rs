@@ -30,6 +30,9 @@ impl JsPoiClient {
 }
 
 impl JsPoiClient {
+    pub fn inner(&self) -> &PoiClient {
+        &self.inner
+    }
     pub fn inner_mut(&mut self) -> &mut PoiClient {
         &mut self.inner
     }

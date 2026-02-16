@@ -16,7 +16,7 @@ run:
     bun run main.ts
 
 wasm:
-    wasm-pack build --target web ../railgun-rs --out-dir ../sdk-js/pkg --features wasm --no-default-features
+    wasm-pack build --target nodejs ../railgun-rs --out-dir ../sdk-js/pkg --features wasm --no-default-features
 
 test: wasm unit integration
 

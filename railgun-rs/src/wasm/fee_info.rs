@@ -18,7 +18,7 @@ impl JsFeeInfo {
     pub fn new(
         payee: JsRailgunAccount,
         asset: String,
-        bps: u32,
+        rate: u128,
         recipient: String,
         id: String,
         list_keys: Vec<String>,
@@ -34,7 +34,7 @@ impl JsFeeInfo {
             inner: FeeInfo {
                 payee: payee.inner.clone(),
                 asset,
-                bps,
+                rate,
                 recipient,
                 id,
                 list_keys,

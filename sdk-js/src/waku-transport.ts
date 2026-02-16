@@ -29,7 +29,7 @@ const WAKU_RAILGUN_SHARD_CONFIG = {
  * @param onMessage - Callback invoked when a message is received
   * @returns Promise that resolves when the subscription is setup
  */
-export type SubscribeFn = (
+type SubscribeFn = (
   topics: string[],
   onMessage: (msg: WakuMessage) => void
 ) => Promise<void>;
@@ -41,7 +41,7 @@ export type SubscribeFn = (
  * @param payload - Message payload
  * @returns Promise that resolves when the message is sent
  */
-export type SendFn = (topic: string, payload: Uint8Array) => Promise<void>;
+type SendFn = (topic: string, payload: Uint8Array) => Promise<void>;
 
 /**
  * Creates a JsBroadcaster instance by initializing a Waku LightNode with the 
@@ -61,6 +61,7 @@ export function createBroadcasterFromNode(chain_id: bigint, node: LightNode): Js
   const { JsBroadcaster } = getWasm();
 
   const subscribeFn: SubscribeFn = async (topics, onMessage) => {
+    console.log("Subscribing to topics:", topics);
     const decoders = topics.map((topic) =>
       createDecoder(topic, WAKU_RAILGUN_SHARD_CONFIG)
     );
@@ -75,6 +76,7 @@ export function createBroadcasterFromNode(chain_id: bigint, node: LightNode): Js
             ? wakuMsg.timestamp.getTime()
             : undefined,
         };
+        console.log("Received message on topic:", wakuMsg.contentTopic);
         onMessage(msg);
       }
     );

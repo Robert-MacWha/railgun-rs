@@ -60,6 +60,10 @@ async fn main() {
     let account2 = RailgunAccount::new(random(), random(), CHAIN.id);
     let account3 = RailgunAccount::new(random(), random(), CHAIN.id);
 
+    info!("Account 1: {}", account1.address());
+    info!("Account 2: {}", account2.address());
+    info!("Account 3: {}", account3.address());
+
     // info!("Creating indexer");
     let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();

@@ -21,6 +21,10 @@ impl JsProvider {
 }
 
 impl JsProvider {
+    pub fn inner(&self) -> &DynProvider {
+        &self.inner
+    }
+
     pub fn inner_mut(&mut self) -> &mut DynProvider {
         &mut self.inner
     }

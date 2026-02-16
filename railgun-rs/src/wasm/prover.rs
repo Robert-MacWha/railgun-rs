@@ -9,10 +9,9 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::circuit::{
-    poi_inputs::PoiCircuitInputs,
+    inputs::{PoiCircuitInputs, TransactCircuitInputs},
     proof::{G1Affine, G2Affine, Proof},
     prover::{PoiProver, TransactProver},
-    transact_inputs::TransactCircuitInputs,
 };
 
 /// JavaScript-backed prover that delegates to snarkjs or similar.

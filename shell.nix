@@ -24,6 +24,7 @@ pkgs.mkShell {
     pkgs.binaryen
     pkgs.wasm-pack
 
-    pkgs.bun
+    pkgs.nodejs_22
+    pkgs.pnpm
   ];
 }

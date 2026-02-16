@@ -12,11 +12,11 @@ use crate::{
     railgun::{
         address::RailgunAddress,
         note::shield::create_shield_request,
-        transaction::{operation_builder::OperationBuilder, tx_data::TxData},
+        transaction::{PoiProvedTransaction, operation_builder::OperationBuilder, tx_data::TxData},
     },
     wasm::{
-        JsBroadcaster, JsProver, JsRailgunAccount, broadcast_data::JsBroadcastData,
-        fee_info::JsFeeInfo, indexer::JsIndexer, poi_client::JsPoiClient, provider::JsProvider,
+        JsProver, JsRailgunAccount, fee_info::JsFeeInfo, indexer::JsIndexer,
+        poi_client::JsPoiClient, provider::JsProvider,
     },
 };
 
@@ -51,6 +51,11 @@ impl JsTxData {
     pub fn data_hex(&self) -> String {
         format!("0x{}", hex::encode(&self.inner.data))
     }
+}
+
+#[wasm_bindgen]
+pub struct JsPoiProvedTx {
+    inner: PoiProvedTransaction,
 }
 
 /// Builder for shield transactions (self-broadcast only, no prover needed)
@@ -134,16 +139,14 @@ impl JsShieldBuilder {
 /// ```
 #[wasm_bindgen]
 pub struct JsTransactionBuilder {
-    account: RailgunAccount,
     inner: RefCell<OperationBuilder>,
 }
 
 #[wasm_bindgen]
 impl JsTransactionBuilder {
     #[wasm_bindgen(constructor)]
-    pub fn new(account: &JsRailgunAccount) -> JsTransactionBuilder {
+    pub fn new() -> JsTransactionBuilder {
         JsTransactionBuilder {
-            account: account.inner.clone(),
             inner: RefCell::new(OperationBuilder::new()),
         }
     }
@@ -156,6 +159,7 @@ impl JsTransactionBuilder {
     /// - `memo`: Optional memo string
     pub fn transfer(
         &mut self,
+        from: &JsRailgunAccount,
         to: &str,
         asset: &str,
         amount: &str,
@@ -175,7 +179,7 @@ impl JsTransactionBuilder {
 
         self.inner
             .borrow_mut()
-            .transfer(self.account.clone(), to, asset, amount, memo);
+            .transfer(from.inner.clone(), to, asset, amount, memo);
 
         Ok(())
     }
@@ -185,7 +189,13 @@ impl JsTransactionBuilder {
     /// - `to`: Ethereum address (0x...)
     /// - `asset`: Asset ID (e.g., "erc20:0x...")
     /// - `amount`: Amount as decimal string
-    pub fn unshield(&mut self, to: &str, asset: &str, amount: &str) -> Result<(), JsError> {
+    pub fn unshield(
+        &mut self,
+        from: &JsRailgunAccount,
+        to: &str,
+        asset: &str,
+        amount: &str,
+    ) -> Result<(), JsError> {
         let to: Address = to
             .parse()
             .map_err(|e| JsError::new(&format!("Invalid recipient address: {}", e)))?;
@@ -200,7 +210,7 @@ impl JsTransactionBuilder {
 
         self.inner
             .borrow_mut()
-            .set_unshield(self.account.clone(), to, asset, amount);
+            .set_unshield(from.inner.clone(), to, asset, amount);
 
         Ok(())
     }
@@ -209,7 +219,7 @@ impl JsTransactionBuilder {
     /// Returns encoded calldata for RailgunSmartWallet.transact()
     pub async fn build(
         &mut self,
-        indexer: &mut JsIndexer,
+        indexer: &JsIndexer,
         prover: &JsProver,
     ) -> Result<JsTxData, JsError> {
         let chain = indexer.chain();
@@ -218,7 +228,7 @@ impl JsTransactionBuilder {
         let tx_data = self
             .inner
             .borrow_mut()
-            .build_self_broadcast(indexer.inner_mut(), prover, chain, &mut rng)
+            .build(indexer.inner(), prover, chain, &mut rng)
             .await
             .map_err(|e| JsError::new(&format!("Failed to build transaction: {}", e)))?;
 
@@ -229,23 +239,23 @@ impl JsTransactionBuilder {
     /// and broadcaster.
     pub async fn prepare_broadcast(
         &mut self,
-        indexer: &mut JsIndexer,
+        indexer: &JsIndexer,
         prover: &JsProver,
-        poi_client: &mut JsPoiClient,
-        provider: &mut JsProvider,
-        fee_info: &mut JsFeeInfo,
-    ) -> Result<JsBroadcastData, JsError> {
+        poi_client: &JsPoiClient,
+        provider: &JsProvider,
+        fee_info: &JsFeeInfo,
+    ) -> Result<JsPoiProvedTx, JsError> {
         let chain = indexer.chain();
         let mut rng = rand::rng();
 
-        let broadcast_data = self
+        let poi_proved_transaction = self
             .inner
             .borrow_mut()
-            .prepare_broadcast(
-                indexer.inner_mut(),
+            .build_with_broadcast(
+                indexer.inner(),
                 prover,
-                poi_client.inner_mut(),
-                provider.inner_mut(),
+                poi_client.inner(),
+                provider.inner(),
                 fee_info.inner().clone(),
                 chain,
                 &mut rng,
@@ -253,6 +263,8 @@ impl JsTransactionBuilder {
             .await
             .map_err(|e| JsError::new(&format!("Failed to prepare broadcast: {}", e)))?;
 
-        Ok(JsBroadcastData::new(broadcast_data))
+        Ok(JsPoiProvedTx {
+            inner: poi_proved_transaction,
+        })
     }
 }

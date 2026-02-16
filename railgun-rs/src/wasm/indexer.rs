@@ -110,12 +110,16 @@ impl JsIndexer {
 }
 
 impl JsIndexer {
-    pub(crate) fn chain(&self) -> crate::chain_config::ChainConfig {
+    pub fn chain(&self) -> crate::chain_config::ChainConfig {
         self.inner.chain()
     }
 
-    pub(crate) fn inner_mut(&mut self) -> &mut Indexer {
+    pub fn inner_mut(&mut self) -> &mut Indexer {
         &mut self.inner
+    }
+
+    pub fn inner(&self) -> &Indexer {
+        &self.inner
     }
 }
 
