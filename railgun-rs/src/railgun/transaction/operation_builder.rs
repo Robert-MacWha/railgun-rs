@@ -17,7 +17,7 @@ use alloy::primitives::Address;
 use rand::{Rng, random};
 use ruint::aliases::U256;
 use thiserror::Error;
-use tracing::{Instrument, info, warn};
+use tracing::{info, warn};
 
 use crate::{
     abis,
