@@ -102,7 +102,7 @@ pub enum BuildError {
     #[error("Encryption error: {0}")]
     Encryption(#[from] EncryptError),
     #[error("Prover error: {0}")]
-    Prover(#[from] Box<dyn std::error::Error>),
+    Prover(Box<dyn std::error::Error>),
     #[error("Missing tree for number {0}")]
     MissingTree(u32),
     #[error("Transact circuit input error: {0}")]
@@ -113,6 +113,8 @@ pub enum BuildError {
     PoiCircuitInput(#[from] PoiCircuitInputsError),
     #[error("Operation verification error: {0}")]
     OperationVerification(#[from] OperationVerificationError),
+    #[error("Estimator error: {0}")]
+    Estimator(Box<dyn std::error::Error>),
 }
 
 impl OperationBuilder {
@@ -338,7 +340,10 @@ impl OperationBuilder {
                     list_key.clone(),
                 )?;
 
-                let poi_proof = prover.prove_poi(&inputs).await?;
+                let poi_proof = prover
+                    .prove_poi(&inputs)
+                    .await
+                    .map_err(BuildError::Prover)?;
 
                 let txid_merkleroot = inputs
                     .railgun_txid_merkle_root_after_transaction
@@ -433,7 +438,10 @@ impl OperationBuilder {
         let mut operations = Vec::new();
         let mut transactions = Vec::new();
         let mut tx_data = TxData::new(Address::ZERO, vec![], U256::ZERO);
-        let gas_price_wei = estimator.gas_price_wei().await?;
+        let gas_price_wei = estimator
+            .gas_price_wei()
+            .await
+            .map_err(BuildError::Estimator)?;
 
         for _ in 0..MAX_ITERS {
             operations = builder.build(in_notes.clone(), rng)?;
@@ -451,7 +459,10 @@ impl OperationBuilder {
             let txns = transactions.iter().map(|(_, t)| t.clone()).collect();
             tx_data = TxData::from_transactions(chain.railgun_smart_wallet, txns);
 
-            let gas = estimator.estimate_gas(&tx_data).await?;
+            let gas = estimator
+                .estimate_gas(&tx_data)
+                .await
+                .map_err(BuildError::Estimator)?;
             let fee = fee(gas, gas_price_wei, fee_info.rate);
 
             if fee == last_fee {
@@ -628,7 +639,10 @@ async fn create_transaction<R: Rng, N: IncludedNote>(
         TransactCircuitInputs::from_inputs(utxo_tree, bound_params.hash(), notes_in, &notes_out)?;
 
     info!("Proving transaction");
-    let proof = prover.prove_transact(&inputs).await?;
+    let proof = prover
+        .prove_transact(&inputs)
+        .await
+        .map_err(BuildError::Prover)?;
 
     let transaction = abis::railgun::Transaction {
         proof: proof.into(),

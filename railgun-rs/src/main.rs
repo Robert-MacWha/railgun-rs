@@ -1,11 +1,11 @@
 #![cfg(not(feature = "wasm"))]
 
-use std::{collections::BTreeMap, str::FromStr};
+use std::str::FromStr;
 
 use alloy::{
     network::Ethereum,
-    primitives::{Address, U256, address},
-    providers::{DynProvider, Provider, ProviderBuilder},
+    primitives::{Address, address},
+    providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
 };
 use rand::random;
@@ -78,7 +78,8 @@ async fn main() {
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
 
     let mut builder = OperationBuilder::new();
-    builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
+    // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
+    builder.set_unshield(account1.clone(), address, USDC, 100);
     let prepared = builder
         .prepare_broadcast(
             &mut indexer,

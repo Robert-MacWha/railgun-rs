@@ -51,7 +51,6 @@ impl WitnessCalculator for WasmerWitnessCalculator {
         inputs: HashMap<String, Vec<U256>>,
     ) -> Result<Vec<U256>, String> {
         let wasm_path = self.wasm_path(circuit_type);
-
         let mut guard = self.inner.lock().map_err(|e| e.to_string())?;
 
         // Check if we have a cached calculator for this circuit type
