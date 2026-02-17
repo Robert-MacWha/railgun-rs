@@ -83,7 +83,7 @@ impl JsIndexer {
     }
 
     pub fn add_account(&mut self, account: &JsRailgunAccount) {
-        self.inner.add_account(&account.inner);
+        self.inner.add_account(account.inner());
     }
 
     pub async fn sync(&mut self) -> Result<(), JsError> {

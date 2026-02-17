@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { createPublicClient, createWalletClient, http } from "viem";
 import { createProverFunctions } from "./src/prover";
 import { initWasm } from "./src/wasm";
@@ -9,6 +10,7 @@ import { Broadcasters } from "./src/_broadcaster";
 const hexKey = (fill: number): string => "0x" + fill.toString(16).padStart(2, "0").repeat(32);
 
 const USDC_ADDRESS = "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238";
+const WETH_ADDRESS = "0xfff9976782d46cc05630d1f6ebab18b2324d6b14";
 const CHAIN_ID = 11155111n;
 const ARTIFACTS_PATH = "../railgun-rs/artifacts";
 const INDEXER_STATE_PATH = "../railgun-rs/indexer_state_11155111.bincode";
@@ -21,58 +23,63 @@ async function main() {
     console.log("Initializing WASM");
     const wasm = await initWasm();
 
-    const broadcaster = await createBroadcaster(1n);
-    broadcaster.start();
+    const broadcast_manager = await createBroadcaster(CHAIN_ID);
+    broadcast_manager.start();
 
-    // const USDC = wasm.erc20_asset(USDC_ADDRESS);
+    let broadcaster = undefined;
+    while (!broadcaster) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
-    // console.log("Setup")
-    // const indexerState = await Bun.file(INDEXER_STATE_PATH).bytes();
-    // const syncer = await wasm.JsSyncer.withRpc(
-    //     RPC_URL,
-    //     CHAIN_ID
-    // );
-    // const indexer = await wasm.JsIndexer.from_state(syncer, indexerState);
+        const unix_time = Math.floor(Date.now() / 1000);
+        broadcaster = await broadcast_manager.best_broadcaster_for_token(WETH_ADDRESS, BigInt(unix_time));
+    }
 
-    // const { proveTransact, provePoi } = createProverFunctions({
-    //     artifactsPath: ARTIFACTS_PATH,
-    // });
-    // const prover = new wasm.JsProver(proveTransact, provePoi);
-    // const poi_client = await wasm.JsPoiClient.new(CHAIN_ID);
-    // const provider = await wasm.JsProvider.with_url(RPC_URL);
-    // const broadcaster = await createBroadcaster(CHAIN_ID);
-    // broadcaster.start();
+    console.log("Best broadcaster for WETH:", broadcaster);
 
-    // const account1 = new wasm.JsRailgunAccount(SPENDING_KEY, VIEWING_KEY, CHAIN_ID);
-    // console.log("Account 1 address:", account1.address);
-    // const account2 = new wasm.JsRailgunAccount(hexKey(3), hexKey(4), CHAIN_ID);
+    const USDC = wasm.erc20_asset(USDC_ADDRESS);
+    const WETH = wasm.erc20_asset(WETH_ADDRESS);
 
-    // indexer.add_account(account1);
-    // indexer.add_account(account2);
+    console.log("Setup")
+    const indexerState = new Uint8Array(await readFile(INDEXER_STATE_PATH));
+    const syncer = await wasm.JsSyncer.withRpc(
+        RPC_URL,
+        CHAIN_ID
+    );
+    const indexer = await wasm.JsIndexer.from_state(syncer, indexerState);
 
-    // let bal = indexer.balance(account1.address);
+    const { proveTransact, provePoi } = createProverFunctions({
+        artifactsPath: ARTIFACTS_PATH,
+    });
+    const prover = new wasm.JsProver(proveTransact, provePoi);
+    const poi_client = await wasm.JsPoiClient.new(CHAIN_ID);
+    const provider = await wasm.JsProvider.with_url(RPC_URL);
 
-    // console.log("Creating transfer transaction");
-    // const builder = new wasm.JsTransactionBuilder();
-    // builder.transfer(
-    //     account1,
-    //     account2.address,
-    //     USDC,
-    //     "100",
-    //     ""
-    // );
+    const account1 = new wasm.JsRailgunAccount(SPENDING_KEY, VIEWING_KEY, CHAIN_ID);
+    console.log("Account 1 address:", account1.address);
+    const account2 = new wasm.JsRailgunAccount(hexKey(3), hexKey(4), CHAIN_ID);
 
-    // console.log("Preparing transaction for broadcast");
-    // const prepared = await builder.prepare_broadcast(indexer, prover, poi_client, provider, new wasm.JsFeeInfo(
-    //     account1,
-    //     USDC_ADDRESS,
-    //     100n,
-    //     account2.address,
-    //     "0",
-    //     ["efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88", "55049dc47b4435bca4a8f8ac27b1858e409f9f72b317fde4a442095cfc454893"]
-    // ));
+    indexer.add_account(account1);
+    indexer.add_account(account2);
 
-    // console.log("Prepared transaction");
+    console.log("Balance");
+    let balance = await indexer.balance(account1.address);
+    console.log("USDC: ", balance.get(USDC));
+    console.log("WETH: ", balance.get(WETH));
+
+    console.log("Creating transfer transaction");
+    const builder = new wasm.JsTransactionBuilder();
+    builder.transfer(
+        account1,
+        account2.address,
+        USDC,
+        "100",
+        ""
+    );
+
+    console.log("Preparing transaction for broadcast");
+    const prepared = await builder.prepare_broadcast(indexer, prover, poi_client, provider, account1, broadcaster.fee());
+
+    console.log("Prepared transaction");
 }
 
 await main();

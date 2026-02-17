@@ -9,6 +9,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use rand::random;
+use ruint::aliases::U256;
 use tracing::info;
 
 use railgun_rs::{
@@ -19,15 +20,17 @@ use railgun_rs::{
     circuit::native::Groth16Prover,
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
     railgun::{
-        indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
+        indexer::{indexer::Indexer, rpc_syncer::RpcSyncer, subsquid_syncer::SubsquidSyncer},
         poi::poi_client::PoiClient,
-        transaction::operation_builder::{FeeInfo, OperationBuilder},
+        transaction::shield_builder::ShieldBuilder,
     },
 };
 
 const CHAIN: ChainConfig = SEPOLIA_CONFIG;
 const USDC_ADDRESS: Address = address!("0x1c7d4b196cb0c7b01d743fbc6116a902379c7238");
 const USDC: AssetId = AssetId::Erc20(USDC_ADDRESS);
+const WETH_ADDRESS: Address = address!("0xfff9976782d46cc05630d1f6ebab18b2324d6b14");
+const WETH: AssetId = AssetId::Erc20(WETH_ADDRESS);
 
 const PPOI_URL: &str = "https://ppoi-agg.horsewithsixlegs.xyz/";
 const INDEXER_STATE: &str = "./indexer_state_11155111.bincode";
@@ -65,18 +68,19 @@ async fn main() {
     info!("Account 3: {}", account3.address());
 
     // info!("Creating indexer");
-    let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
+    // let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
+    let rpc = Box::new(RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
+    let mut indexer = Indexer::from_state(rpc, indexer_state).unwrap();
     // let mut indexer = Indexer::new(subsquid, CHAIN);
     indexer.add_account(&account1);
 
-    // info!("Syncing indexer");
-    // indexer.sync_to(10217000).await.unwrap();
+    info!("Syncing indexer");
+    indexer.sync().await.unwrap();
 
-    // info!("Saving indexer");
-    // let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
-    // std::fs::write("./indexer_state_11155111.bincode", indexer_state).unwrap();
+    info!("Saving indexer");
+    let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
+    std::fs::write("./indexer_state_11155111.bincode", indexer_state).unwrap();
 
     let prover = Groth16Prover::new_native("./artifacts");
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
@@ -85,22 +89,22 @@ async fn main() {
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
     builder.set_unshield(account1.clone(), address, USDC, 100);
     let prepared = builder
-        .build_with_broadcast(
+        .build_with_poi(
             &mut indexer,
             &prover,
             &poi_client,
-            &provider,
-            FeeInfo {
-                payee: account1,
-                asset: USDC_ADDRESS,
-                rate: 10000000,
-                recipient: account3.address(),
-                id: "uuid".to_string(),
-                list_keys: vec![
-                    "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
-                    "55049dc47b4435bca4a8f8ac27b1858e409f9f72b317fde4a442095cfc454893".to_string(),
-                ],
-            },
+            // &provider,
+            // FeeInfo {
+            //     payee: account1,
+            //     asset: USDC_ADDRESS,
+            //     rate: 10000000,
+            //     recipient: account3.address(),
+            //     id: "uuid".to_string(),
+            //     list_keys: vec![
+            //         "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
+            //         "55049dc47b4435bca4a8f8ac27b1858e409f9f72b317fde4a442095cfc454893".to_string(),
+            //     ],
+            // },
             CHAIN,
             &mut rand::rng(),
         )

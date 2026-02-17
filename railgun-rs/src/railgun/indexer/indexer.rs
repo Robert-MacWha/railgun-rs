@@ -40,7 +40,7 @@ pub struct Indexer {
     syncer: Arc<dyn Syncer>,
     chain: ChainConfig,
     /// The latest block number that has been synced
-    synced_block: u64,
+    pub synced_block: u64,
 
     /// List of accounts being tracked by the indexer
     accounts: Vec<IndexedAccount>,
@@ -240,6 +240,13 @@ impl Indexer {
             }
         }
 
+        for tree in self.utxo_trees.values_mut() {
+            tree.rebuild();
+        }
+        for tree in self.txid_trees.values_mut() {
+            tree.rebuild();
+        }
+
         self.synced_block = end_block;
         Ok(())
     }
@@ -368,7 +375,6 @@ fn insert_leaves<C: TreeConfig>(
         trees
             .entry(current_tree)
             .or_insert_with(|| MerkleTree::new(current_tree))
-            .edit()
             .insert_leaves(&remaining[..to_insert], position);
 
         remaining = &remaining[to_insert..];

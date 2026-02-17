@@ -8,6 +8,7 @@ use tracing::warn;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
+use crate::railgun::broadcaster::broadcaster::{Broadcaster, Fee};
 use crate::railgun::broadcaster::broadcaster_manager::BroadcasterManager;
 use crate::railgun::broadcaster::transport::{MessageStream, WakuTransport, WakuTransportError};
 use crate::railgun::broadcaster::types::WakuMessage;
@@ -40,8 +41,18 @@ pub enum JsWakuTransportError {
 /// ) => Promise<void>;
 /// ```
 #[wasm_bindgen]
-pub struct JsBroadcaster {
+pub struct JsBroadcasterManager {
     inner: BroadcasterManager,
+}
+
+#[wasm_bindgen]
+pub struct JsBroadcaster {
+    inner: Broadcaster,
+}
+
+#[wasm_bindgen]
+pub struct JsFee {
+    inner: Fee,
 }
 
 struct JsWakuTransport {
@@ -52,7 +63,7 @@ struct JsWakuTransport {
 struct ReceiverStream(UnboundedReceiver<WakuMessage>);
 
 #[wasm_bindgen]
-impl JsBroadcaster {
+impl JsBroadcasterManager {
     #[wasm_bindgen(constructor)]
     pub fn new(chain_id: u64, subscribe_fn: Function, send_fn: Function) -> Self {
         let transport = JsWakuTransport::new(subscribe_fn, send_fn);
@@ -60,6 +71,7 @@ impl JsBroadcaster {
         Self { inner }
     }
 
+    #[wasm_bindgen]
     pub fn start(&mut self) {
         let inner = self.inner.clone();
         wasm_bindgen_futures::spawn_local(async move {
@@ -68,10 +80,57 @@ impl JsBroadcaster {
             }
         });
     }
+
+    #[wasm_bindgen]
+    pub async fn best_broadcaster_for_token(
+        &self,
+        token_address: String,
+        current_time: u64,
+    ) -> Option<JsBroadcaster> {
+        let token = token_address.parse().ok()?;
+        self.inner
+            .best_broadcaster_for_token(token, current_time)
+            .await
+            .map(|b| JsBroadcaster { inner: b })
+    }
+}
+
+impl JsBroadcasterManager {
+    pub fn inner(&self) -> &BroadcasterManager {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut BroadcasterManager {
+        &mut self.inner
+    }
+}
+
+#[wasm_bindgen]
+impl JsBroadcaster {
+    #[wasm_bindgen]
+    pub fn fee(&self) -> JsFee {
+        JsFee {
+            inner: self.inner.fee.clone(),
+        }
+    }
 }
 
 impl JsBroadcaster {
-    pub(crate) fn inner_mut(&mut self) -> &mut BroadcasterManager {
+    pub fn inner(&self) -> &Broadcaster {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut Broadcaster {
+        &mut self.inner
+    }
+}
+
+impl JsFee {
+    pub fn inner(&self) -> &Fee {
+        &self.inner
+    }
+
+    pub fn inner_mut(&mut self) -> &mut Fee {
         &mut self.inner
     }
 }

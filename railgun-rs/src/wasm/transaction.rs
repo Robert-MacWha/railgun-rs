@@ -6,7 +6,6 @@ use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 
 use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
-    account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
     railgun::{
@@ -15,7 +14,7 @@ use crate::{
         transaction::{PoiProvedTransaction, operation_builder::OperationBuilder, tx_data::TxData},
     },
     wasm::{
-        JsProver, JsRailgunAccount, fee_info::JsFeeInfo, indexer::JsIndexer,
+        JsProver, JsRailgunAccount, broadcaster::JsFee, indexer::JsIndexer,
         poi_client::JsPoiClient, provider::JsProvider,
     },
 };
@@ -179,7 +178,7 @@ impl JsTransactionBuilder {
 
         self.inner
             .borrow_mut()
-            .transfer(from.inner.clone(), to, asset, amount, memo);
+            .transfer(from.inner().clone(), to, asset, amount, memo);
 
         Ok(())
     }
@@ -210,7 +209,7 @@ impl JsTransactionBuilder {
 
         self.inner
             .borrow_mut()
-            .set_unshield(from.inner.clone(), to, asset, amount);
+            .set_unshield(from.inner().clone(), to, asset, amount);
 
         Ok(())
     }
@@ -243,7 +242,8 @@ impl JsTransactionBuilder {
         prover: &JsProver,
         poi_client: &JsPoiClient,
         provider: &JsProvider,
-        fee_info: &JsFeeInfo,
+        fee_payer: &JsRailgunAccount,
+        fee: &JsFee,
     ) -> Result<JsPoiProvedTx, JsError> {
         let chain = indexer.chain();
         let mut rng = rand::rng();
@@ -256,7 +256,8 @@ impl JsTransactionBuilder {
                 prover,
                 poi_client.inner(),
                 provider.inner(),
-                fee_info.inner().clone(),
+                fee_payer.inner().clone(),
+                fee.inner(),
                 chain,
                 &mut rng,
             )

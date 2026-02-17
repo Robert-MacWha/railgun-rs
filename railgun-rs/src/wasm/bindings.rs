@@ -14,7 +14,7 @@ fn parse_hex_32(s: &str, name: &str) -> Result<[u8; 32], JsError> {
 
 #[wasm_bindgen]
 pub struct JsRailgunAccount {
-    pub(crate) inner: RailgunAccount,
+    inner: RailgunAccount,
 }
 
 #[wasm_bindgen]
@@ -45,6 +45,12 @@ impl JsRailgunAccount {
     #[wasm_bindgen(getter)]
     pub fn address(&self) -> String {
         self.inner.address().to_string()
+    }
+}
+
+impl JsRailgunAccount {
+    pub fn inner(&self) -> &RailgunAccount {
+        &self.inner
     }
 }
 

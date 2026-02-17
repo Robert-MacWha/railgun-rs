@@ -13,7 +13,7 @@ run:
     # Wait for anvil to be ready
     sleep 2
 
-    bun run main.ts
+    pnpm tsx main.ts
 
 wasm:
     wasm-pack build --target nodejs ../railgun-rs --out-dir ../sdk-js/pkg --features wasm --no-default-features

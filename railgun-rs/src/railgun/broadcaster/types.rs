@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use alloy::primitives::Address;
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "wasm")]
@@ -46,51 +45,8 @@ pub struct BroadcasterFeeMessageData {
     /// Required POI list keys for this broadcaster
     #[serde(rename = "requiredPOIListKeys")]
     pub required_poi_list_keys: Vec<String>,
-    /// Reliability score (0-100)
+    /// Reliability score (0.0-1.0)
     pub reliability: f64,
-}
-
-/// Fee information for a specific token from a broadcaster.
-#[derive(Debug, Clone)]
-pub struct TokenFee {
-    /// Fee per unit gas in token base units
-    pub fee_per_unit_gas: u128,
-    /// Unix timestamp when this fee expires
-    pub expiration: u64,
-    /// Unique identifier for this fee update
-    pub fees_id: String,
-    /// Number of wallets available for broadcasting
-    pub available_wallets: u32,
-    /// Address of the relay adapt contract
-    pub relay_adapt: Address,
-    /// Reliability score (0-100)
-    pub reliability: u32,
-}
-
-/// Information about a broadcaster and their current fees.
-#[derive(Debug, Clone)]
-pub struct BroadcasterInfo {
-    /// Broadcaster's RAILGUN address
-    pub railgun_address: String,
-    /// Optional human-readable identifier
-    pub identifier: Option<String>,
-    /// Broadcaster version string
-    pub version: String,
-    /// Required POI list keys
-    pub required_poi_list_keys: Vec<String>,
-    /// Token fees by token address
-    pub token_fees: HashMap<Address, TokenFee>,
-    /// Last update timestamp
-    pub last_seen: u64,
-}
-
-impl BroadcasterInfo {
-    /// Returns the fee for a specific token, if available and not expired.
-    pub fn fee_for_token(&self, token: Address, current_time: u64) -> Option<&TokenFee> {
-        self.token_fees
-            .get(&token)
-            .filter(|f| f.expiration > current_time)
-    }
 }
 
 /// The expected broadcaster version. Messages from incompatible versions are ignored.

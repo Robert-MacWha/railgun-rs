@@ -199,7 +199,7 @@ impl<C: TreeConfig> MerkleTree<C> {
 
     /// Inserts leaves starting at the given position. Marks parent nodes as dirty
     /// for later rebuilding.
-    fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
+    pub fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
         if leaves.is_empty() {
             return;
         }
@@ -217,7 +217,7 @@ impl<C: TreeConfig> MerkleTree<C> {
     }
 
     /// Rebuild only the nodes whose descendants were modified.
-    fn rebuild(&mut self) {
+    pub fn rebuild(&mut self) {
         if self.dirty_parents.is_empty() {
             return;
         }

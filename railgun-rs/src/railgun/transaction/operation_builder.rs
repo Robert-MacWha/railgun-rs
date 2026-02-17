@@ -31,6 +31,7 @@ use crate::{
     crypto::keys::ViewingPublicKey,
     railgun::{
         address::RailgunAddress,
+        broadcaster::broadcaster::Fee,
         indexer::indexer::Indexer,
         merkle_tree::merkle_tree::UtxoMerkleTree,
         note::{
@@ -60,22 +61,6 @@ pub struct OperationBuilder {
     unshields: HashMap<AssetId, UnshieldData>,
     broadcaster_fee: Option<TransferData>,
     accounts: HashMap<ViewingPublicKey, RailgunAccount>,
-}
-
-#[derive(Debug, Clone)]
-pub struct FeeInfo {
-    /// Account that pays for this transaction's fee.
-    pub payee: RailgunAccount,
-    /// Asset used to pay for the fee.  Must be an ERC-20 token.
-    pub asset: Address,
-    /// TODO: Figure out exactly what this represents.
-    pub rate: u128,
-    /// Address that receives the fee. Must be a valid railgun 0zk address.
-    pub recipient: RailgunAddress,
-    /// Fee UUID from the broadcaster's API.
-    pub id: String,
-    /// List keys for the POI proofs required for this broadcaster.
-    pub list_keys: Vec<ListKey>,
 }
 
 #[derive(Clone)]
@@ -246,7 +231,8 @@ impl OperationBuilder {
         prover: &(impl TransactProver + PoiProver),
         poi_client: &PoiClient,
         estimator: &impl GasEstimator,
-        fee_info: FeeInfo,
+        fee_payer: RailgunAccount,
+        fee: &Fee,
         chain: ChainConfig,
         rng: &mut R,
     ) -> Result<PoiProvedTransaction, BuildError> {
@@ -258,15 +244,21 @@ impl OperationBuilder {
             prover,
             &indexer.utxo_trees,
             estimator,
-            &fee_info,
+            fee_payer,
+            fee,
             chain,
             rng,
         )
         .await?;
 
-        let list_keys = fee_info.list_keys;
-        self.prove_poi(prover, poi_client, proved, &indexer.utxo_trees, &list_keys)
-            .await
+        self.prove_poi(
+            prover,
+            poi_client,
+            proved,
+            &indexer.utxo_trees,
+            &fee.list_keys,
+        )
+        .await
     }
 
     /// Proves the operations and returns a proved transaction that can be
@@ -521,18 +513,19 @@ async fn calculate_fee_to_convergence<R: Rng>(
     prover: &impl TransactProver,
     utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
     estimator: &impl GasEstimator,
-    fee_info: &FeeInfo,
+    fee_payer: RailgunAccount,
+    fee: &Fee,
     chain: ChainConfig,
     rng: &mut R,
 ) -> Result<ProvedTransaction, BuildError> {
     const MAX_ITERS: usize = 5;
 
     let mut fee_builder = builder.clone();
-    let mut last_fee: u128 = fee(1000, 1000, fee_info.rate);
+    let mut last_fee: u128 = calculate_fee(1000, 1000, fee.per_unit_gas);
     fee_builder.set_broadcaster_fee(
-        fee_info.payee.clone(),
-        fee_info.recipient.clone(),
-        AssetId::Erc20(fee_info.asset),
+        fee_payer.clone(),
+        fee.recipient.clone(),
+        AssetId::Erc20(fee.token),
         last_fee,
     );
 
@@ -578,7 +571,7 @@ async fn calculate_fee_to_convergence<R: Rng>(
             .estimate_gas(&tx_data)
             .await
             .map_err(BuildError::Estimator)?;
-        let new_fee = fee(gas, gas_price_wei, fee_info.rate);
+        let new_fee = calculate_fee(gas, gas_price_wei, fee.per_unit_gas);
 
         if new_fee == last_fee {
             info!("Fee converged at {} after iterations", new_fee);
@@ -590,9 +583,9 @@ async fn calculate_fee_to_convergence<R: Rng>(
             gas, gas_price_wei, new_fee
         );
         fee_builder.set_broadcaster_fee(
-            fee_info.payee.clone(),
-            fee_info.recipient.clone(),
-            AssetId::Erc20(fee_info.asset),
+            fee_payer.clone(),
+            fee.recipient.clone(),
+            AssetId::Erc20(fee.token),
             new_fee,
         );
         last_fee = new_fee;
@@ -709,6 +702,6 @@ async fn create_transaction<R: Rng, N: IncludedNote>(
 
 /// Calculate the broadcaster's fee based on the estimated gas cost, gas price in wei,
 /// and broadcaster's fee rate.
-fn fee(gas_cost: u128, gas_price_wei: u128, fee_rate: u128) -> u128 {
+fn calculate_fee(gas_cost: u128, gas_price_wei: u128, fee_rate: u128) -> u128 {
     gas_cost * gas_price_wei * fee_rate / 10_u128.pow(18)
 }

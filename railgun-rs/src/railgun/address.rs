@@ -1,9 +1,9 @@
 use std::{fmt::Display, str::FromStr};
 
-use alloy::primitives::ChainId;
 use bech32::Hrp;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::warn;
 
 use crate::crypto::keys::{HexKey, MasterPublicKey, SpendingKey, ViewingKey, ViewingPublicKey};
 
@@ -13,6 +13,12 @@ pub struct RailgunAddress {
     viewing_pubkey: ViewingPublicKey,
     chain: ChainId,
     // pub version: u8,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum ChainId {
+    EVM(alloy::primitives::ChainId),
+    All,
 }
 
 #[derive(Debug, Error)]
@@ -25,7 +31,7 @@ pub enum RailgunAddressError {
     ParseIntError(#[from] std::num::ParseIntError),
     #[error("ParseHex Error: {0}")]
     ParseHexError(#[from] hex::FromHexError),
-    #[error("Invalid ChainId")]
+    #[error("Invalid ChainId: {0}")]
     InvalidChainId(u8),
     #[error("Invalid Version: {0}")]
     InvalidVersion(u8),
@@ -34,29 +40,30 @@ pub enum RailgunAddressError {
 const ADDRESS_LENGTH_LIMIT: usize = 127;
 const PREFIX: Hrp = Hrp::parse_unchecked("0zk");
 const ADDRESS_VERSION: u8 = 1;
+const ALL_CHAINS_NETWORK_ID: u8 = 255;
 
 impl RailgunAddress {
     pub fn new(
         master_key: MasterPublicKey,
         viewing_pubkey: ViewingPublicKey,
-        chain: ChainId,
+        chain_id: alloy::primitives::ChainId,
     ) -> Self {
         RailgunAddress {
             master_key,
             viewing_pubkey,
-            chain,
+            chain: ChainId::EVM(chain_id),
         }
     }
 
     pub fn from_private_keys(
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
-        chain: ChainId,
+        chain_id: alloy::primitives::ChainId,
     ) -> Self {
         let master_key =
             MasterPublicKey::new(spending_key.public_key(), viewing_key.nullifying_key());
 
-        RailgunAddress::new(master_key, viewing_key.public_key(), chain)
+        RailgunAddress::new(master_key, viewing_key.public_key(), chain_id)
     }
 
     pub fn master_key(&self) -> MasterPublicKey {
@@ -125,9 +132,16 @@ impl FromStr for RailgunAddress {
 }
 
 fn encode_chain_id(chain: &ChainId) -> String {
+    match chain {
+        ChainId::EVM(id) => encode_evm_chain_id(*id),
+        ChainId::All => format!("{:02x}", ALL_CHAINS_NETWORK_ID),
+    }
+}
+
+fn encode_evm_chain_id(chain_id: alloy::primitives::ChainId) -> String {
     let mut bytes = [0u8; 8];
     bytes[0] = 0;
-    bytes[1..].copy_from_slice(&chain.to_be_bytes()[1..]);
+    bytes[1..].copy_from_slice(&chain_id.to_be_bytes()[1..]);
     hex::encode(bytes)
 }
 
@@ -139,9 +153,13 @@ fn decode_network_id(encoded: &str) -> Result<ChainId, RailgunAddressError> {
             id_bytes.copy_from_slice(&encoded[..8]);
             id_bytes[0] = 0;
             let id = u64::from_be_bytes(id_bytes);
-            Ok(id)
+            Ok(ChainId::EVM(id))
         }
-        _ => Err(RailgunAddressError::InvalidChainId(encoded[0])),
+        ALL_CHAINS_NETWORK_ID => Ok(ChainId::All),
+        _ => {
+            warn!("Invalid chain ID in address: {}", hex::encode(&encoded));
+            Err(RailgunAddressError::InvalidChainId(encoded[0]))
+        }
     }
 }
 
@@ -180,5 +198,8 @@ mod tests {
 
         assert_eq!(railgun_address, parsed_address);
         assert_eq!(address_string, expected_address_string);
+
+        let parsed: RailgunAddress = expected_address_string.parse().unwrap();
+        assert_eq!(parsed, railgun_address);
     }
 }

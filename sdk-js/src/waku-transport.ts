@@ -11,8 +11,8 @@ import {
   type IDecodedMessage,
   type LightNode,
 } from "@waku/sdk";
-import type { JsBroadcaster, WakuMessage } from "../pkg/railgun_rs.d.ts";
 import { getWasm } from "./wasm.ts";
+import { JsBroadcasterManager, WakuMessage } from "../pkg/railgun_rs";
 
 const WAKU_RAILGUN_PUB_SUB_TOPIC = '/waku/2/rs/1/1';
 const WAKU_RAILGUN_SHARD_CONFIG = {
@@ -47,7 +47,7 @@ type SendFn = (topic: string, payload: Uint8Array) => Promise<void>;
  * Creates a JsBroadcaster instance by initializing a Waku LightNode with the 
  * provided options.
  */
-export async function createBroadcaster(chain_id: bigint, options: CreateNodeOptions = { defaultBootstrap: true }): Promise<JsBroadcaster> {
+export async function createBroadcaster(chain_id: bigint, options: CreateNodeOptions = { defaultBootstrap: true }): Promise<JsBroadcasterManager> {
   const node = await createLightNode(options);
   await node.start();
 
@@ -57,7 +57,7 @@ export async function createBroadcaster(chain_id: bigint, options: CreateNodeOpt
 /**
  * Create a JsBroadcaster instance from an existing Waku LightNode.
  */
-export function createBroadcasterFromNode(chain_id: bigint, node: LightNode): JsBroadcaster {
+export function createBroadcasterFromNode(chain_id: bigint, node: LightNode): JsBroadcasterManager {
   const { JsBroadcaster } = getWasm();
 
   const subscribeFn: SubscribeFn = async (topics, onMessage) => {
@@ -91,5 +91,5 @@ export function createBroadcasterFromNode(chain_id: bigint, node: LightNode): Js
     await node.lightPush.send(encoder, { payload });
   };
 
-  return new JsBroadcaster(chain_id, subscribeFn, sendFn);
+  return new JsBroadcasterManager(chain_id, subscribeFn, sendFn);
 }
