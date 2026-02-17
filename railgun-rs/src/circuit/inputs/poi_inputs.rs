@@ -268,14 +268,4 @@ impl PoiCircuitInputs {
         poi_in_merkle_proof_indices => "poiInMerkleProofIndices",
         poi_in_merkle_proof_path_elements => "poiInMerkleProofPathElements"
     );
-
-    /// Serialize inputs to JSON for creating test fixtures.
-    pub fn to_json(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string_pretty(self)
-    }
-
-    /// Load inputs from JSON fixture.
-    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        serde_json::from_str(json)
-    }
 }
