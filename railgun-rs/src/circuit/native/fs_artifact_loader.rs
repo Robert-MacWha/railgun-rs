@@ -35,7 +35,10 @@ impl FsArtifactLoader {
             CircuitType::Poi {
                 nullifiers,
                 commitments,
-            } => format!("{}/ppoi/{}x{}.zkey", self.path, nullifiers, commitments),
+            } => format!(
+                "{}/ppoi/{:02}x{:02}.zkey",
+                self.path, nullifiers, commitments
+            ),
         }
     }
 

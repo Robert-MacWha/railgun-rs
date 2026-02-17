@@ -1,9 +1,12 @@
+use std::collections::HashMap;
+
 use ark_bn254::{Bn254, Fr};
 use ark_circom::CircomReduction;
 use ark_ff::BigInt;
 use ark_groth16::{Groth16, prepare_verifying_key};
 use ark_std::rand::random;
 
+use ruint::aliases::U256;
 use tracing::info;
 
 use crate::circuit::native::{FsArtifactLoader, WasmerWitnessCalculator};
@@ -50,41 +53,7 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> TransactProver for G
             commitments: inputs.commitments_out.len(),
         };
 
-        info!("Loading artifacts");
-        let pk = self.artifact_loader.load_proving_key(circuit_type).await?;
-        let matrices = self.artifact_loader.load_matrices(circuit_type).await?;
-
-        info!("Calculating witness");
-        let witnesses = self
-            .witness_calculator
-            .calculate_witness(circuit_type, inputs.as_flat_map())
-            .await?;
-        let witnesses: Vec<Fr> = witnesses
-            .iter()
-            .map(|x| Fr::from(BigInt::from(*x)))
-            .collect();
-
-        info!("Creating proof");
-        let proof = Groth16::<Bn254, CircomReduction>::create_proof_with_reduction_and_matrices(
-            &pk,
-            random(),
-            random(),
-            &matrices,
-            matrices.num_instance_variables,
-            matrices.num_constraints,
-            &witnesses,
-        )
-        .unwrap();
-
-        info!("Verifying proof");
-        let public_inputs = &witnesses[1..matrices.num_instance_variables];
-        let pvk = prepare_verifying_key(&pk.vk);
-        let verified =
-            Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
-        assert!(verified, "Proof verification failed");
-
-        info!("Proof verified successfully");
-        Ok(proof.into())
+        self.prove(circuit_type, inputs.as_flat_map()).await
     }
 }
 
@@ -100,6 +69,16 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> PoiProver for Groth1
             commitments: inputs.commitments.len(),
         };
 
+        self.prove(circuit_type, inputs.as_flat_map()).await
+    }
+}
+
+impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> Groth16Prover<W, A> {
+    pub async fn prove(
+        &self,
+        circuit_type: CircuitType,
+        inputs: HashMap<String, Vec<U256>>,
+    ) -> Result<Proof, Box<dyn std::error::Error>> {
         info!("Loading artifacts");
         let pk = self.artifact_loader.load_proving_key(circuit_type).await?;
         let matrices = self.artifact_loader.load_matrices(circuit_type).await?;
@@ -107,7 +86,7 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> PoiProver for Groth1
         info!("Calculating witness");
         let witnesses = self
             .witness_calculator
-            .calculate_witness(circuit_type, inputs.as_flat_map())
+            .calculate_witness(circuit_type, inputs)
             .await?;
         let witnesses: Vec<Fr> = witnesses
             .iter()
@@ -123,8 +102,7 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> PoiProver for Groth1
             matrices.num_instance_variables,
             matrices.num_constraints,
             &witnesses,
-        )
-        .unwrap();
+        )?;
 
         info!("Verifying proof");
         let public_inputs = &witnesses[1..matrices.num_instance_variables];
@@ -132,8 +110,8 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> PoiProver for Groth1
         let verified =
             Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
         assert!(verified, "Proof verification failed");
-        info!("Proof verified successfully");
 
+        info!("Proof verified successfully");
         Ok(proof.into())
     }
 }

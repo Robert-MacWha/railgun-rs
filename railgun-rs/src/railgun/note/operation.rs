@@ -1,4 +1,3 @@
-use alloy::rpc::types::error;
 use ruint::aliases::U256;
 use thiserror::Error;
 
@@ -138,7 +137,10 @@ impl<N: Note> Operation<N> {
 
     /// Total value being transfered to other railgun addresses in this operation
     pub fn out_value(&self) -> u128 {
-        self.out_notes().iter().map(|n| n.value()).sum()
+        let out_notes_value: u128 = self.out_notes.iter().map(|n| n.value()).sum();
+        let fee_value: u128 = self.fee_note.as_ref().map_or(0, |n| n.value());
+        let unshield_value: u128 = self.unshield_note.as_ref().map_or(0, |n| n.value());
+        out_notes_value + fee_value + unshield_value
     }
 
     pub fn in_notes(&self) -> &[N] {

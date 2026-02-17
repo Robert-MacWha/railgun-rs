@@ -18,6 +18,7 @@ use crate::{
 pub struct RpcSyncer {
     provider: DynProvider,
     batch_size: u64,
+    timeout: std::time::Duration,
     chain: ChainConfig,
 }
 
@@ -34,12 +35,18 @@ impl RpcSyncer {
         Self {
             provider,
             batch_size: 10000,
+            timeout: std::time::Duration::from_millis(100),
             chain,
         }
     }
 
     pub fn with_batch_size(mut self, batch_size: u64) -> Self {
         self.batch_size = batch_size;
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout = timeout;
         self
     }
 }
@@ -98,6 +105,7 @@ impl RpcSyncer {
                 .from_block(current_block)
                 .to_block(batch_end);
 
+            let start = std::time::Instant::now();
             let logs = match self.provider.get_logs(&filter).await {
                 Ok(logs) => logs,
                 Err(e) => {
@@ -108,6 +116,11 @@ impl RpcSyncer {
                     return None;
                 }
             };
+            let duration = start.elapsed();
+            let sleep_duration = self.timeout.saturating_sub(duration);
+            if sleep_duration > std::time::Duration::from_secs(0) {
+                tokio::time::sleep(sleep_duration).await;
+            }
 
             info!(
                 "Fetched {} logs from blocks {} to {}",

@@ -32,6 +32,7 @@ async function main() {
 
         const unix_time = Math.floor(Date.now() / 1000);
         broadcaster = await broadcast_manager.best_broadcaster_for_token(WETH_ADDRESS, BigInt(unix_time));
+        console.log("Waiting for broadcasters...");
     }
 
     console.log("Best broadcaster for WETH:", broadcaster);
@@ -62,7 +63,7 @@ async function main() {
     indexer.add_account(account2);
 
     console.log("Balance");
-    let balance = await indexer.balance(account1.address);
+    let balance = indexer.balance(account1.address);
     console.log("USDC: ", balance.get(USDC));
     console.log("WETH: ", balance.get(WETH));
 

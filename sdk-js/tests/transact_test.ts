@@ -1,4 +1,5 @@
-import { expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import { expect, test } from "vitest";
 import {
   checksumAddress,
   createPublicClient,
@@ -54,7 +55,7 @@ test("transact: shield, transfer, and unshield", async () => {
   });
 
   console.log("Setting up indexer");
-  const indexerState = await Bun.file(INDEXER_STATE_PATH).bytes();
+  const indexerState = await readFile(INDEXER_STATE_PATH);
   const syncer = await wasm.JsSyncer.withRpc(
     "http://localhost:8545",
     1n

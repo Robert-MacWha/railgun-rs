@@ -15,9 +15,7 @@ pub use crate::railgun::poi::{
 use crate::{
     crypto::{keys::hex_to_u256, railgun_txid::Txid},
     railgun::{
-        merkle_tree::merkle_proof::MerkleProof,
-        note::{Note, utxo::UtxoNote},
-        poi::poi_note::PoiNote,
+        merkle_tree::merkle_proof::MerkleProof, note::utxo::UtxoNote, poi::poi_note::PoiNote,
     },
 };
 

@@ -1,4 +1,5 @@
 // snarkjs-based prover implementation
+import { readFile } from "node:fs/promises";
 import * as snarkjs from "snarkjs";
 import type { ProveFunction } from "./wasm.ts";
 import { JsProofResponse } from "../pkg/railgun_rs";
@@ -47,22 +48,19 @@ async function loadArtifacts(
   const cached = artifactCache.get(cacheKey);
   if (cached) return cached;
 
-  const [wasmBuffer, zkeyBuffer] = await Promise.all([
-    Bun.file(wasmPath).arrayBuffer(),
-    Bun.file(zkeyPath).arrayBuffer(),
+  const [wasm, zkey] = await Promise.all([
+    readFile(wasmPath),
+    readFile(zkeyPath),
   ]);
 
-  const artifacts = {
-    wasm: new Uint8Array(wasmBuffer),
-    zkey: new Uint8Array(zkeyBuffer),
-  };
+  const artifacts = { wasm, zkey };
   artifactCache.set(cacheKey, artifacts);
   return artifacts;
 }
 
 /**
  * Creates a prove function for use with JsProver.
- * Uses snarkjs with single-threaded mode for Bun compatibility.
+ * Uses snarkjs with single-threaded mode.
  */
 export function createProveFunction(config: ProverConfig): ProveFunction {
   const resolveArtifacts = config.resolveArtifacts ?? defaultResolveArtifacts;
@@ -135,8 +133,7 @@ export async function verifyProof(
   publicSignals: string[],
   proof: JsProofResponse
 ): Promise<boolean> {
-  const zkeyBuffer = await Bun.file(zkeyPath).arrayBuffer();
-  const zkey = new Uint8Array(zkeyBuffer);
+  const zkey = await readFile(zkeyPath);
 
   const vkey = await snarkjs.zKey.exportVerificationKey(zkey);
 

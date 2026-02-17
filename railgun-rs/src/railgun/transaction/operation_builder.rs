@@ -521,7 +521,7 @@ async fn calculate_fee_to_convergence<R: Rng>(
     const MAX_ITERS: usize = 5;
 
     let mut fee_builder = builder.clone();
-    let mut last_fee: u128 = calculate_fee(1000, 1000, fee.per_unit_gas);
+    let mut last_fee: u128 = calculate_fee(1000000, 1000000000, fee.per_unit_gas);
     fee_builder.set_broadcaster_fee(
         fee_payer.clone(),
         fee.recipient.clone(),
@@ -703,5 +703,5 @@ async fn create_transaction<R: Rng, N: IncludedNote>(
 /// Calculate the broadcaster's fee based on the estimated gas cost, gas price in wei,
 /// and broadcaster's fee rate.
 fn calculate_fee(gas_cost: u128, gas_price_wei: u128, fee_rate: u128) -> u128 {
-    gas_cost * gas_price_wei * fee_rate / 10_u128.pow(18)
+    (gas_cost * gas_price_wei * fee_rate) / 10_u128.pow(18)
 }

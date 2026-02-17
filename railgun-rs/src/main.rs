@@ -20,9 +20,10 @@ use railgun_rs::{
     circuit::native::Groth16Prover,
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
     railgun::{
+        broadcaster::broadcaster::Fee,
         indexer::{indexer::Indexer, rpc_syncer::RpcSyncer, subsquid_syncer::SubsquidSyncer},
         poi::poi_client::PoiClient,
-        transaction::shield_builder::ShieldBuilder,
+        transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
     },
 };
 
@@ -67,16 +68,16 @@ async fn main() {
     info!("Account 2: {}", account2.address());
     info!("Account 3: {}", account3.address());
 
-    // info!("Creating indexer");
-    // let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
-    let rpc = Box::new(RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
+    info!("Creating indexer");
+    // let rpc = Box::new(RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
+    let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    let mut indexer = Indexer::from_state(rpc, indexer_state).unwrap();
     // let mut indexer = Indexer::new(subsquid, CHAIN);
+    let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
     indexer.add_account(&account1);
 
-    info!("Syncing indexer");
-    indexer.sync().await.unwrap();
+    // info!("Syncing indexer");
+    // indexer.sync_to(10277095).await.unwrap();
 
     info!("Saving indexer");
     let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
@@ -89,22 +90,26 @@ async fn main() {
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
     builder.set_unshield(account1.clone(), address, USDC, 100);
     let prepared = builder
-        .build_with_poi(
+        .build_with_broadcast(
             &mut indexer,
             &prover,
             &poi_client,
-            // &provider,
-            // FeeInfo {
-            //     payee: account1,
-            //     asset: USDC_ADDRESS,
-            //     rate: 10000000,
-            //     recipient: account3.address(),
-            //     id: "uuid".to_string(),
-            //     list_keys: vec![
-            //         "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
-            //         "55049dc47b4435bca4a8f8ac27b1858e409f9f72b317fde4a442095cfc454893".to_string(),
-            //     ],
-            // },
+            &provider,
+            account1.clone(),
+            &Fee {
+                token: WETH_ADDRESS,
+                per_unit_gas: 100000000,
+                recipient: account2.address(),
+                expiration: 0,
+                fees_id: "000".to_string(),
+                available_wallets: 1,
+                relay_adapt: Address::ZERO,
+                reliability: 99,
+                list_keys: vec![
+                    "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
+                    "55049dc47b4435bca4a8f8ac27b1858e409f9f72b317fde4a442095cfc454893".to_string(),
+                ],
+            },
             CHAIN,
             &mut rand::rng(),
         )

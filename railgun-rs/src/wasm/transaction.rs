@@ -11,7 +11,10 @@ use crate::{
     railgun::{
         address::RailgunAddress,
         note::shield::create_shield_request,
-        transaction::{PoiProvedTransaction, operation_builder::OperationBuilder, tx_data::TxData},
+        transaction::{
+            broadcaster_data::PoiProvedTransaction, operation_builder::OperationBuilder,
+            tx_data::TxData,
+        },
     },
     wasm::{
         JsProver, JsRailgunAccount, broadcaster::JsFee, indexer::JsIndexer,

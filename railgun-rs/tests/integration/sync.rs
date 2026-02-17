@@ -94,10 +94,6 @@ async fn verify_utxo_trees(trees: &mut BTreeMap<u32, UtxoMerkleTree>, provider: 
             .call()
             .await
             .unwrap();
-        assert!(
-            seen,
-            "UTXO Tree number {} with root {:?} not found on-chain",
-            tree_number, root
-        );
+        assert!(seen, "UTXO Tree number {} failed validation", tree_number);
     }
 }

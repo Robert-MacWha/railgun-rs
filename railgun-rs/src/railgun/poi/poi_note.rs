@@ -7,7 +7,7 @@ use crate::{
     crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeaf},
     railgun::merkle_tree::merkle_proof::MerkleProof,
     railgun::note::{IncludedNote, Note, utxo::UtxoNote},
-    railgun::poi::poi_client::{ListKey, PoiClient, PoiClientError},
+    railgun::poi::poi_client::ListKey,
 };
 
 #[derive(Debug, Clone)]

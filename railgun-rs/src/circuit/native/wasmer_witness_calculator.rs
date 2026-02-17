@@ -38,7 +38,10 @@ impl WasmerWitnessCalculator {
             CircuitType::Poi {
                 nullifiers,
                 commitments,
-            } => format!("{}/ppoi/{}x{}.wasm", self.path, nullifiers, commitments),
+            } => format!(
+                "{}/ppoi/{:02}x{:02}.wasm",
+                self.path, nullifiers, commitments
+            ),
         }
     }
 }
