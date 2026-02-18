@@ -1,4 +1,4 @@
-use std::{array::TryFromSliceError, time::Duration};
+use std::array::TryFromSliceError;
 
 use alloy::primitives::{Bytes, FixedBytes, U256, ruint::ParseError};
 use futures::StreamExt;
@@ -6,9 +6,9 @@ use futures::{Stream, stream};
 use graphql_client::{GraphQLQuery, Response};
 use reqwest::Client;
 use thiserror::Error;
-use tokio::time::sleep;
 use tracing::{info, warn};
 
+use crate::sleep::sleep;
 use crate::{
     abis::railgun::{
         CommitmentCiphertext, CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, TokenData,
@@ -88,17 +88,10 @@ pub enum SubsquidError {
 }
 
 const MAX_RETRIES: u32 = 3;
-const RETRY_DELAY: Duration = Duration::from_secs(1);
+const RETRY_DELAY: web_time::Duration = web_time::Duration::from_secs(1);
 
 impl SubsquidSyncer {
     pub fn new(endpoint: &str) -> Self {
-        #[cfg(not(feature = "wasm"))]
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .unwrap();
-
-        #[cfg(feature = "wasm")]
         let client = Client::new();
 
         SubsquidSyncer {

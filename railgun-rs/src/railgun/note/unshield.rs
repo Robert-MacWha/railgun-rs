@@ -4,7 +4,7 @@ use ruint::aliases::U256;
 use crate::{
     abis,
     caip::AssetId,
-    crypto::{poseidon::poseidon_hash, railgun_utxo::UtxoLeaf},
+    crypto::{poseidon::poseidon_hash, railgun_utxo::UtxoLeafHash},
     railgun::note::Note,
 };
 
@@ -51,7 +51,7 @@ impl Note for UnshieldNote {
         String::new()
     }
 
-    fn hash(&self) -> UtxoLeaf {
+    fn hash(&self) -> UtxoLeafHash {
         poseidon_hash(&[
             self.note_public_key(),
             self.asset.hash(),
@@ -76,7 +76,7 @@ mod tests {
 
     use crate::{
         caip::AssetId,
-        crypto::railgun_utxo::UtxoLeaf,
+        crypto::railgun_utxo::UtxoLeafHash,
         railgun::note::{Note, unshield::UnshieldNote},
     };
 
@@ -88,9 +88,9 @@ mod tests {
             AssetId::Erc20(address!("0x0987654321098765432109876543210987654321")),
             10,
         );
-        let hash: UtxoLeaf = note.hash();
+        let hash: UtxoLeafHash = note.hash();
 
-        let expected: UtxoLeaf = uint!(
+        let expected: UtxoLeafHash = uint!(
             8567008140137776704315285747629501283858914289267824930248254678854896412220_U256
         )
         .into();

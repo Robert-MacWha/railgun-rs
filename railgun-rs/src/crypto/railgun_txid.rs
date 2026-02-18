@@ -1,15 +1,21 @@
 use ruint::{aliases::U256};
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Serializer};
 
 use crate::{
     crypto::{poseidon::poseidon_hash, railgun_zero::railgun_merkle_tree_zero},
     railgun::indexer::indexer::TOTAL_LEAVES,
 };
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
-pub struct TxidLeaf(U256);
+/// TxID Leaf Hash
+/// 
+/// Serializes as a hex string WITHOUT a 0x prefix
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct TxidLeafHash(U256);
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+/// TxID
+/// 
+/// Serializes as a hex string WITHOUT a 0x prefix
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Txid(U256);
 
 pub enum UtxoTreeOut {
@@ -68,7 +74,7 @@ impl UtxoTreeOut {
     }
 }
 
-impl TxidLeaf {
+impl TxidLeafHash {
     pub fn new(txid: Txid, utxo_tree_in: u32, utxo_tree_out: UtxoTreeOut) -> Self {
         let global_position = utxo_tree_out.global_index();
 
@@ -82,15 +88,24 @@ impl TxidLeaf {
     }
 }
 
-impl From<U256> for TxidLeaf {
+impl From<U256> for TxidLeafHash {
     fn from(value: U256) -> Self {
-        TxidLeaf(value)
+        TxidLeafHash(value)
     }
 }
 
-impl Into<U256> for TxidLeaf {
+impl Into<U256> for TxidLeafHash {
     fn into(self) -> U256 {
         self.0
+    }
+}
+
+impl Serialize for TxidLeafHash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{:064x}", self.0))
     }
 }
 
@@ -131,6 +146,15 @@ impl Into<U256> for Txid {
     }
 }
 
+impl Serialize for Txid {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{:064x}", self.0))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,16 +176,13 @@ uint!(34198991274555001477159037747741983086739304322809405028467147263259194165
             uint!(20104295272660775597730850404771326812479727572119535488383037433725311268740_U256),
         );
 
-        assert_eq!(
-            txid.0,
-            uint!(16377560740762083297602124407587012236402803616921752695154194813882621728488_U256),
-        );
+        insta::assert_debug_snapshot!(txid);
     }
 
     #[test]
     fn test_txid_leaf_hash() {
         let txid = Txid(uint!(0_U256));
-        let leaf_hash = TxidLeaf::new(
+        let leaf_hash = TxidLeafHash::new(
             txid,
             1,
             UtxoTreeOut::Included {
@@ -170,9 +191,6 @@ uint!(34198991274555001477159037747741983086739304322809405028467147263259194165
             },
         );
 
-        assert_eq!(
-            leaf_hash.0,
-            uint!(6745812227361017099581501373645245177541765188484161512119790239305301021488_U256),
-        );
+        insta::assert_debug_snapshot!(leaf_hash);
     }
 }

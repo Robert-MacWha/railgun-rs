@@ -13,6 +13,8 @@ pub enum WakuTransportError {
     SendFailed(String),
     #[error("Connection error: {0}")]
     ConnectionError(String),
+    #[error("Historical retrieval failed: {0}")]
+    RetrieveHistoricalFailed(String),
 }
 
 #[cfg(not(feature = "wasm"))]
@@ -36,12 +38,18 @@ pub trait WakuTransport: Send + Sync {
 
     /// Send a message to the given content topic.
     async fn send(&self, content_topic: &str, payload: Vec<u8>) -> Result<(), WakuTransportError>;
+
+    /// Retrieve historical messages for a given content topic.
+    ///
+    /// Historical messages should be returned in chronological order, and each
+    /// message should only be returned once across all calls to this method.
+    async fn retrieve_historical(
+        &self,
+        content_topic: &str,
+    ) -> Result<Vec<WakuMessage>, WakuTransportError>;
 }
 
 /// Transport layer for Waku network communication (WASM version).
-///
-/// This trait abstracts the Waku network operations, allowing for
-/// dependency injection of different implementations.
 #[cfg(feature = "wasm")]
 #[async_trait::async_trait(?Send)]
 pub trait WakuTransport {
@@ -56,4 +64,13 @@ pub trait WakuTransport {
 
     /// Send a message to the given content topic.
     async fn send(&self, content_topic: &str, payload: Vec<u8>) -> Result<(), WakuTransportError>;
+
+    /// Retrieve historical messages for a given content topic.
+    ///
+    /// Historical messages should be returned in chronological order, and each
+    /// message should only be returned once across all calls to this method.
+    async fn retrieve_historical(
+        &self,
+        content_topic: &str,
+    ) -> Result<Vec<WakuMessage>, WakuTransportError>;
 }

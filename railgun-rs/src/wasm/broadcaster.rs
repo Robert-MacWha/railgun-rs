@@ -12,6 +12,7 @@ use crate::railgun::broadcaster::broadcaster::{Broadcaster, Fee};
 use crate::railgun::broadcaster::broadcaster_manager::BroadcasterManager;
 use crate::railgun::broadcaster::transport::{MessageStream, WakuTransport, WakuTransportError};
 use crate::railgun::broadcaster::types::WakuMessage;
+use crate::wasm::transaction::JsPoiProvedTx;
 
 /// Error type for JS Waku transport operations.
 #[derive(Debug, Error)]
@@ -40,6 +41,13 @@ pub enum JsWakuTransportError {
 ///   payload: Uint8Array
 /// ) => Promise<void>;
 /// ```
+///
+/// The retrieve_historical function must have the signature:
+/// ```typescript
+/// type RetrieveHistoricalFn = (
+///   topic: string,
+/// ) => Promise<WakuMessage[]>;
+/// ```
 #[wasm_bindgen]
 pub struct JsBroadcasterManager {
     inner: BroadcasterManager,
@@ -58,6 +66,7 @@ pub struct JsFee {
 struct JsWakuTransport {
     subscribe_fn: Function,
     send_fn: Function,
+    retrieve_historical_fn: Function,
 }
 
 struct ReceiverStream(UnboundedReceiver<WakuMessage>);
@@ -65,8 +74,13 @@ struct ReceiverStream(UnboundedReceiver<WakuMessage>);
 #[wasm_bindgen]
 impl JsBroadcasterManager {
     #[wasm_bindgen(constructor)]
-    pub fn new(chain_id: u64, subscribe_fn: Function, send_fn: Function) -> Self {
-        let transport = JsWakuTransport::new(subscribe_fn, send_fn);
+    pub fn new(
+        chain_id: u64,
+        subscribe_fn: Function,
+        send_fn: Function,
+        retrieve_historical_fn: Function,
+    ) -> Self {
+        let transport = JsWakuTransport::new(subscribe_fn, send_fn, retrieve_historical_fn);
         let inner = BroadcasterManager::new(chain_id, transport);
         Self { inner }
     }
@@ -113,6 +127,16 @@ impl JsBroadcaster {
             inner: self.inner.fee.clone(),
         }
     }
+
+    #[wasm_bindgen]
+    pub async fn broadcast(&self, tx: &JsPoiProvedTx) -> Result<String, JsValue> {
+        let tx_hash = self
+            .inner
+            .broadcast(&tx.inner, &mut rand::rng())
+            .await
+            .map_err(|e| JsValue::from_str(&format!("Broadcast error: {}", e)))?;
+        Ok(tx_hash.to_string())
+    }
 }
 
 impl JsBroadcaster {
@@ -136,10 +160,15 @@ impl JsFee {
 }
 
 impl JsWakuTransport {
-    pub fn new(subscribe_fn: Function, send_fn: Function) -> Self {
+    pub fn new(
+        subscribe_fn: Function,
+        send_fn: Function,
+        retrieve_historical_fn: Function,
+    ) -> Self {
         Self {
             subscribe_fn,
             send_fn,
+            retrieve_historical_fn,
         }
     }
 }
@@ -211,6 +240,33 @@ impl WakuTransport for JsWakuTransport {
             .map_err(|e| WakuTransportError::SendFailed(format!("{:?}", e)))?;
 
         Ok(())
+    }
+
+    async fn retrieve_historical(
+        &self,
+        content_topic: &str,
+    ) -> Result<Vec<WakuMessage>, WakuTransportError> {
+        let this = JsValue::NULL;
+        let topic_js = JsValue::from_str(content_topic);
+
+        let promise = self
+            .retrieve_historical_fn
+            .call1(&this, &topic_js)
+            .map_err(|e| WakuTransportError::RetrieveHistoricalFailed(format!("{:?}", e)))?;
+
+        let promise = js_sys::Promise::from(promise);
+        let result = JsFuture::from(promise)
+            .await
+            .map_err(|e| WakuTransportError::RetrieveHistoricalFailed(format!("{:?}", e)))?;
+
+        let messages: Vec<WakuMessage> = serde_wasm_bindgen::from_value(result).map_err(|e| {
+            WakuTransportError::RetrieveHistoricalFailed(format!(
+                "Failed to deserialize messages: {}",
+                e
+            ))
+        })?;
+
+        Ok(messages)
     }
 }
 

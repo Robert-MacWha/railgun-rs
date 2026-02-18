@@ -1,15 +1,15 @@
 use ruint::aliases::U256;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct UtxoLeaf(U256);
+pub struct UtxoLeafHash(U256);
 
-impl From<U256> for UtxoLeaf {
+impl From<U256> for UtxoLeafHash {
     fn from(value: U256) -> Self {
-        UtxoLeaf(value)
+        UtxoLeafHash(value)
     }
 }
 
-impl Into<U256> for UtxoLeaf {
+impl Into<U256> for UtxoLeafHash {
     fn into(self) -> U256 {
         self.0
     }

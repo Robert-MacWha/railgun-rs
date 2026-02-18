@@ -4,7 +4,7 @@ use ruint::aliases::U256;
 use crate::{
     abis::railgun::CommitmentCiphertext,
     caip::AssetId,
-    crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeaf},
+    crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeafHash},
     railgun::note::encrypt::EncryptError,
 };
 
@@ -38,7 +38,7 @@ pub trait Note {
     fn memo(&self) -> String;
 
     /// Commitment Hash
-    fn hash(&self) -> UtxoLeaf;
+    fn hash(&self) -> UtxoLeafHash;
 
     /// NPK
     fn note_public_key(&self) -> U256;

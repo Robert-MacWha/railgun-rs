@@ -9,7 +9,6 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use rand::random;
-use ruint::aliases::U256;
 use tracing::info;
 
 use railgun_rs::{
@@ -21,9 +20,9 @@ use railgun_rs::{
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
     railgun::{
         broadcaster::broadcaster::Fee,
-        indexer::{indexer::Indexer, rpc_syncer::RpcSyncer, subsquid_syncer::SubsquidSyncer},
+        indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
         poi::poi_client::PoiClient,
-        transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
+        transaction::operation_builder::OperationBuilder,
     },
 };
 
@@ -71,13 +70,13 @@ async fn main() {
     info!("Creating indexer");
     // let rpc = Box::new(RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
     let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
-    let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    // let mut indexer = Indexer::new(subsquid, CHAIN);
-    let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
+    // let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
+    let mut indexer = Indexer::new(subsquid, CHAIN);
+    // let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
     indexer.add_account(&account1);
 
-    // info!("Syncing indexer");
-    // indexer.sync_to(10277095).await.unwrap();
+    info!("Syncing indexer");
+    indexer.sync_to(10277095).await.unwrap();
 
     info!("Saving indexer");
     let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
@@ -121,3 +120,5 @@ async fn main() {
         prepared.operations.len()
     );
 }
+
+// fn main() {}

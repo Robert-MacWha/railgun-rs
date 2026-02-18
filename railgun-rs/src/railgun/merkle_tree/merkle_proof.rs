@@ -1,6 +1,11 @@
+use alloy::primitives::FixedBytes;
 use ruint::aliases::U256;
+use serde::{Serialize, Serializer};
 
 use crate::crypto::poseidon::poseidon_hash;
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
+pub struct MerkleRoot(U256);
 
 #[derive(Debug, Clone)]
 pub struct MerkleProof {
@@ -11,11 +16,11 @@ pub struct MerkleProof {
     /// Bit-packed indices of the proof path
     pub indices: u32,
     /// The expected Merkle root
-    pub root: U256,
+    pub root: MerkleRoot,
 }
 
 impl MerkleProof {
-    pub fn new(element: U256, elements: Vec<U256>, indices: u32, root: U256) -> Self {
+    pub fn new(element: U256, elements: Vec<U256>, indices: u32, root: MerkleRoot) -> Self {
         Self {
             element,
             elements,
@@ -42,12 +47,7 @@ impl MerkleProof {
             root = hash_left_right(root, *e);
         }
 
-        Self {
-            element,
-            elements,
-            indices,
-            root,
-        }
+        Self::new(element, elements, indices, root.into())
     }
 
     pub fn verify(&self) -> bool {
@@ -69,7 +69,41 @@ impl MerkleProof {
             };
         }
 
+        let current_hash: MerkleRoot = current_hash.into();
         current_hash == self.root
+    }
+}
+
+impl From<U256> for MerkleRoot {
+    fn from(value: U256) -> Self {
+        MerkleRoot(value)
+    }
+}
+
+impl From<MerkleRoot> for U256 {
+    fn from(value: MerkleRoot) -> Self {
+        value.0
+    }
+}
+
+impl From<MerkleRoot> for FixedBytes<32> {
+    fn from(value: MerkleRoot) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<FixedBytes<32>> for MerkleRoot {
+    fn from(value: FixedBytes<32>) -> Self {
+        MerkleRoot(value.into())
+    }
+}
+
+impl Serialize for MerkleRoot {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&format!("{:064x}", self.0))
     }
 }
 

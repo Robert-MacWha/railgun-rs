@@ -217,6 +217,7 @@ impl OperationBuilder {
             proved,
             &mut indexer.utxo_trees,
             &list_keys,
+            None,
         )
         .await
     }
@@ -257,6 +258,7 @@ impl OperationBuilder {
             proved,
             &indexer.utxo_trees,
             &fee.list_keys,
+            Some(fee.clone()),
         )
         .await
     }
@@ -392,6 +394,7 @@ impl OperationBuilder {
         proved: ProvedTransaction,
         utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
         list_keys: &[ListKey],
+        fee: Option<Fee>,
     ) -> Result<PoiProvedTransaction, BuildError> {
         // Rebuild operations with PoiNote inputs (needed for POI merkle proofs)
         let proved_operations = proved.proved_operations;
@@ -416,6 +419,7 @@ impl OperationBuilder {
                 circuit_inputs: operation.circuit_inputs,
                 transaction: operation.transaction,
                 pois: HashMap::new(),
+                txid_leaf_hash: None,
             });
         }
 
@@ -428,6 +432,7 @@ impl OperationBuilder {
             tx_data: proved.tx_data,
             operations: poi_operations,
             min_gas_price: proved.min_gas_price,
+            fee,
         })
     }
 }

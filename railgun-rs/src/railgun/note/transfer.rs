@@ -7,7 +7,7 @@ use crate::{
     crypto::{
         keys::{U256Key, ViewingKey},
         poseidon::poseidon_hash,
-        railgun_utxo::UtxoLeaf,
+        railgun_utxo::UtxoLeafHash,
     },
     railgun::address::RailgunAddress,
     railgun::note::{
@@ -75,7 +75,7 @@ impl Note for TransferNote {
         self.memo.clone()
     }
 
-    fn hash(&self) -> UtxoLeaf {
+    fn hash(&self) -> UtxoLeafHash {
         poseidon_hash(&[
             self.note_public_key(),
             self.asset.hash(),
@@ -104,7 +104,7 @@ mod tests {
         caip::AssetId,
         crypto::{
             keys::{ByteKey, SpendingKey, ViewingKey},
-            railgun_utxo::UtxoLeaf,
+            railgun_utxo::UtxoLeafHash,
         },
         railgun::address::RailgunAddress,
         railgun::note::{Note, transfer::TransferNote},
@@ -125,9 +125,9 @@ mod tests {
             [2u8; 16],
             "memo",
         );
-        let hash: UtxoLeaf = note.hash();
+        let hash: UtxoLeafHash = note.hash();
 
-        let expected: UtxoLeaf = uint!(
+        let expected: UtxoLeafHash = uint!(
             1005027091991696937637380235791481806966626119421670561695028901610612069057_U256
         )
         .into();

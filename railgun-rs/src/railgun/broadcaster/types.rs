@@ -52,14 +52,6 @@ pub struct BroadcasterFeeMessageData {
 /// The expected broadcaster version. Messages from incompatible versions are ignored.
 pub const BROADCASTER_VERSION: &str = "8";
 
-/// Waku pubsub topic for RAILGUN
-pub const WAKU_RAILGUN_PUB_SUB_TOPIC: &str = "/waku/2/rs/1/1";
-
-/// Generates the content topic for fee messages on a given chain.
-pub fn fee_content_topic(chain_id: u64) -> String {
-    format!("/railgun/v2/0-{}-fees/json", chain_id)
-}
-
 /// Wrapped fee message from the Waku network.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BroadcasterFeeMessage {

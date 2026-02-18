@@ -23,6 +23,8 @@ pkgs.mkShell {
     pkgs.cargo-machete
     pkgs.binaryen
     pkgs.wasm-pack
+    pkgs.wasm-bindgen-cli_0_2_108
+    pkgs.twiggy
 
     pkgs.nodejs_22
     pkgs.pnpm

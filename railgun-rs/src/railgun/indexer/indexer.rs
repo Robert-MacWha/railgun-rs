@@ -16,8 +16,8 @@ use crate::{
     chain_config::{ChainConfig, get_chain_config},
     crypto::{
         poseidon::poseidon_hash,
-        railgun_txid::{Txid, TxidLeaf, UtxoTreeOut},
-        railgun_utxo::UtxoLeaf,
+        railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
+        railgun_utxo::UtxoLeafHash,
     },
     railgun::address::RailgunAddress,
     railgun::indexer::{
@@ -256,7 +256,7 @@ impl Indexer {
         event: &RailgunSmartWallet::Shield,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let leaves: Vec<UtxoLeaf> = event
+        let leaves: Vec<UtxoLeafHash> = event
             .commitments
             .iter()
             .map(|c| {
@@ -288,7 +288,7 @@ impl Indexer {
         event: &RailgunSmartWallet::Transact,
         block_number: u64,
     ) -> Result<(), SyncError> {
-        let leaves: Vec<UtxoLeaf> = event
+        let leaves: Vec<UtxoLeafHash> = event
             .hash
             .iter()
             .map(|h| U256::from_be_bytes(**h).into())
@@ -321,7 +321,7 @@ impl Indexer {
             event.bound_params_hash,
         );
 
-        let txid_leaf_hash = TxidLeaf::new(
+        let txid_leaf_hash = TxidLeafHash::new(
             txid,
             event.utxo_tree_in,
             UtxoTreeOut::included(event.utxo_tree_out, event.utxo_out_start_index),

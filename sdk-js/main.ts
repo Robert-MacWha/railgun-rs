@@ -26,17 +26,6 @@ async function main() {
     const broadcast_manager = await createBroadcaster(CHAIN_ID);
     broadcast_manager.start();
 
-    let broadcaster = undefined;
-    while (!broadcaster) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-
-        const unix_time = Math.floor(Date.now() / 1000);
-        broadcaster = await broadcast_manager.best_broadcaster_for_token(WETH_ADDRESS, BigInt(unix_time));
-        console.log("Waiting for broadcasters...");
-    }
-
-    console.log("Best broadcaster for WETH:", broadcaster);
-
     const USDC = wasm.erc20_asset(USDC_ADDRESS);
     const WETH = wasm.erc20_asset(WETH_ADDRESS);
 
@@ -77,10 +66,23 @@ async function main() {
         ""
     );
 
+    console.log("Finding broadcaster");
+    let broadcaster = undefined;
+    while (!broadcaster) {
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+
+        const unix_time = Math.floor(Date.now() / 1000);
+        broadcaster = await broadcast_manager.best_broadcaster_for_token(WETH_ADDRESS, BigInt(unix_time));
+        console.log("Waiting for broadcasters...");
+    }
+
+    console.log("Best broadcaster for WETH:", broadcaster);
+
     console.log("Preparing transaction for broadcast");
     const prepared = await builder.prepare_broadcast(indexer, prover, poi_client, provider, account1, broadcaster.fee());
-
     console.log("Prepared transaction");
+    const txhash = await broadcaster.broadcast(prepared);
+    console.log("Broadcasted transaction with hash:", txhash);
 }
 
 await main();

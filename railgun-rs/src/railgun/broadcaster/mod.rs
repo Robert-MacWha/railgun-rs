@@ -4,5 +4,6 @@
 
 pub mod broadcaster;
 pub mod broadcaster_manager;
+mod content_topics;
 pub mod transport;
 pub mod types;

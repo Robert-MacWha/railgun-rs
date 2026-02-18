@@ -8,12 +8,12 @@ use thiserror::Error;
 use tracing::info;
 
 use crate::railgun::address::RailgunAddress;
+use crate::railgun::broadcaster::content_topics::fee_content_topic;
 
 use super::broadcaster::{Broadcaster, Fee};
 use super::transport::{WakuTransport, WakuTransportError};
 use super::types::{
     BROADCASTER_VERSION, BroadcasterFeeMessage, BroadcasterFeeMessageData, WakuMessage,
-    fee_content_topic,
 };
 
 /// Error type for broadcaster operations.
@@ -68,13 +68,10 @@ impl BroadcasterManager {
     }
 
     /// Start listening for broadcaster fee messages.
-    ///
-    /// This method subscribes to the fee content topic and processes
-    /// incoming messages. It runs until the stream is exhausted or an error occurs.
     pub async fn start(&self) -> Result<(), BroadcastersError> {
         let topic = fee_content_topic(self.chain_id);
-        let mut stream = self.transport.subscribe(vec![topic]).await?;
 
+        let mut stream = self.transport.subscribe(vec![topic]).await?;
         while let Some(msg) = stream.next().await {
             if let Err(e) = self.handle_fee_message(&msg).await {
                 tracing::warn!("Error handling fee message: {}", e);
@@ -183,6 +180,7 @@ impl BroadcasterManager {
                 Broadcaster::new(
                     Arc::clone(&self.transport),
                     self.chain_id,
+                    data.railgun_address,
                     data.identifier.clone(),
                     Fee {
                         token,

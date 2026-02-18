@@ -5,7 +5,6 @@ use curve25519_dalek::{EdwardsPoint, Scalar};
 use ed25519_dalek::SigningKey;
 use rand::Rng;
 use ruint::aliases::U256;
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
@@ -15,9 +14,9 @@ use crate::crypto::aes::{
 use crate::crypto::poseidon::poseidon_hash;
 
 /// Private key for signing transactions (BabyJubJub curve).
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct SpendingKey([u8; 32]);
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct SpendingPublicKey {
     x: [u8; 32],
     y: [u8; 32],
@@ -30,25 +29,25 @@ pub struct SpendingSignature {
 }
 
 /// Private key for viewing transactions and ECDH.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct ViewingKey([u8; 32]);
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct ViewingPublicKey([u8; 32]);
 
 /// Master public key (wallet identifier).
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct MasterPublicKey([u8; 32]);
 
 /// Symmetric key for AES encryption.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct SharedKey([u8; 32]);
 
 /// Key for nullifier derivation.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct NullifyingKey([u8; 32]);
 
 /// Blinded public key for stealth addresses.
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct BlindedKey([u8; 32]);
 
 #[derive(Debug, Error)]
@@ -79,11 +78,17 @@ pub trait HexKey: ByteKey {
 
     fn from_hex(hex: &str) -> Result<Self, hex::FromHexError> {
         let hex = hex.strip_prefix("0x").unwrap_or(hex);
+
+        if hex.len() != 64 {
+            return Err(hex::FromHexError::InvalidStringLength);
+        }
+
         let bytes = hex::decode(hex)?;
         let arr: [u8; 32] = bytes
             .as_slice()
             .try_into()
             .map_err(|_| hex::FromHexError::InvalidStringLength)?;
+
         Ok(Self::from_bytes(arr))
     }
 }
@@ -109,16 +114,19 @@ macro_rules! impl_byte_key {
                 &self.0
             }
         }
+
         impl std::fmt::Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", self.to_hex())
             }
         }
+
         impl std::fmt::Debug for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}({})", stringify!($name), self.to_hex())
             }
         }
+
         impl rand::distr::Distribution<$name> for rand::distr::StandardUniform {
             fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> $name {
                 let mut bytes: [u8; 32] = rng.random();
@@ -126,6 +134,26 @@ macro_rules! impl_byte_key {
                 $name(bytes)
             }
         }
+
+        impl serde::Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                serializer.serialize_str(&self.to_hex())
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                let s = String::deserialize(deserializer)?;
+                Self::from_hex(&s).map_err(serde::de::Error::custom)
+            }
+        }
+
         impl FieldKey for $name {}
         impl HexKey for $name {}
         impl U256Key for $name {}

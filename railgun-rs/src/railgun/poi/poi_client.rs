@@ -1,21 +1,25 @@
 use std::collections::HashMap;
 
-use alloy::primitives::ChainId;
+use alloy::primitives::{ChainId, FixedBytes};
 use ruint::aliases::U256;
+use serde::Serialize;
 use thiserror::Error;
 use tracing::info;
 
 pub use crate::railgun::poi::{
     inner_client::PoiClientError,
-    inner_types::{
-        BlindedCommitmentType, ListKey, PoisPerListMap, PreTransactionPoi,
-        PreTransactionPoisPerTxidLeafPerList, SnarkProof, TxidVersion,
-    },
+    inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap, TxidVersion},
 };
 use crate::{
-    crypto::{keys::hex_to_u256, railgun_txid::Txid},
+    circuit::proof::Proof,
+    crypto::{
+        keys::hex_to_u256,
+        railgun_txid::{Txid, TxidLeafHash},
+    },
     railgun::{
-        merkle_tree::merkle_proof::MerkleProof, note::utxo::UtxoNote, poi::poi_note::PoiNote,
+        merkle_tree::merkle_proof::{MerkleProof, MerkleRoot},
+        note::utxo::UtxoNote,
+        poi::poi_note::PoiNote,
     },
 };
 
@@ -35,6 +39,24 @@ pub struct ValidatedRailgunTxidStatus {
     pub tree: u32,
     pub index: u32,
     pub merkleroot: Txid,
+}
+
+pub type PreTransactionPoisPerTxidLeafPerList =
+    HashMap<ListKey, HashMap<TxidLeafHash, PreTransactionPoi>>;
+
+/// POI proof for a single operation, proving that the input notes have valid POI.
+#[derive(Debug, Clone, Serialize)]
+pub struct PreTransactionPoi {
+    #[serde(rename = "snarkProof")]
+    pub proof: Proof,
+    #[serde(rename = "txidMerkleroot")]
+    pub txid_merkleroot: MerkleRoot,
+    #[serde(rename = "poiMerkleroots")]
+    pub poi_merkleroots: Vec<MerkleRoot>,
+    #[serde(rename = "blindedCommitmentsOut")]
+    pub blinded_commitments_out: Vec<U256>,
+    #[serde(rename = "railgunTxidIfHasUnshield")]
+    pub railgun_txid_if_has_unshield: Txid,
 }
 
 #[derive(Debug, Error)]
@@ -189,9 +211,9 @@ impl PoiClient {
         &self,
         tree: u32,
         index: u64,
-        merkleroot: Txid,
+        merkleroot: MerkleRoot,
     ) -> Result<bool, PoiClientError> {
-        let txid: U256 = merkleroot.into();
+        let txid: FixedBytes<32> = merkleroot.into();
 
         self.inner
             .validate_txid_merkleroot(
@@ -199,7 +221,7 @@ impl PoiClient {
                     chain: self.chain(),
                     tree: tree as u64,
                     index,
-                    merkleroot: hex::encode(&txid.to_be_bytes::<32>()),
+                    merkleroot: hex::encode(*txid),
                 },
             )
             .await
@@ -211,47 +233,6 @@ impl PoiClient {
             chain_id: self.chain.to_string(),
             txid_version: crate::railgun::poi::inner_types::TxidVersion::V2PoseidonMerkle,
         }
-    }
-
-    /// Submit POI proofs to the POI node after self-broadcasting.
-    ///
-    /// Call this after the transaction is confirmed on-chain to register the
-    /// POI proofs with the POI node. The `data` should be obtained from
-    /// `OperationBuilder::build_self_broadcast_with_poi`.
-    pub async fn submit_poi(
-        &self,
-        data: &crate::railgun::transaction::broadcaster_data::PoiProvedTransaction,
-    ) -> Result<(), PoiClientError> {
-        for poi_op in &data.operations {
-            for (list_key, poi) in &poi_op.pois {
-                let params = crate::railgun::poi::inner_types::SubmitTransactProofParams {
-                    chain: self.chain(),
-                    list_key: list_key.clone(),
-                    transact_proof_data: crate::railgun::poi::inner_types::TransactProofData {
-                        snark_proof: poi.snark_proof.clone().into(),
-                        poi_merkleroots: poi
-                            .poi_merkleroots
-                            .iter()
-                            .map(|r| r.to_string())
-                            .collect(),
-                        txid_merkleroot: poi.txid_merkleroot.to_string(),
-                        // TODO: This index should come from the circuit inputs
-                        txid_merkleroot_index: 0,
-                        blinded_commitments_out: poi
-                            .blinded_commitments_out
-                            .iter()
-                            .map(|c| c.to_string())
-                            .collect(),
-                        railgun_txid_if_has_unshield: poi.railgun_txid_if_has_unshield.to_string(),
-                    },
-                };
-
-                self.inner.submit_transact_proof(params).await?;
-                info!("Submitted POI proof for list key {}", list_key);
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -265,7 +246,7 @@ impl TryFrom<crate::railgun::poi::inner_types::MerkleProof> for MerkleProof {
             element: hex_to_u256(&proof.leaf),
             elements: proof.elements.iter().map(|s| hex_to_u256(s)).collect(),
             indices: hex_to_u256(&proof.indices).saturating_to(),
-            root: hex_to_u256(&proof.root),
+            root: hex_to_u256(&proof.root).into(),
         })
     }
 }

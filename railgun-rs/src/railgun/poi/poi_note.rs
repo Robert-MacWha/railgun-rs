@@ -4,7 +4,7 @@ use ruint::aliases::U256;
 
 use crate::{
     caip::AssetId,
-    crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeaf},
+    crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeafHash},
     railgun::merkle_tree::merkle_proof::MerkleProof,
     railgun::note::{IncludedNote, Note, utxo::UtxoNote},
     railgun::poi::poi_client::ListKey,
@@ -89,7 +89,7 @@ impl Note for PoiNote {
         self.inner.memo()
     }
 
-    fn hash(&self) -> UtxoLeaf {
+    fn hash(&self) -> UtxoLeafHash {
         self.inner.hash().into()
     }
 

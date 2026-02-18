@@ -1,22 +1,32 @@
 use ark_bn254::Bn254;
 use ruint::aliases::U256;
+use serde::Serialize;
 
-use crate::{abis, railgun};
+use crate::abis;
 
-#[derive(Clone)]
+/// Circuit proof
+///
+/// Serializes into a SnarkJS-compatible format, with decimal strings for all
+/// field elements and arrays for the g1 / g2 points.
+#[derive(Debug, Clone, Serialize)]
 pub struct Proof {
+    #[serde(rename = "pi_a")]
     pub a: G1Affine,
+    #[serde(rename = "pi_b")]
     pub b: G2Affine,
+    #[serde(rename = "pi_c")]
     pub c: G1Affine,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(into = "[String; 2]")]
 pub struct G1Affine {
     pub x: U256,
     pub y: U256,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(into = "[[String; 2]; 2]")]
 pub struct G2Affine {
     pub x: [U256; 2],
     pub y: [U256; 2],
@@ -67,15 +77,63 @@ impl From<Proof> for abis::railgun::SnarkProof {
     }
 }
 
-impl From<Proof> for railgun::poi::poi_client::SnarkProof {
-    fn from(proof: Proof) -> Self {
-        railgun::poi::poi_client::SnarkProof {
-            pi_a: (proof.a.x.to_string(), proof.a.y.to_string()),
-            pi_b: (
-                (proof.b.x[0].to_string(), proof.b.x[1].to_string()),
-                (proof.b.y[0].to_string(), proof.b.y[1].to_string()),
-            ),
-            pi_c: (proof.c.x.to_string(), proof.c.y.to_string()),
+impl From<G1Affine> for [String; 2] {
+    fn from(point: G1Affine) -> Self {
+        [point.x.to_string(), point.y.to_string()]
+    }
+}
+
+impl From<G2Affine> for [[String; 2]; 2] {
+    fn from(point: G2Affine) -> Self {
+        [
+            [point.x[0].to_string(), point.x[1].to_string()],
+            [point.y[0].to_string(), point.y[1].to_string()],
+        ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use ruint::uint;
+
+    #[test]
+    fn test_proof_serialization() {
+        let proof = test_proof();
+
+        let serialized = serde_json::to_string_pretty(&proof).unwrap();
+        insta::assert_snapshot!(serialized);
+    }
+
+    #[test]
+    fn test_proof_to_abi() {
+        let proof = test_proof();
+        let abi_proof: abis::railgun::SnarkProof = proof.into();
+
+        insta::assert_debug_snapshot!(abi_proof);
+    }
+
+    fn test_proof() -> Proof {
+        Proof {
+            a: G1Affine {
+                x: uint!(12345678901234567890_U256),
+                y: uint!(98765432109876543210_U256),
+            },
+            b: G2Affine {
+                x: [
+                    uint!(11111111111111111111_U256),
+                    uint!(22222222222222222222_U256),
+                ],
+                y: [
+                    uint!(33333333333333333333_U256),
+                    uint!(44444444444444444444_U256),
+                ],
+            },
+            c: G1Affine {
+                x: uint!(55555555555555555555_U256),
+                y: uint!(66666666666666666666_U256),
+            },
         }
     }
 }

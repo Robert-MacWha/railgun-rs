@@ -196,6 +196,7 @@ sol! {
         CommitmentCiphertext[] commitmentCiphertext;
     }
 
+    #[derive(Debug)]
     struct Transaction {
         SnarkProof proof;
         bytes32 merkleRoot;
@@ -212,12 +213,14 @@ sol! {
         uint120 value; // Note value
     }
 
+    #[derive(Debug)]
     struct G1Point {
         uint256 x;
         uint256 y;
     }
 
     // Encoding of field elements is: X[0] * z + X[1]
+    #[derive(Debug)]
     struct G2Point {
         uint256[2] x;
         uint256[2] y;
@@ -232,6 +235,7 @@ sol! {
         G1Point[] ic;
     }
 
+    #[derive(Debug)]
     struct SnarkProof {
         G1Point a;
         G2Point b;

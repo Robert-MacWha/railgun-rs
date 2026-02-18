@@ -57,7 +57,7 @@ impl JsTxData {
 
 #[wasm_bindgen]
 pub struct JsPoiProvedTx {
-    inner: PoiProvedTransaction,
+    pub(crate) inner: PoiProvedTransaction,
 }
 
 /// Builder for shield transactions (self-broadcast only, no prover needed)

@@ -1,19 +1,22 @@
 use std::collections::{BTreeMap, HashMap};
 
-use ruint::aliases::U256;
 use thiserror::Error;
 
 use crate::{
     abis,
     circuit::{
         inputs::{PoiCircuitInputs, PoiCircuitInputsError, TransactCircuitInputs},
-        proof::Proof,
         prover::PoiProver,
     },
+    crypto::railgun_txid::TxidLeafHash,
     railgun::{
+        broadcaster::broadcaster::Fee,
         merkle_tree::merkle_tree::UtxoMerkleTree,
         note::{operation::Operation, utxo::UtxoNote},
-        poi::{poi_client::ListKey, poi_note::PoiNote},
+        poi::{
+            poi_client::{ListKey, PreTransactionPoi},
+            poi_note::PoiNote,
+        },
         transaction::tx_data::TxData,
     },
 };
@@ -34,31 +37,29 @@ pub struct ProvedTransaction {
     pub min_gas_price: u128,
 }
 
-/// POI proof for a single operation, proving that the input notes have valid POI.
-pub struct PreTransactionPoi {
-    pub snark_proof: Proof,
-    pub txid_merkleroot: U256,
-    pub poi_merkleroots: Vec<U256>,
-    pub blinded_commitments_out: Vec<U256>,
-    pub railgun_txid_if_has_unshield: U256,
-}
-
 /// A proved operation with POI proofs attached for each list key.
+#[derive(Debug)]
 pub struct PoiProvedOperation {
     pub operation: Operation<PoiNote>,
     pub circuit_inputs: TransactCircuitInputs,
     pub transaction: abis::railgun::Transaction,
     /// POI proofs keyed by list key.
     pub pois: HashMap<ListKey, PreTransactionPoi>,
+    /// The txid leaf hash for this operation (same for all list keys).
+    /// Computed on first `add_pois` call.
+    pub txid_leaf_hash: Option<TxidLeafHash>,
 }
 
 /// A transaction with POI proofs for all operations.
+#[derive(Debug)]
 pub struct PoiProvedTransaction {
     /// Transaction data to execute this transaction on-chain in railgun.
     pub tx_data: TxData,
     /// The operations with their POI proofs.
     pub operations: Vec<PoiProvedOperation>,
     pub min_gas_price: u128,
+    /// Optional fee information if this transaction is being sent through a broadcaster.
+    pub fee: Option<Fee>,
 }
 
 #[derive(Debug, Error)]
@@ -97,15 +98,21 @@ impl PoiProvedOperation {
                 &self.operation,
                 list_key.clone(),
             )?;
+
+            // Store txid_leaf_hash (same for all list keys)
+            if self.txid_leaf_hash.is_none() {
+                self.txid_leaf_hash = Some(inputs.txid_leaf_hash);
+            }
+
             let proof = prover
                 .prove_poi(&inputs)
                 .await
                 .map_err(PoiProvedOperationError::Prover)?;
 
             let pre_transaction_poi = PreTransactionPoi {
-                snark_proof: proof,
+                proof,
                 txid_merkleroot: inputs.railgun_txid_merkle_root_after_transaction,
-                poi_merkleroots: inputs.poi_merkle_roots.clone(),
+                poi_merkleroots: inputs.poi_merkle_roots,
                 blinded_commitments_out: self.operation.blinded_commitments(),
                 railgun_txid_if_has_unshield: inputs.railgun_txid_if_has_unshield,
             };

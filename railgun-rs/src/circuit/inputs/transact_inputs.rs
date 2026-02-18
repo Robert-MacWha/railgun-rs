@@ -6,7 +6,10 @@ use thiserror::Error;
 use crate::{
     circuit_inputs,
     railgun::{
-        merkle_tree::merkle_tree::{MerkleTreeError, UtxoMerkleTree},
+        merkle_tree::{
+            merkle_proof::MerkleRoot,
+            merkle_tree::{MerkleTreeError, UtxoMerkleTree},
+        },
         note::{IncludedNote, Note},
     },
 };
@@ -16,7 +19,7 @@ use crate::circuit::inputs::circuit_input::IntoSignalVec;
 #[derive(Debug, Clone)]
 pub struct TransactCircuitInputs {
     // Public Inputs
-    pub merkle_root: U256,
+    pub merkle_root: MerkleRoot,
     pub bound_params_hash: U256,
     pub nullifiers: Vec<U256>,
     pub commitments_out: Vec<U256>,

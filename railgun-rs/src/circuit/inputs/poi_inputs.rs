@@ -1,17 +1,17 @@
 use std::collections::HashMap;
 
 use ruint::aliases::U256;
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::info;
 
-use crate::circuit::inputs::circuit_input::IntoSignalVec;
+use crate::circuit::inputs::circuit_input::{FromU256, IntoSignalVec};
 use crate::crypto::keys::U256Key;
+use crate::railgun::merkle_tree::merkle_proof::MerkleRoot;
 use crate::{
     circuit_inputs,
     crypto::{
         keys::{NullifyingKey, SpendingPublicKey},
-        railgun_txid::{Txid, TxidLeaf, UtxoTreeOut},
+        railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
         railgun_zero::railgun_merkle_tree_zero,
     },
     railgun::merkle_tree::{
@@ -24,12 +24,12 @@ use crate::{
 
 // TODO: Consider making me into an enum with two variants on a generic Inner, so
 // the values can be [_; 3] / [_; 13] instead of Vec<_> with padding.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub struct PoiCircuitInputs {
     // Public Inputs
     /// A merkle root from the txid merkle tree after this note's
-    pub railgun_txid_merkle_root_after_transaction: U256,
-    pub poi_merkle_roots: Vec<U256>,
+    pub railgun_txid_merkle_root_after_transaction: MerkleRoot,
+    pub poi_merkle_roots: Vec<MerkleRoot>,
 
     // Private inputs
 
@@ -57,7 +57,7 @@ pub struct PoiCircuitInputs {
     utxo_batch_global_start_position_out: U256,
 
     // Unshield data
-    pub railgun_txid_if_has_unshield: U256,
+    pub railgun_txid_if_has_unshield: Txid,
     railgun_txid_merkle_proof_indices: U256,
     railgun_txid_merkle_proof_path_elements: Vec<U256>,
 
@@ -67,7 +67,7 @@ pub struct PoiCircuitInputs {
 
     // Helper fields. Not part of circuit inputs, but useful in other contexts
     pub txid: Txid,
-    pub txid_leaf_hash: TxidLeaf,
+    pub txid_leaf_hash: TxidLeafHash,
 }
 
 #[derive(Debug, Error)]
@@ -93,30 +93,41 @@ fn circuit_size(nullifiers_len: usize, commitments_len: usize) -> usize {
 }
 
 /// Pads a vector with the railgun merkle tree zero value.
-fn pad_with_zero_value(vec: Vec<U256>, target_len: usize) -> Vec<U256> {
+fn pad_with_zero_value<T>(vec: Vec<T>, target_len: usize) -> Vec<T>
+where
+    T: FromU256,
+{
     pad_with_value(vec, target_len, railgun_merkle_tree_zero())
 }
 
-/// Pads a vector with zero (0).
-fn pad_with_zero(vec: Vec<U256>, target_len: usize) -> Vec<U256> {
+fn pad_with_zero<T>(vec: Vec<T>, target_len: usize) -> Vec<T>
+where
+    T: FromU256,
+{
     pad_with_value(vec, target_len, U256::from(0))
 }
 
-/// Pads a vector with the given value.
-fn pad_with_value(mut vec: Vec<U256>, target_len: usize, value: U256) -> Vec<U256> {
+fn pad_with_value<T>(mut vec: Vec<T>, target_len: usize, value: U256) -> Vec<T>
+where
+    T: FromU256,
+{
     while vec.len() < target_len {
-        vec.push(value.clone());
+        vec.push(T::from_u256(value));
     }
     vec
 }
 
-/// Pads a 2D vector (array of merkle proof paths) to the target length.
-fn pad_merkle_proof_paths(mut vec: Vec<Vec<U256>>, target_len: usize) -> Vec<Vec<U256>> {
-    let zero = railgun_merkle_tree_zero();
-    let empty_path: Vec<U256> = vec![zero; POI_MERKLE_PROOF_DEPTH];
+fn pad_merkle_proof_paths<T>(mut vec: Vec<Vec<T>>, target_len: usize) -> Vec<Vec<T>>
+where
+    T: FromU256 + Clone,
+{
+    let zero = T::from_u256(railgun_merkle_tree_zero());
+    let empty_path: Vec<T> = vec![zero; POI_MERKLE_PROOF_DEPTH];
+
     while vec.len() < target_len {
         vec.push(empty_path.clone());
     }
+
     vec
 }
 
@@ -150,7 +161,7 @@ impl PoiCircuitInputs {
             .collect();
 
         let txid = Txid::new(&nullifiers, &commitments, bound_params_hash);
-        let txid_leaf_hash = TxidLeaf::new(
+        let txid_leaf_hash = TxidLeafHash::new(
             txid,
             operation.utxo_tree_number(),
             crate::crypto::railgun_txid::UtxoTreeOut::PreInclusion,
@@ -170,7 +181,7 @@ impl PoiCircuitInputs {
             .collect::<Result<Vec<_>, _>>()?;
 
         info!("Assembling circuit inputs");
-        let poi_merkle_roots = poi_proofs.iter().map(|p| p.root).collect();
+        let poi_merkle_roots: Vec<MerkleRoot> = poi_proofs.iter().map(|p| p.root).collect();
         let poi_in_merkle_proof_indices =
             poi_proofs.iter().map(|p| U256::from(p.indices)).collect();
         let poi_in_merkle_proof_path_elements =
@@ -208,8 +219,8 @@ impl PoiCircuitInputs {
             .collect();
 
         let txid_if_has_unshield = match &operation.unshield_note() {
-            Some(_) => txid.into(),
-            None => U256::from(0),
+            Some(_) => txid,
+            None => U256::from(0).into(),
         };
 
         // Determine circuit size and apply padding

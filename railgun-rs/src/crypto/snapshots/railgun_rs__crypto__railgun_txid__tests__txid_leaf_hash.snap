@@ -1,0 +1,8 @@
+---
+source: railgun-rs/src/crypto/railgun_txid.rs
+assertion_line: 185
+expression: leaf_hash
+---
+TxidLeafHash(
+    6745812227361017099581501373645245177541765188484161512119790239305301021488,
+)

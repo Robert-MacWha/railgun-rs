@@ -7,10 +7,10 @@ use tracing::info;
 
 use crate::{
     crypto::{
-        poseidon::poseidon_hash, railgun_txid::TxidLeaf, railgun_utxo::UtxoLeaf,
+        poseidon::poseidon_hash, railgun_txid::TxidLeafHash, railgun_utxo::UtxoLeafHash,
         railgun_zero::railgun_merkle_tree_zero,
     },
-    railgun::merkle_tree::merkle_proof::MerkleProof,
+    railgun::merkle_tree::merkle_proof::{MerkleProof, MerkleRoot},
 };
 
 /// UTXO Trees track the state of all notes in railgun. New UTXOs are added as
@@ -43,7 +43,7 @@ pub struct UtxoTreeConfig;
 pub struct TxidTreeConfig;
 
 impl TreeConfig for UtxoTreeConfig {
-    type LeafType = UtxoLeaf;
+    type LeafType = UtxoLeafHash;
 
     fn zero_value() -> U256 {
         railgun_merkle_tree_zero()
@@ -55,7 +55,7 @@ impl TreeConfig for UtxoTreeConfig {
 }
 
 impl TreeConfig for TxidTreeConfig {
-    type LeafType = TxidLeaf;
+    type LeafType = TxidLeafHash;
 
     fn zero_value() -> U256 {
         railgun_merkle_tree_zero()
@@ -131,13 +131,13 @@ impl<C: TreeConfig> MerkleTree<C> {
         self.number
     }
 
-    pub fn root(&self) -> U256 {
+    pub fn root(&self) -> MerkleRoot {
         debug_assert!(
             self.dirty_parents.is_empty(),
             "Merkle tree has dirty parents, root may be outdated"
         );
 
-        self.tree[self.depth][0]
+        self.tree[self.depth][0].into()
     }
 
     pub fn leaves_len(&self) -> usize {
@@ -295,9 +295,10 @@ mod tests {
     #[traced_test]
     fn test_merkle_root() {
         let tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let expected_root = uint!(
+        let expected_root: MerkleRoot = uint!(
             9493149700940509817378043077993653487291699154667385859234945399563579865744_U256
-        );
+        )
+        .into();
 
         assert_eq!(tree.root(), expected_root);
     }
@@ -307,10 +308,11 @@ mod tests {
     #[traced_test]
     fn test_merkle_tree_insert_and_proof() {
         let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let leaves: Vec<UtxoLeaf> = (0..10).map(|i| U256::from(i + 1).into()).collect();
-        let expected_root = uint!(
+        let leaves: Vec<UtxoLeafHash> = (0..10).map(|i| U256::from(i + 1).into()).collect();
+        let expected_root: MerkleRoot = uint!(
             13360826432759445967430837006844965422592495092152969583910134058984357610665_U256
-        );
+        )
+        .into();
 
         tree.edit().insert_leaves(&leaves, 0);
 
@@ -331,7 +333,7 @@ mod tests {
     #[traced_test]
     fn test_state() {
         let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let leaves: Vec<UtxoLeaf> = (0..10).map(|i| U256::from(i + 1).into()).collect();
+        let leaves: Vec<UtxoLeafHash> = (0..10).map(|i| U256::from(i + 1).into()).collect();
         tree.edit().insert_leaves(&leaves, 0);
 
         let state = tree.state();
