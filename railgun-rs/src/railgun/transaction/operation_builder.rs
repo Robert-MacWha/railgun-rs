@@ -58,9 +58,9 @@ use crate::{
 #[derive(Clone)]
 pub struct OperationBuilder {
     transfers: Vec<TransferData>,
-    unshields: HashMap<AssetId, UnshieldData>,
+    unshields: BTreeMap<AssetId, UnshieldData>,
     broadcaster_fee: Option<TransferData>,
-    accounts: HashMap<ViewingPublicKey, RailgunAccount>,
+    accounts: BTreeMap<ViewingPublicKey, RailgunAccount>,
 }
 
 #[derive(Clone)]
@@ -108,9 +108,9 @@ impl OperationBuilder {
     pub fn new() -> Self {
         Self {
             transfers: Vec::new(),
-            unshields: HashMap::new(),
+            unshields: BTreeMap::new(),
             broadcaster_fee: None,
-            accounts: HashMap::new(),
+            accounts: BTreeMap::new(),
         }
     }
 
@@ -381,7 +381,10 @@ impl OperationBuilder {
             .into_values()
             .flat_map(|o| split_trees(o))
             .collect();
-        let mut operations: Vec<_> = operations.into_iter().map(add_change_note).collect();
+        let mut operations: Vec<_> = operations
+            .into_iter()
+            .map(|o| add_change_note(o, rng))
+            .collect();
 
         //? Sort the operations to bring the fee note to the front if it exists
         operations.sort_by(|a, b| {
@@ -495,7 +498,7 @@ fn split_trees<N: IncludedNote>(operation: Operation<N>) -> Vec<Operation<N>> {
 
 /// Adds a change note to the operation if required. The change note sends any
 /// excess consumed value back to the sender's address.
-fn add_change_note<N: IncludedNote>(operation: Operation<N>) -> Operation<N> {
+fn add_change_note<R: Rng, N: IncludedNote>(operation: Operation<N>, rng: &mut R) -> Operation<N> {
     let in_value = operation.in_value();
     let out_value = operation.out_value();
     let change_value = in_value.saturating_sub(out_value);
@@ -506,7 +509,7 @@ fn add_change_note<N: IncludedNote>(operation: Operation<N>) -> Operation<N> {
             operation.from.address(),
             operation.asset,
             change_value,
-            random(),
+            rng.random(),
             "change",
         );
         let mut new_operation = operation.clone();
@@ -532,19 +535,19 @@ async fn calculate_fee_to_convergence<R: Rng>(
 ) -> Result<ProvedTransaction, BuildError> {
     const MAX_ITERS: usize = 5;
 
+    let gas_price_wei = estimator
+        .gas_price_wei()
+        .await
+        .map_err(BuildError::Estimator)?;
+
     let mut fee_builder = builder.clone();
-    let mut last_fee: u128 = calculate_fee(1000000, 1000000000, fee.per_unit_gas);
+    let mut last_fee: u128 = calculate_fee(1000000, gas_price_wei, fee.per_unit_gas);
     fee_builder.set_broadcaster_fee(
         fee_payer.clone(),
         fee.recipient.clone(),
         AssetId::Erc20(fee.token),
         last_fee,
     );
-
-    let gas_price_wei = estimator
-        .gas_price_wei()
-        .await
-        .map_err(BuildError::Estimator)?;
 
     let mut proved_operations: Vec<ProvedOperation> = Vec::new();
     let mut tx_data = TxData::new(Address::ZERO, vec![], U256::ZERO);
@@ -585,15 +588,15 @@ async fn calculate_fee_to_convergence<R: Rng>(
             .map_err(BuildError::Estimator)?;
         let new_fee = calculate_fee(gas, gas_price_wei, fee.per_unit_gas);
 
+        info!(
+            "Estimated gas: {}, gas price (wei): {}, fee: {}",
+            gas, gas_price_wei, new_fee
+        );
         if new_fee <= last_fee {
             info!("Fee converged at {} after iterations", new_fee);
             break;
         }
 
-        info!(
-            "Estimated gas: {}, gas price (wei): {}, fee: {}",
-            gas, gas_price_wei, new_fee
-        );
         fee_builder.set_broadcaster_fee(
             fee_payer.clone(),
             fee.recipient.clone(),

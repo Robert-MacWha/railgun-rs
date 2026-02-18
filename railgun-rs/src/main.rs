@@ -9,7 +9,7 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use async_trait::async_trait;
-use rand::{SeedableRng, random};
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaChaRng;
 use tracing::info;
 
@@ -45,6 +45,7 @@ const INDEXER_STATE: &str = "./indexer_state_11155111.bincode";
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt().init();
+    let mut rand = ChaChaRng::seed_from_u64(0);
 
     let signer_key = std::env::var("DEV_KEY").expect("DEV_KEY must be set");
     let rpc_url = std::env::var("FORK_URL_SEPOLIA").expect("FORK_URL_SEPOLIA must be set");
@@ -67,8 +68,8 @@ async fn main() {
     let spending_key = SpendingKey::from_hex(&spending_key).unwrap();
     let viewing_key = ViewingKey::from_hex(&viewing_key).unwrap();
     let account1 = RailgunAccount::new(spending_key, viewing_key, CHAIN.id);
-    let account2 = RailgunAccount::new(random(), random(), CHAIN.id);
-    let account3 = RailgunAccount::new(random(), random(), CHAIN.id);
+    let account2 = RailgunAccount::new(rand.random(), rand.random(), CHAIN.id);
+    let account3 = RailgunAccount::new(rand.random(), rand.random(), CHAIN.id);
 
     info!("Account 1: {}", account1.address());
     info!("Account 2: {}", account2.address());
@@ -95,7 +96,7 @@ async fn main() {
     let broadcaster_address = RailgunAddress::from_str("0zk1qyjftlcuuxwjj574e5979wzt5veel9wmnh8peq6slvd668pz9ggzerv7j6fe3z53latpxdq2zqzs7l780x9gu7hfsgn93m27fwx3k6pk8fsrtgrp45ywuctqpkg").unwrap();
     let fee = Fee {
         token: WETH_ADDRESS,
-        per_unit_gas: 100000000,
+        per_unit_gas: 1000000000000000000,
         recipient: broadcaster_address,
         expiration: 0,
         fees_id: "000".to_string(),
@@ -106,8 +107,6 @@ async fn main() {
             "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
         ],
     };
-
-    let mut rand = ChaChaRng::seed_from_u64(0);
 
     let mut builder = OperationBuilder::new();
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");

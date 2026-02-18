@@ -6,7 +6,7 @@ use crate::{
     caip::AssetId,
     crypto::{
         aes::{AesError, encrypt_ctr},
-        concat_arrays, concat_arrays_3,
+        concat_arrays,
         keys::{ByteKey, KeyError, U256Key, ViewingKey, blind_viewing_keys},
         railgun_base_37,
     },
@@ -51,19 +51,18 @@ pub fn encrypt_note<R: Rng + ?Sized>(
     let gcm = shared_key.encrypt_gcm(
         &[
             receiver.master_key().as_bytes(),
-            &concat_arrays::<16, 16, 32>(shared_random, &value.to_be_bytes()),
             &asset.hash().to_be_bytes_vec(),
+            &concat_arrays::<16, 16, 32>(shared_random, &value.to_be_bytes()),
             memo.as_bytes(),
         ],
         rng,
     )?;
 
+    let ctr0: [u8; 16] = concat_arrays(&[output_type], &sender_random);
+    let ctr1 = [0u8; 16];
+    let ctr2 = application_identifier;
     let ctr = encrypt_ctr(
-        &[&concat_arrays_3::<1, 15, 16, 32>(
-            &[output_type],
-            &sender_random,
-            &application_identifier,
-        )],
+        &[&ctr0, &ctr1, &ctr2],
         viewing_key.public_key().as_bytes(),
         rng,
     );
@@ -75,8 +74,8 @@ pub fn encrypt_note<R: Rng + ?Sized>(
     Ok(CommitmentCiphertext {
         // iv (16) | tag (16)
         // master_public_key (32)
-        // random (16) | value (16)
         // token_hash (32)
+        // random (16) | value (16)
         ciphertext: [
             concat_arrays(&gcm.iv, &gcm.tag).into(),
             bundle_1.into(),
@@ -85,8 +84,10 @@ pub fn encrypt_note<R: Rng + ?Sized>(
         ],
         blindedSenderViewingKey: blinded_sender.to_u256().into(),
         blindedReceiverViewingKey: blinded_receiver.to_u256().into(),
-        // ctr_iv (16) | encrypted_sender_bundle (any)
-        annotationData: [ctr.iv.as_slice(), &ctr.data[0]].concat().into(),
+        // ctr_iv (16) | outputType (1) | senderRandom (15) | padding (16) | applicationIdentifier (16)
+        annotationData: [ctr.iv.as_slice(), &ctr.data[0], &ctr.data[1], &ctr.data[2]]
+            .concat()
+            .into(),
         memo: gcm.data[3].clone().into(),
     })
 }

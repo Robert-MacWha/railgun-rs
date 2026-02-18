@@ -99,12 +99,16 @@ impl UtxoNote {
             tag: encrypted.ciphertext[0][16..].try_into().unwrap(),
             data,
         };
+        // iv (16) | tag (16)
+        // master_public_key (32)
+        // token_hash (32)
+        // random (16) | value (16)
         let bundle = shared_key.decrypt_gcm(&ciphertext)?;
 
-        let random: [u8; 16] = bundle[1][0..16].try_into().unwrap();
-        let value: u128 = u128::from_be_bytes(bundle[1][16..32].try_into().unwrap());
-        let token_data = TokenData::from_hash(&bundle[2])?;
+        let token_data = TokenData::from_hash(&bundle[1])?;
         let asset_id = AssetId::from(token_data);
+        let random: [u8; 16] = bundle[2][0..16].try_into().unwrap();
+        let value: u128 = u128::from_be_bytes(bundle[2][16..32].try_into().unwrap());
         let memo = if bundle.len() > 3 {
             std::str::from_utf8(&bundle[3]).unwrap_or("")
         } else {
