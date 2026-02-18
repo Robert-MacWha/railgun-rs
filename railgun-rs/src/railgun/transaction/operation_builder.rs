@@ -381,7 +381,14 @@ impl OperationBuilder {
             .into_values()
             .flat_map(|o| split_trees(o))
             .collect();
-        let operations: Vec<_> = operations.into_iter().map(add_change_note).collect();
+        let mut operations: Vec<_> = operations.into_iter().map(add_change_note).collect();
+
+        //? Sort the operations to bring the fee note to the front if it exists
+        operations.sort_by(|a, b| {
+            let a_fee = a.fee_note().is_some();
+            let b_fee = b.fee_note().is_some();
+            b_fee.cmp(&a_fee) // fee note first
+        });
 
         Ok(operations)
     }
@@ -578,7 +585,7 @@ async fn calculate_fee_to_convergence<R: Rng>(
             .map_err(BuildError::Estimator)?;
         let new_fee = calculate_fee(gas, gas_price_wei, fee.per_unit_gas);
 
-        if new_fee == last_fee {
+        if new_fee <= last_fee {
             info!("Fee converged at {} after iterations", new_fee);
             break;
         }

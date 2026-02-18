@@ -8,6 +8,7 @@ import {
   createEncoder,
   createLightNode,
   CreateNodeOptions,
+  Protocols,
   type IDecodedMessage,
   type LightNode,
   type QueryRequestParams,
@@ -63,12 +64,24 @@ type RetrieveHistoricalFn = (topic: string) => Promise<WakuMessage[]>;
  * Creates a JsBroadcaster instance by initializing a Waku LightNode with the
  * provided options.
  */
+/** Timeout for peer discovery in milliseconds. */
+const PEER_DISCOVERY_TIMEOUT_MS = 20_000;
+
 export async function createBroadcaster(
   chain_id: bigint,
   options: CreateNodeOptions = { defaultBootstrap: true }
 ): Promise<JsBroadcasterManager> {
   const node = await createLightNode(options);
   await node.start();
+
+  console.log("Waiting for Waku peers...");
+  await node.waitForPeers(
+    [Protocols.Filter, Protocols.LightPush, Protocols.Store],
+    PEER_DISCOVERY_TIMEOUT_MS
+  );
+
+  const peers = await node.getConnectedPeers();
+  console.log(`Connected to ${peers.length} Waku peers`);
 
   return createBroadcasterFromNode(chain_id, node);
 }

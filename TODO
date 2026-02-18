@@ -9,11 +9,13 @@
     - [x] Setup syncing to download TXID merkle tree from subsquid
     - [x] Verify the root against the poi API
 - [x] Fix the transact integration test
-- [ ] Finish implementing JS SDK
-- [ ] Setup broadcasters in JS SDK
+- [x] Finish implementing JS SDK
+- [x] Setup broadcasters in JS SDK
   - Seems like waku's rust SDK is pretty bad, so we should just use the JS one and worry about native support later.
-- [ ] Generate POI proof inputs for a transfer operation
+- [x] Generate POI proof inputs for a transfer operation
 - [ ] Send to a broadcaster
+  - Figure out why I'm getting a `No Broadcaster Fee included in transaction.` response from the broadcaster. My fee must
+  - not be being included properly
 - [ ] Send a POI for a transfer note 
 - [ ] Make managed merke trees that verify themselves
 - [ ] Refactor and tidy up

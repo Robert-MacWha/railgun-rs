@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt::Display,
+};
 
 use thiserror::Error;
 
@@ -121,5 +124,22 @@ impl PoiProvedOperation {
         }
 
         Ok(())
+    }
+}
+
+impl Display for ProvedOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ProvedOperation({})", self.operation)
+    }
+}
+
+impl Display for PoiProvedOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "PoiProvedOperation({}, pois: {:?})",
+            self.operation,
+            self.pois.keys()
+        )
     }
 }

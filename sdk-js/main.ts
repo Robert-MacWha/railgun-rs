@@ -1,11 +1,7 @@
 import { readFile } from "node:fs/promises";
-import { createPublicClient, createWalletClient, http } from "viem";
 import { createProverFunctions } from "./src/prover";
 import { initWasm } from "./src/wasm";
-import { mainnet } from "viem/chains";
-import { privateKeyToAccount } from "viem/accounts";
-import { createBroadcaster, createBroadcasterFromNode } from "./src/waku-transport";
-import { Broadcasters } from "./src/_broadcaster";
+import { createBroadcaster } from "./src/waku-transport";
 
 const hexKey = (fill: number): string => "0x" + fill.toString(16).padStart(2, "0").repeat(32);
 

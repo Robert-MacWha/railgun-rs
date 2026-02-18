@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use ruint::aliases::U256;
 use thiserror::Error;
 
@@ -194,6 +196,22 @@ impl Operation<PoiNote> {
             .iter()
             .map(|n| n.blinded_commitment())
             .collect()
+    }
+}
+
+impl<N: Note> Display for Operation<N> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Operation(tree: {}, from: {}, asset: {}, in_notes: {}, out_notes: {}, unshield: {}, fee: {})",
+            self.utxo_tree_number,
+            self.from.address(),
+            self.asset,
+            self.in_notes.len(),
+            self.out_notes.len(),
+            self.unshield_note.is_some(),
+            self.fee_note.is_some(),
+        )
     }
 }
 

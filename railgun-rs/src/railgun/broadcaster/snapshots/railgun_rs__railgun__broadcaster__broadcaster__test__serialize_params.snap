@@ -1,6 +1,6 @@
 ---
 source: railgun-rs/src/railgun/broadcaster/broadcaster.rs
-assertion_line: 224
+assertion_line: 421
 expression: serialized
 ---
 {
@@ -9,13 +9,13 @@ expression: serialized
   "data": "0x01020304",
   "broadcasterViewingKey": "6e7a1cdd29b0b78fd13af4c5598feff4ef2a97166e3ca6f2e4fbfccd80505bf1",
   "chainID": 1,
-  "chainType": "0",
+  "chainType": 0,
   "minGasPrice": "100",
   "feesID": "test-fees-id",
   "useRelayAdapt": false,
   "devLog": false,
   "minVersion": "8.0.0",
-  "maxVersion": "8.990.0",
+  "maxVersion": "8.999.0",
   "preTransactionPOIsPerTxidLeafPerList": {
     "test_list_key": {
       "0000000000000000000000000000000000000000000000000000000000000014": {

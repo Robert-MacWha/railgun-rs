@@ -256,6 +256,23 @@ impl ViewingKey {
         Ok(SharedKey::new(self, point))
     }
 
+    /// Generate a shared secret compatible with @noble/ed25519's `ed.getSharedSecret`
+    ///
+    /// TODO: Make me my own type
+    pub fn derive_shared_secret(
+        &self,
+        their_public: ViewingPublicKey,
+    ) -> Result<SharedKey, KeyError> {
+        let scalar = self.to_curve25519_scalar();
+        let ed_point = CompressedEdwardsY(their_public.0)
+            .decompress()
+            .ok_or(KeyError::DecompressionFailed)?;
+        let x_point = ed_point.to_montgomery();
+        let shared_secret = x_point * scalar;
+
+        Ok(SharedKey(shared_secret.to_bytes()))
+    }
+
     pub fn derive_shared_key_blinded(&self, blinded: BlindedKey) -> Result<SharedKey, KeyError> {
         let point = CompressedEdwardsY(blinded.0)
             .decompress()

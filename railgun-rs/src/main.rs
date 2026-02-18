@@ -1,6 +1,6 @@
 #![cfg(not(feature = "wasm"))]
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use alloy::{
     network::Ethereum,
@@ -8,7 +8,9 @@ use alloy::{
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
 };
-use rand::random;
+use async_trait::async_trait;
+use rand::{SeedableRng, random};
+use rand_chacha::ChaChaRng;
 use tracing::info;
 
 use railgun_rs::{
@@ -19,7 +21,12 @@ use railgun_rs::{
     circuit::native::Groth16Prover,
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
     railgun::{
-        broadcaster::broadcaster::Fee,
+        address::RailgunAddress,
+        broadcaster::{
+            broadcaster::{Broadcaster, Fee},
+            transport::{MessageStream, WakuTransport, WakuTransportError},
+            types::WakuMessage,
+        },
         indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
         poi::poi_client::PoiClient,
         transaction::operation_builder::OperationBuilder,
@@ -70,13 +77,13 @@ async fn main() {
     info!("Creating indexer");
     // let rpc = Box::new(RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
     let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
-    // let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    let mut indexer = Indexer::new(subsquid, CHAIN);
-    // let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
+    let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
+    // let mut indexer = Indexer::new(subsquid, CHAIN);
+    let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
     indexer.add_account(&account1);
 
-    info!("Syncing indexer");
-    indexer.sync_to(10277095).await.unwrap();
+    // info!("Syncing indexer");
+    // indexer.sync_to(10277095).await.unwrap();
 
     info!("Saving indexer");
     let indexer_state = bitcode::serialize(&indexer.state()).unwrap();
@@ -85,35 +92,44 @@ async fn main() {
     let prover = Groth16Prover::new_native("./artifacts");
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
 
+    let broadcaster_address = RailgunAddress::from_str("0zk1qyjftlcuuxwjj574e5979wzt5veel9wmnh8peq6slvd668pz9ggzerv7j6fe3z53latpxdq2zqzs7l780x9gu7hfsgn93m27fwx3k6pk8fsrtgrp45ywuctqpkg").unwrap();
+    let fee = Fee {
+        token: WETH_ADDRESS,
+        per_unit_gas: 100000000,
+        recipient: broadcaster_address,
+        expiration: 0,
+        fees_id: "000".to_string(),
+        available_wallets: 1,
+        relay_adapt: Address::ZERO,
+        reliability: 99,
+        list_keys: vec![
+            "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
+        ],
+    };
+
+    let mut rand = ChaChaRng::seed_from_u64(0);
+
     let mut builder = OperationBuilder::new();
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
     builder.set_unshield(account1.clone(), address, USDC, 100);
-    let prepared = builder
-        .build_with_broadcast(
-            &mut indexer,
-            &prover,
-            &poi_client,
-            &provider,
-            account1.clone(),
-            &Fee {
-                token: WETH_ADDRESS,
-                per_unit_gas: 100000000,
-                recipient: account2.address(),
-                expiration: 0,
-                fees_id: "000".to_string(),
-                available_wallets: 1,
-                relay_adapt: Address::ZERO,
-                reliability: 99,
-                list_keys: vec![
-                    "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
-                    "55049dc47b4435bca4a8f8ac27b1858e409f9f72b317fde4a442095cfc454893".to_string(),
-                ],
-            },
-            CHAIN,
-            &mut rand::rng(),
-        )
-        .await
-        .unwrap();
+    let prepared: railgun_rs::railgun::transaction::broadcaster_data::PoiProvedTransaction =
+        builder
+            .build_with_broadcast(
+                &mut indexer,
+                &prover,
+                &poi_client,
+                &provider,
+                account1.clone(),
+                &fee,
+                CHAIN,
+                &mut rand,
+            )
+            .await
+            .unwrap();
+
+    let transport = Arc::new(MockTransport);
+    let broadcaster = Broadcaster::new(transport, CHAIN.id, broadcaster_address, None, fee);
+    broadcaster.broadcast(&prepared, &mut rand).await.unwrap();
 
     info!(
         "Prepared operation with {} operations",
@@ -121,4 +137,25 @@ async fn main() {
     );
 }
 
-// fn main() {}
+struct MockTransport;
+
+#[async_trait]
+impl WakuTransport for MockTransport {
+    async fn subscribe(
+        &self,
+        content_topics: Vec<String>,
+    ) -> Result<MessageStream, WakuTransportError> {
+        todo!();
+    }
+
+    async fn send(&self, content_topic: &str, payload: Vec<u8>) -> Result<(), WakuTransportError> {
+        todo!();
+    }
+
+    async fn retrieve_historical(
+        &self,
+        content_topic: &str,
+    ) -> Result<Vec<WakuMessage>, WakuTransportError> {
+        todo!();
+    }
+}
