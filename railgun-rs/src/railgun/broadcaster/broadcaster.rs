@@ -10,7 +10,7 @@ use tracing::{error, info, warn};
 use crate::{
     crypto::{
         aes::Ciphertext,
-        keys::{HexKey, KeyError, SharedKey, ViewingKey, ViewingPublicKey},
+        keys::{KeyError, SharedKey, ViewingKey, ViewingPublicKey},
     },
     railgun::{
         address::RailgunAddress,
@@ -414,7 +414,7 @@ mod test {
 
     use crate::{
         circuit::proof::{G1Affine, G2Affine, Proof},
-        crypto::keys::ByteKey,
+        crypto::keys::{ByteKey, HexKey},
         railgun::poi::poi_client::PreTransactionPoi,
     };
 

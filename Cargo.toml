@@ -56,12 +56,7 @@ wasmer = "4.4.0"
 [profile.release]
 debug = true
 opt-level = "z"
-lto = true
+# lto = true
 codegen-units = 1
-panic = "abort"
-strip = true
-
-[profile.profiling]
-inherits = "release"
-debug = true
+# panic = "abort"
 strip = false

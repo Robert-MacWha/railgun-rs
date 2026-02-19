@@ -27,8 +27,6 @@ pub struct RpcSyncer {
 pub enum RpcSyncerError {
     #[error("Error decoding log: {0}")]
     LogDecodeError(#[from] alloy_sol_types::Error),
-    #[error("RPC error: {0}")]
-    RpcError(String),
 }
 
 impl RpcSyncer {

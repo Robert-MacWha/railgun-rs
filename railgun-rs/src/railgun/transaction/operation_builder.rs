@@ -14,7 +14,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use alloy::primitives::Address;
-use rand::{Rng, random};
+use rand::Rng;
 use ruint::aliases::U256;
 use thiserror::Error;
 use tracing::{info, warn};
