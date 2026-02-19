@@ -30,7 +30,7 @@ aes-gcm = { workspace = true }
 alloy = { workspace = true }
 alloy-contract = { workspace = true }
 alloy-sol-types = { workspace = true }
-anyhow.workspace = true
+anyhow = { workspace = true }
 ark-bn254 = { workspace = true }
 ark-ec = { workspace = true }
 ark-ed-on-bn254 = { workspace = true }
@@ -43,10 +43,8 @@ ark-std = { workspace = true }
 async-trait = { workspace = true }
 bech32 = { workspace = true }
 bitcode = { workspace = true, features = ["serde"] }
-byteorder = { workspace = true }
 ctr = { workspace = true }
 curve25519-dalek = { workspace = true }
-cynic = { workspace = true }
 ed25519-dalek = { workspace = true }
 ff_ce = { workspace = true }
 futures = { workspace = true }
@@ -54,7 +52,6 @@ graphql_client = { workspace = true }
 hex = { workspace = true }
 num-bigint = { workspace = true, features = ["serde"] }
 num-traits = { workspace = true }
-paste = { workspace = true }
 rand = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["json"] }
 serde = { workspace = true, features = ["derive"] }
@@ -64,7 +61,6 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 wasm-bindgen = { workspace = true }
-rayon = { workspace = true }
 tokio = { workspace = true }
 poseidon-rust = { workspace = true }
 ruint = { version = "1.17.2", features = ["num-bigint", "serde", "ark-ff-05"] }

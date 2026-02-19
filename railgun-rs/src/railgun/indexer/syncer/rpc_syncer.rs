@@ -10,7 +10,7 @@ use crate::{
     abis::railgun::RailgunSmartWallet,
     chain_config::ChainConfig,
     railgun::indexer::{
-        compat::BoxedSyncStream,
+        syncer::compat::BoxedSyncStream,
         syncer::{SyncEvent, Syncer},
     },
     sleep::sleep,

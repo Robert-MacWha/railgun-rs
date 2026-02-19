@@ -15,8 +15,8 @@ use crate::{
         TokenType,
     },
     railgun::indexer::{
-        compat::BoxedSyncStream,
-        decimal_bigint,
+        syncer::compat::BoxedSyncStream,
+        syncer::decimal_bigint,
         syncer::{LegacyCommitment, Operation, SyncEvent, Syncer},
     },
 };

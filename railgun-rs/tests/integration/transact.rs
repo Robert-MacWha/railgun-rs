@@ -12,8 +12,10 @@ use railgun_rs::{
     caip::AssetId,
     chain_config::{ChainConfig, MAINNET_CONFIG},
     circuit::native::Groth16Prover,
-    railgun::indexer::{indexer::Indexer, rpc_syncer::RpcSyncer},
-    railgun::transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
+    railgun::{
+        indexer::{indexer::Indexer, syncer},
+        transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
+    },
 };
 use rand::random;
 use tracing::info;
@@ -55,7 +57,7 @@ async fn test_transact() {
     let usdc_contract = ERC20::new(USDC_ADDRESS, provider.clone());
 
     info!("Setting up indexer");
-    let rpc_syncer = Box::new(RpcSyncer::new(provider.clone(), CHAIN));
+    let rpc_syncer = Box::new(syncer::RpcSyncer::new(provider.clone(), CHAIN));
     let indexer_state = bitcode::deserialize(INDEXER_STATE).unwrap();
     let mut indexer = Indexer::from_state(rpc_syncer, indexer_state).unwrap();
 

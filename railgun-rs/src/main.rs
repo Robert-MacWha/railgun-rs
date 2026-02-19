@@ -27,7 +27,7 @@ use railgun_rs::{
             transport::{MessageStream, WakuTransport, WakuTransportError},
             types::WakuMessage,
         },
-        indexer::{indexer::Indexer, subsquid_syncer::SubsquidSyncer},
+        indexer::{indexer::Indexer, syncer},
         poi::poi_client::PoiClient,
         transaction::operation_builder::OperationBuilder,
     },
@@ -76,15 +76,18 @@ async fn main() {
     info!("Account 3: {}", account3.address());
 
     info!("Creating indexer");
-    // let rpc = Box::new(RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
-    let subsquid = Box::new(SubsquidSyncer::new(CHAIN.subsquid_endpoint.unwrap()));
-    let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    // let mut indexer = Indexer::new(subsquid, CHAIN);
-    let mut indexer = Indexer::from_state(subsquid, indexer_state).unwrap();
+    let subsquid = Box::new(syncer::SubsquidSyncer::new(
+        CHAIN.subsquid_endpoint.unwrap(),
+    ));
+    let rpc = Box::new(syncer::RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
+    let chained = Box::new(syncer::ChainedSyncer::new(vec![subsquid, rpc]));
+    // let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
+    let mut indexer = Indexer::new(chained, CHAIN);
+    // let mut indexer = Indexer::from_state(chained, indexer_state).unwrap();
     indexer.add_account(&account1);
 
-    // info!("Syncing indexer");
-    // indexer.sync_to(10277095).await.unwrap();
+    info!("Syncing indexer");
+    indexer.sync_to(10277095).await.unwrap();
 
     info!("Saving indexer");
     let indexer_state = bitcode::serialize(&indexer.state()).unwrap();

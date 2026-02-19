@@ -19,15 +19,17 @@ use crate::{
         railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
         railgun_utxo::UtxoLeafHash,
     },
-    railgun::address::RailgunAddress,
-    railgun::indexer::{
-        indexed_account::IndexedAccount,
-        syncer::{self, SyncEvent, Syncer},
+    railgun::{
+        address::RailgunAddress,
+        indexer::{
+            indexed_account::IndexedAccount,
+            syncer::{self, SyncEvent, Syncer},
+        },
+        merkle_tree::merkle_tree::{
+            MerkleTree, MerkleTreeState, TreeConfig, TxidMerkleTree, UtxoMerkleTree,
+        },
+        note::utxo::{NoteError, UtxoNote},
     },
-    railgun::merkle_tree::merkle_tree::{
-        MerkleTree, MerkleTreeState, TreeConfig, TxidMerkleTree, UtxoMerkleTree,
-    },
-    railgun::note::utxo::{NoteError, UtxoNote},
 };
 
 /// The indexer is responsible for syncing the state of the Railgun protocol
