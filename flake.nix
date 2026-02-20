@@ -34,28 +34,40 @@
         };
       in
       {
-        devShells.default = pkgs.mkShell {
-          packages = [
-            # Rust toolchain and extensions
-            rustToolchain
-            pkgs.rust-analyzer
-            pkgs.just
-            pkgs.foundry
+        devShells = {
+          default = pkgs.mkShell {
+            packages = [
+              # Rust toolchain and extensions
+              rustToolchain
+              pkgs.rust-analyzer
+              pkgs.just
+              pkgs.foundry
 
-            # Wasm tools
-            pkgs.binaryen
-            pkgs.wasm-pack
-            pkgs.nodejs_22
-            pkgs.pnpm
+              # Wasm tools
+              pkgs.binaryen
+              pkgs.wasm-pack
+              pkgs.nodejs_22
+              pkgs.pnpm
 
-            # Cargo tools
-            pkgs.cargo-bloat
-            pkgs.cargo-machete
-            pkgs.cargo-sort
-            pkgs.cargo-llvm-cov
+              # Cargo tools
+              pkgs.cargo-bloat
+              pkgs.cargo-machete
+              pkgs.cargo-sort
+              pkgs.cargo-llvm-cov
 
-            pkgs.sops
-          ];
+              pkgs.sops
+            ];
+          };
+
+          ci = pkgs.mkShell {
+            packages = [
+              rustToolchain
+              pkgs.just
+              pkgs.foundry
+              pkgs.nodejs_22
+              pkgs.pnpm
+            ];
+          };
         };
       }
     );
