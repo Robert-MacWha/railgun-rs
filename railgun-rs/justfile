@@ -29,7 +29,7 @@ test:
 integration: integration-sync integration-transact
 
 integration-sync:
-    RUST_LOG=info cargo test -- test_sync --ignored --nocapture
+    RUST_LOG=info cargo test --release -- test_sync --ignored --nocapture
 
 integration-transact:
     #!/usr/bin/env bash
