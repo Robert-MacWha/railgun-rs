@@ -21,7 +21,7 @@ use crate::railgun::{
             ValidatePoiMerklerootsParams, ValidateTxidMerklerootParams, ValidatedRailgunTxidStatus,
         },
     },
-    transaction::broadcaster_data::{PoiProvedOperation, PoiProvedTransaction},
+    transaction::broadcaster_data,
 };
 
 pub struct PoiClient {
@@ -183,39 +183,22 @@ impl PoiClient {
         Ok(proofs)
     }
 
-    /// Submits a proved transaction to the POI node
-    pub async fn submit(&self, tx: PoiProvedTransaction) -> Result<(), PoiClientError> {
-        for op in tx.operations {
-            self.submit_operation(op).await?;
-        }
-
-        Ok(())
-    }
-
     /// Submits a proved operation to the POI node.
     /// TODO: Update this to accept a new IncludedOperation or IndexedOperation that
     /// comes from txid syncing. We need to provide real txid merkle root / merkle root index,
     /// not the dummy values used for broadcasting / proving.
-    pub async fn submit_operation(&self, op: PoiProvedOperation) -> Result<(), PoiClientError> {
-        let validated = self.validated_txid().await?;
-
-        for (list_key, poi) in op.pois.iter() {
-            let transact_proof_data = TransactProofData {
-                snark_proof: poi.proof.clone().into(),
-                poi_merkleroots: poi.poi_merkleroots.clone(),
-                txid_merkleroot: poi.txid_merkleroot,
-                txid_merkleroot_index: validated.index,
-                blinded_commitments_out: poi.blinded_commitments_out.clone(),
-                railgun_txid_if_has_unshield: poi.railgun_txid_if_has_unshield,
-            };
-
+    pub async fn submit_operation(
+        &self,
+        op: HashMap<ListKey, TransactProofData>,
+    ) -> Result<(), PoiClientError> {
+        for (list_key, proof_data) in op {
             let resp: serde_json::Value = self
                 .call(
                     "ppoi_submit_transact_proof",
                     SubmitTransactProofParams {
                         chain: self.chain(),
                         list_key: list_key.clone(),
-                        transact_proof_data,
+                        transact_proof_data: proof_data,
                     },
                 )
                 .await?;

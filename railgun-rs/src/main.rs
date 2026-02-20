@@ -23,7 +23,9 @@ use railgun_rs::{
         },
         indexer::{indexer::Indexer, syncer},
         poi::PoiClient,
-        transaction::operation_builder::OperationBuilder,
+        transaction::{
+            broadcaster_data::PoiProvedTransaction, operation_builder::OperationBuilder,
+        },
     },
 };
 use rand::{Rng, SeedableRng};
@@ -125,22 +127,21 @@ async fn main() {
     let mut builder = OperationBuilder::new();
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
     builder.set_unshield(account1.clone(), address, USDC, 100);
-    let prepared: railgun_rs::railgun::transaction::broadcaster_data::PoiProvedTransaction =
-        builder
-            .build_with_poi(
-                &mut indexer,
-                &prover,
-                &poi_client,
-                // &provider,
-                // account1.clone(),
-                // &fee,
-                CHAIN,
-                &mut rand,
-            )
-            .await
-            .unwrap();
+    let prepared: PoiProvedTransaction = builder
+        .build_with_poi(
+            &mut indexer,
+            &prover,
+            &poi_client,
+            // &provider,
+            // account1.clone(),
+            // &fee,
+            CHAIN,
+            &mut rand,
+        )
+        .await
+        .unwrap();
 
-    poi_client.submit(prepared).await.unwrap();
+    // poi_client.submit(prepared).await.unwrap();
 
     // let transport = Arc::new(MockTransport);
     // poi_client.submit(prepared).await.unwrap();

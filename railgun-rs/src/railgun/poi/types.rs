@@ -189,7 +189,8 @@ pub struct SubmitTransactProofParams {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactProofData {
-    pub snark_proof: Proof,
+    #[serde(rename = "snarkProof")]
+    pub proof: Proof,
     pub poi_merkleroots: Vec<MerkleRoot>,
     pub txid_merkleroot: MerkleRoot,
     pub txid_merkleroot_index: u64,
