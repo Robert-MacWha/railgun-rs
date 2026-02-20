@@ -4,8 +4,9 @@ use ruint::aliases::U256;
 
 use crate::{
     caip::AssetId,
-    crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeafHash},
-    railgun::merkle_tree::merkle_proof::MerkleProof,
+    crypto::keys::ViewingPublicKey,
+    railgun::merkle_tree::MerkleProof,
+    railgun::merkle_tree::UtxoLeafHash,
     railgun::note::{IncludedNote, Note, utxo::UtxoNote},
     railgun::poi::types::ListKey,
 };

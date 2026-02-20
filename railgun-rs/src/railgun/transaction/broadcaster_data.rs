@@ -11,10 +11,10 @@ use crate::{
         inputs::{PoiCircuitInputs, PoiCircuitInputsError, TransactCircuitInputs},
         prover::PoiProver,
     },
-    crypto::railgun_txid::TxidLeafHash,
+    railgun::merkle_tree::TxidLeafHash,
     railgun::{
         broadcaster::broadcaster::Fee,
-        merkle_tree::merkle_tree::UtxoMerkleTree,
+        merkle_tree::UtxoMerkleTree,
         note::{operation::Operation, utxo::UtxoNote},
         poi::{ListKey, PoiNote, PreTransactionPoi},
         transaction::tx_data::TxData,

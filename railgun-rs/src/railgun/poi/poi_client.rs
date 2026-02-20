@@ -10,7 +10,7 @@ use thiserror::Error;
 use tracing::info;
 
 use crate::railgun::{
-    merkle_tree::merkle_proof::{MerkleProof, MerkleRoot},
+    merkle_tree::{MerkleProof, MerkleRoot},
     note::utxo::UtxoNote,
     poi::{
         poi_note::PoiNote,

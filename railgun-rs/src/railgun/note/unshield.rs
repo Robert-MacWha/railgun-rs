@@ -2,9 +2,7 @@ use alloy::primitives::{Address, aliases::U120};
 use ruint::aliases::U256;
 
 use crate::{
-    abis,
-    caip::AssetId,
-    crypto::{poseidon::poseidon_hash, railgun_utxo::UtxoLeafHash},
+    abis, caip::AssetId, crypto::poseidon::poseidon_hash, railgun::merkle_tree::UtxoLeafHash,
     railgun::note::Note,
 };
 
@@ -76,7 +74,7 @@ mod tests {
 
     use crate::{
         caip::AssetId,
-        crypto::railgun_utxo::UtxoLeafHash,
+        railgun::merkle_tree::UtxoLeafHash,
         railgun::note::{Note, unshield::UnshieldNote},
     };
 

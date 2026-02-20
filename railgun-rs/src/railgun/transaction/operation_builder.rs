@@ -33,7 +33,7 @@ use crate::{
         address::RailgunAddress,
         broadcaster::broadcaster::Fee,
         indexer::indexer::Indexer,
-        merkle_tree::{merkle_proof::MerkleRoot, merkle_tree::UtxoMerkleTree},
+        merkle_tree::{MerkleRoot, UtxoMerkleTree},
         note::{
             IncludedNote,
             encrypt::EncryptError,

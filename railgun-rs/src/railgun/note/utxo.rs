@@ -12,9 +12,9 @@ use crate::{
             ViewingPublicKey,
         },
         poseidon::poseidon_hash,
-        railgun_utxo::UtxoLeafHash,
     },
     railgun::{
+        merkle_tree::UtxoLeafHash,
         note::{IncludedNote, Note},
         poi::BlindedCommitmentType,
     },

@@ -16,8 +16,7 @@ use crate::{
     chain_config::{ChainConfig, get_chain_config},
     crypto::{
         poseidon::poseidon_hash,
-        railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
-        railgun_utxo::UtxoLeafHash,
+        railgun_txid::{Txid, UtxoTreeOut},
     },
     railgun::{
         address::RailgunAddress,
@@ -25,8 +24,8 @@ use crate::{
             indexed_account::IndexedAccount,
             syncer::{self, SyncEvent, Syncer},
         },
-        merkle_tree::merkle_tree::{
-            MerkleTree, MerkleTreeState, TreeConfig, TxidMerkleTree, UtxoMerkleTree,
+        merkle_tree::{
+            MerkleTreeState, TxidLeafHash, TxidMerkleTree, UtxoLeafHash, UtxoMerkleTree,
         },
         note::utxo::{NoteError, UtxoNote},
     },
@@ -98,13 +97,13 @@ impl Indexer {
         let utxo_trees = state
             .utxo_trees
             .into_iter()
-            .map(|(k, v)| (k, MerkleTree::from_state(v)))
+            .map(|(k, v)| (k, UtxoMerkleTree::from_state(v)))
             .collect();
 
         let txid_trees = state
             .txid_trees
             .into_iter()
-            .map(|(k, v)| (k, MerkleTree::from_state(v)))
+            .map(|(k, v)| (k, TxidMerkleTree::from_state(v)))
             .collect();
 
         Some(Indexer {
@@ -271,7 +270,7 @@ impl Indexer {
             })
             .collect();
 
-        insert_leaves(
+        insert_utxo_leaves(
             &mut self.utxo_trees,
             event.treeNumber.saturating_to(),
             event.startPosition.saturating_to(),
@@ -296,7 +295,7 @@ impl Indexer {
             .map(|h| U256::from_be_bytes(**h).into())
             .collect();
 
-        insert_leaves(
+        insert_utxo_leaves(
             &mut self.utxo_trees,
             event.treeNumber.saturating_to(),
             event.startPosition.saturating_to(),
@@ -336,7 +335,7 @@ impl Indexer {
             .map(|e| e.get().leaves_len())
             .unwrap_or(0);
 
-        insert_leaves(
+        insert_txid_leaves(
             &mut self.txid_trees,
             tree_number,
             start_position,
@@ -345,7 +344,7 @@ impl Indexer {
     }
 
     fn handle_legacy(&mut self, event: syncer::LegacyCommitment, _block_number: u64) {
-        insert_leaves(
+        insert_utxo_leaves(
             &mut self.utxo_trees,
             event.tree_number,
             event.leaf_index as usize,
@@ -356,15 +355,15 @@ impl Indexer {
     }
 }
 
-/// Inserts leaves into the appropriate Merkle Tree, handling tree boundaries.
+/// Inserts UTXO leaves into the appropriate tree, handling tree boundaries.
 ///
 /// If the leaves cross a tree boundary, it will fill the first tree, then
 /// insert the remaining leaves into the next tree.
-fn insert_leaves<C: TreeConfig>(
-    trees: &mut BTreeMap<u32, MerkleTree<C>>,
+fn insert_utxo_leaves(
+    trees: &mut BTreeMap<u32, UtxoMerkleTree>,
     tree_number: u32,
     start_position: usize,
-    leaves: &[C::LeafType],
+    leaves: &[UtxoLeafHash],
 ) {
     let mut remaining = leaves;
     let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
@@ -376,7 +375,36 @@ fn insert_leaves<C: TreeConfig>(
 
         trees
             .entry(current_tree)
-            .or_insert_with(|| MerkleTree::new(current_tree))
+            .or_insert_with(|| UtxoMerkleTree::new(current_tree))
+            .insert_leaves(&remaining[..to_insert], position);
+
+        remaining = &remaining[to_insert..];
+        current_tree += 1;
+        position = 0;
+    }
+}
+
+/// Inserts TxID leaves into the appropriate tree, handling tree boundaries.
+///
+/// If the leaves cross a tree boundary, it will fill the first tree, then
+/// insert the remaining leaves into the next tree.
+fn insert_txid_leaves(
+    trees: &mut BTreeMap<u32, TxidMerkleTree>,
+    tree_number: u32,
+    start_position: usize,
+    leaves: &[TxidLeafHash],
+) {
+    let mut remaining = leaves;
+    let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
+    let mut position = start_position % TOTAL_LEAVES;
+
+    while !remaining.is_empty() {
+        let space_in_tree = TOTAL_LEAVES - position;
+        let to_insert = remaining.len().min(space_in_tree);
+
+        trees
+            .entry(current_tree)
+            .or_insert_with(|| TxidMerkleTree::new(current_tree))
             .insert_leaves(&remaining[..to_insert], position);
 
         remaining = &remaining[to_insert..];

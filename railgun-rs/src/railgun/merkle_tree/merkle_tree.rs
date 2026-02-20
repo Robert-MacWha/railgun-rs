@@ -1,84 +1,32 @@
+use alloy::primitives::utils::keccak256_cached;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
-use std::marker::PhantomData;
 use thiserror::Error;
 use tracing::{info, warn};
 
 use crate::{
-    crypto::{
-        poseidon::poseidon_hash, railgun_txid::TxidLeafHash, railgun_utxo::UtxoLeafHash,
-        railgun_zero::railgun_merkle_tree_zero,
-    },
+    crypto::{poseidon::poseidon_hash, railgun_zero::SNARK_PRIME},
     railgun::merkle_tree::merkle_proof::{MerkleProof, MerkleRoot},
 };
 
-/// UTXO Trees track the state of all notes in railgun. New UTXOs are added as
-/// leaves whenever new commitments are observed from the railgun smart contracts.
-///
-/// The UTXO tree is used to generate Merkle proofs for UTXOs when they are spent,
-/// one of the private inputs required for a valid snark proof.
-pub type UtxoMerkleTree = MerkleTree<UtxoTreeConfig>;
-
-/// The TxID tree tracks all Operations (`RailgunSmartWallet::Transaction`) in railgun.
-/// New TxIDs are added whenever a new Operation event is observed from the railgun
-/// smart contracts.
-///
-/// TXID proofs are used to generate Merkle proofs for TxIDs when submitting a
-/// POI (Proof of Innocence) to a POI bundler, or to a broadcaster.
-pub type TxidMerkleTree = MerkleTree<TxidTreeConfig>;
-
-/// Configuration trait for different merkle tree types.
-pub trait TreeConfig: Clone + Default {
-    type LeafType: Clone + From<U256> + Into<U256>;
-    /// The zero value used for empty leaves in this tree type.
-    fn zero_value() -> U256;
-    fn hash_left_right(left: U256, right: U256) -> U256;
-}
-
-#[derive(Clone, Default, Debug)]
-pub struct UtxoTreeConfig;
-
-#[derive(Clone, Default, Debug)]
-pub struct TxidTreeConfig;
-
-impl TreeConfig for UtxoTreeConfig {
-    type LeafType = UtxoLeafHash;
-
-    fn zero_value() -> U256 {
-        railgun_merkle_tree_zero()
-    }
-
-    fn hash_left_right(left: U256, right: U256) -> U256 {
-        poseidon_hash(&[left, right]).unwrap()
-    }
-}
-
-impl TreeConfig for TxidTreeConfig {
-    type LeafType = TxidLeafHash;
-
-    fn zero_value() -> U256 {
-        railgun_merkle_tree_zero()
-    }
-
-    fn hash_left_right(left: U256, right: U256) -> U256 {
-        poseidon_hash(&[left, right]).unwrap()
-    }
-}
-
 /// A sparse Merkle tree implementation using Poseidon hash function.
+/// Works directly with U256 leaf values. Type-safe wrappers (UtxoMerkleTree,
+/// TxidMerkleTree) live in their own modules.
 #[derive(Debug, Clone)]
-pub struct MerkleTree<C: TreeConfig> {
+pub struct MerkleTree {
     number: u32,
     depth: usize,
     zeros: Vec<U256>,
     tree: Vec<Vec<U256>>,
     dirty_parents: BTreeSet<usize>,
-    _config: PhantomData<C>,
 }
 
-pub struct MerkleTreeMut<'a, C: TreeConfig> {
-    tree: &'a mut MerkleTree<C>,
+/// RAII batch of leaf inserts. Accumulated inserts are committed (rebuild fires) on drop.
+/// While a `MerkleTreeBatch` is alive the borrow checker prevents calling
+/// `root()` or `generate_proof()` on the underlying tree.
+pub struct MerkleTreeBatch<'a> {
+    tree: &'a mut MerkleTree,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,9 +44,9 @@ pub enum MerkleTreeError {
     InvalidProof,
 }
 
-const TREE_DEPTH: usize = 16;
+pub const TREE_DEPTH: usize = 16;
 
-impl<C: TreeConfig> MerkleTree<C> {
+impl MerkleTree {
     pub fn new(tree_number: u32) -> Self {
         Self::new_with_depth(tree_number, TREE_DEPTH)
     }
@@ -106,15 +54,14 @@ impl<C: TreeConfig> MerkleTree<C> {
     pub fn from_state(state: MerkleTreeState) -> Self {
         let mut tree = MerkleTree::new_with_depth(state.number, state.depth);
         tree.tree = state.tree;
-
         tree
     }
 
     fn new_with_depth(tree_number: u32, depth: usize) -> Self {
-        let zeros = zero_value_levels::<C>(depth);
+        let zeros = zero_value_levels(depth);
         let mut tree: Vec<Vec<U256>> = (0..=depth).map(|_| Vec::new()).collect();
 
-        let root = C::hash_left_right(zeros[depth - 1], zeros[depth - 1]);
+        let root = hash_left_right(zeros[depth - 1], zeros[depth - 1]);
         tree[depth].insert(0, root);
 
         MerkleTree {
@@ -123,7 +70,6 @@ impl<C: TreeConfig> MerkleTree<C> {
             zeros,
             tree,
             dirty_parents: BTreeSet::new(),
-            _config: PhantomData,
         }
     }
 
@@ -156,7 +102,7 @@ impl<C: TreeConfig> MerkleTree<C> {
         }
     }
 
-    pub fn generate_proof(&self, element: C::LeafType) -> Result<MerkleProof, MerkleTreeError> {
+    pub fn generate_proof(&self, element: U256) -> Result<MerkleProof, MerkleTreeError> {
         debug_assert!(
             self.dirty_parents.is_empty(),
             "Merkle tree has dirty parents, root may be outdated"
@@ -165,8 +111,6 @@ impl<C: TreeConfig> MerkleTree<C> {
         if !self.dirty_parents.is_empty() {
             warn!("Merkle tree has dirty parents, root may be outdated");
         }
-
-        let element = element.into();
 
         let initial_index = self.tree[0]
             .iter()
@@ -189,12 +133,7 @@ impl<C: TreeConfig> MerkleTree<C> {
             index /= 2;
         }
 
-        let proof = MerkleProof::new(
-            element.into(),
-            elements,
-            U256::from(initial_index),
-            self.root(),
-        );
+        let proof = MerkleProof::new(element, elements, U256::from(initial_index), self.root());
         if !proof.verify() {
             return Err(MerkleTreeError::InvalidProof);
         }
@@ -202,13 +141,20 @@ impl<C: TreeConfig> MerkleTree<C> {
         Ok(proof)
     }
 
-    pub fn edit(&mut self) -> MerkleTreeMut<C> {
-        MerkleTreeMut { tree: self }
+    /// Insert one leaf and immediately rebuild affected parents.
+    pub fn insert_leaf(&mut self, leaf: U256, position: usize) {
+        self.insert_leaves_raw(&[leaf], position);
+        self.rebuild();
+    }
+
+    /// Begin accumulating leaf inserts; rebuild fires on drop.
+    pub fn begin_batch(&mut self) -> MerkleTreeBatch<'_> {
+        MerkleTreeBatch { tree: self }
     }
 
     /// Inserts leaves starting at the given position. Marks parent nodes as dirty
-    /// for later rebuilding.
-    pub fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
+    /// for later rebuilding. Does not rebuild.
+    pub(crate) fn insert_leaves_raw(&mut self, leaves: &[U256], start_position: usize) {
         if leaves.is_empty() {
             return;
         }
@@ -218,9 +164,9 @@ impl<C: TreeConfig> MerkleTree<C> {
             self.tree[0].resize(end_position, self.zeros[0]);
         }
 
-        for (i, leaf) in leaves.iter().cloned().enumerate() {
+        for (i, leaf) in leaves.iter().enumerate() {
             let leaf_index = start_position + i;
-            self.tree[0][leaf_index] = leaf.into();
+            self.tree[0][leaf_index] = *leaf;
             self.dirty_parents.insert(leaf_index / 2);
         }
     }
@@ -231,7 +177,7 @@ impl<C: TreeConfig> MerkleTree<C> {
             return;
         }
 
-        info!("Rebuilding Merkle tree {}", self.number,);
+        info!("Rebuilding Merkle tree {}", self.number);
         let mut dirty = std::mem::take(&mut self.dirty_parents);
 
         for level in 0..self.depth {
@@ -259,7 +205,7 @@ impl<C: TreeConfig> MerkleTree<C> {
                     self.zeros[level]
                 };
 
-                self.tree[level + 1][parent_idx] = C::hash_left_right(left, right);
+                self.tree[level + 1][parent_idx] = hash_left_right(left, right);
                 next_dirty.insert(parent_idx / 2);
             }
 
@@ -268,28 +214,37 @@ impl<C: TreeConfig> MerkleTree<C> {
     }
 }
 
-impl<'a, C: TreeConfig> MerkleTreeMut<'a, C> {
-    pub fn insert_leaves(&mut self, leaves: &[C::LeafType], start_position: usize) {
-        self.tree.insert_leaves(leaves, start_position);
+impl<'a> MerkleTreeBatch<'a> {
+    pub fn insert_leaves(&mut self, leaves: &[U256], start_position: usize) {
+        self.tree.insert_leaves_raw(leaves, start_position);
     }
 }
 
-impl<'a, C: TreeConfig> Drop for MerkleTreeMut<'a, C> {
+impl Drop for MerkleTreeBatch<'_> {
     fn drop(&mut self) {
         self.tree.rebuild();
     }
 }
 
-fn zero_value_levels<C: TreeConfig>(depth: usize) -> Vec<U256> {
+fn hash_left_right(left: U256, right: U256) -> U256 {
+    poseidon_hash(&[left, right]).unwrap()
+}
+
+fn zero_value_levels(depth: usize) -> Vec<U256> {
     let mut levels = Vec::with_capacity(depth + 1);
-    let mut current = C::zero_value();
+    let mut current = railgun_merkle_tree_zero();
 
     for _ in 0..=depth {
         levels.push(current);
-        current = C::hash_left_right(current, current);
+        current = hash_left_right(current, current);
     }
 
     levels
+}
+
+pub fn railgun_merkle_tree_zero() -> U256 {
+    let hash = U256::from_be_bytes(*keccak256_cached(b"Railgun"));
+    hash % SNARK_PRIME
 }
 
 #[cfg(test)]
@@ -299,11 +254,19 @@ mod tests {
 
     use super::*;
 
-    /// Test that the empty tree root is correct for the UTXO tree config.
+    #[test]
+    fn test_railgun_merkle_tree_zero() {
+        let zero = railgun_merkle_tree_zero();
+        let expected = uint!(
+            2051258411002736885948763699317990061539314419500486054347250703186609807356_U256
+        );
+        assert_eq!(zero, expected);
+    }
+
     #[test]
     #[traced_test]
-    fn test_merkleroot() {
-        let tree = MerkleTree::<UtxoTreeConfig>::new(0);
+    fn test_empty_merkleroot() {
+        let tree = MerkleTree::new(0);
         let expected_root: MerkleRoot = uint!(
             9493149700940509817378043077993653487291699154667385859234945399563579865744_U256
         )
@@ -312,18 +275,20 @@ mod tests {
         assert_eq!(tree.root(), expected_root);
     }
 
-    /// Test that inserting leaves produces the expected root and valid proofs.
     #[test]
     #[traced_test]
     fn test_merkle_tree_insert_and_proof() {
-        let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let leaves: Vec<UtxoLeafHash> = (0..10).map(|i| U256::from(i + 1).into()).collect();
+        let mut tree = MerkleTree::new(0);
+        let leaves: Vec<U256> = (0..10u64).map(|i| U256::from(i + 1)).collect();
         let expected_root: MerkleRoot = uint!(
             13360826432759445967430837006844965422592495092152969583910134058984357610665_U256
         )
         .into();
 
-        tree.edit().insert_leaves(&leaves, 0);
+        {
+            let mut batch = tree.begin_batch();
+            batch.insert_leaves(&leaves, 0);
+        }
 
         let root = tree.root();
         assert_eq!(root, expected_root);
@@ -337,16 +302,18 @@ mod tests {
         assert_eq!(tree_leaves_len, leaves.len());
     }
 
-    /// Test that the tree state can be saved and restored correctly.
     #[test]
     #[traced_test]
     fn test_state() {
-        let mut tree = MerkleTree::<UtxoTreeConfig>::new(0);
-        let leaves: Vec<UtxoLeafHash> = (0..10).map(|i| U256::from(i + 1).into()).collect();
-        tree.edit().insert_leaves(&leaves, 0);
+        let mut tree = MerkleTree::new(0);
+        let leaves: Vec<U256> = (0..10u64).map(|i| U256::from(i + 1)).collect();
+        {
+            let mut batch = tree.begin_batch();
+            batch.insert_leaves(&leaves, 0);
+        }
 
         let state = tree.state();
-        let rebuilt_tree = MerkleTree::<UtxoTreeConfig>::from_state(state);
+        let rebuilt_tree = MerkleTree::from_state(state);
 
         assert_eq!(tree.root(), rebuilt_tree.root());
     }

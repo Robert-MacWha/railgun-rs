@@ -9,7 +9,7 @@ use railgun_rs::{
     chain_config::{ChainConfig, MAINNET_CONFIG},
     railgun::{
         indexer::{indexer::Indexer, syncer},
-        merkle_tree::merkle_tree::{TxidMerkleTree, UtxoMerkleTree},
+        merkle_tree::{TxidMerkleTree, UtxoMerkleTree},
         poi::PoiClient,
     },
 };

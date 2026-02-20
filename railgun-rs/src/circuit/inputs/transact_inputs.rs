@@ -6,10 +6,7 @@ use thiserror::Error;
 use crate::{
     circuit_inputs,
     railgun::{
-        merkle_tree::{
-            merkle_proof::MerkleRoot,
-            merkle_tree::{MerkleTreeError, UtxoMerkleTree},
-        },
+        merkle_tree::{MerkleRoot, MerkleTreeError, UtxoMerkleTree},
         note::{IncludedNote, Note},
     },
 };

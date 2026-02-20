@@ -73,9 +73,12 @@ web-time = "1.1.0"
 debug = true
 strip = false
 opt-level = "z"
-# lto = true
 codegen-units = 12
+# lto = true
 # panic = "abort"
 
 [profile.dev.package."*"]
+debug = true
+strip = false
 opt-level = "z"
+codegen-units = 12

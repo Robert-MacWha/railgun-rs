@@ -6,17 +6,16 @@ use tracing::info;
 
 use crate::circuit::inputs::circuit_input::{FromU256, IntoSignalVec};
 use crate::crypto::keys::U256Key;
-use crate::railgun::merkle_tree::merkle_proof::MerkleRoot;
+use crate::railgun::merkle_tree::MerkleRoot;
+use crate::railgun::merkle_tree::TREE_DEPTH;
 use crate::{
     circuit_inputs,
     crypto::{
         keys::{NullifyingKey, SpendingPublicKey},
-        railgun_txid::{Txid, TxidLeafHash, UtxoTreeOut},
-        railgun_zero::railgun_merkle_tree_zero,
+        railgun_txid::{Txid, UtxoTreeOut},
     },
     railgun::merkle_tree::{
-        merkle_proof::MerkleProof,
-        merkle_tree::{MerkleTreeError, UtxoMerkleTree},
+        MerkleProof, MerkleTreeError, TxidLeafHash, UtxoMerkleTree, railgun_merkle_tree_zero,
     },
     railgun::note::{IncludedNote, Note, operation::Operation},
     railgun::poi::{ListKey, PoiNote},
@@ -85,8 +84,6 @@ pub enum PoiCircuitInputsError {
     MissingPoiProofs(ListKey),
 }
 
-const POI_MERKLE_PROOF_DEPTH: usize = 16;
-
 /// Determines the circuit size based on the number of nullifiers and commitments.
 /// Returns 3 for the "mini" circuit, 13 for the "full" circuit.
 fn circuit_size(nullifiers_len: usize, commitments_len: usize) -> usize {
@@ -127,7 +124,7 @@ where
     T: FromU256 + Clone,
 {
     let zero = T::from_u256(railgun_merkle_tree_zero());
-    let empty_path: Vec<T> = vec![zero; POI_MERKLE_PROOF_DEPTH];
+    let empty_path: Vec<T> = vec![zero; TREE_DEPTH];
 
     while vec.len() < target_len {
         vec.push(empty_path.clone());

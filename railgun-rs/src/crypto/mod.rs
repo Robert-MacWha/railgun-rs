@@ -4,7 +4,6 @@ pub mod keys;
 pub mod poseidon;
 pub mod railgun_base_37;
 pub mod railgun_txid;
-pub mod railgun_utxo;
 pub mod railgun_zero;
 
 pub fn concat_arrays<const A: usize, const B: usize, const C: usize>(

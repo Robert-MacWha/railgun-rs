@@ -12,6 +12,11 @@ wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[[bench]]
+name = "merkle_tree"
+harness = false
+required-features = ["native"]
+
 [features]
 default = ["native"]
 native = ["wasmer", "ark-circom", "reqwest/rustls"]
