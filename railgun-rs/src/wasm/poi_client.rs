@@ -1,7 +1,7 @@
 use alloy::primitives::ChainId;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 
-use crate::{chain_config::get_chain_config, railgun::poi::poi_client::PoiClient};
+use crate::{chain_config::get_chain_config, railgun::poi::PoiClient};
 
 #[wasm_bindgen]
 pub struct JsPoiClient {

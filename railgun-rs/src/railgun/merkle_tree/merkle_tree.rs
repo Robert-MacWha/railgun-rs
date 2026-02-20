@@ -135,14 +135,13 @@ impl MerkleTree {
         Ok(proof)
     }
 
-    /// Insert one leaf and immediately rebuild affected parents.
+    /// Insert one leaf and immediately rebuilds.
     pub fn insert_leaf(&mut self, leaf: U256, position: usize) {
         self.insert_leaves_raw(&[leaf], position);
         self.rebuild();
     }
 
-    /// Inserts leaves starting at the given position. Marks parent nodes as dirty
-    /// for later rebuilding. Does not rebuild.
+    /// Inserts leaves starting at the given position without rebuilding.
     pub fn insert_leaves_raw(&mut self, leaves: &[U256], start_position: usize) {
         if leaves.is_empty() {
             return;
@@ -160,7 +159,6 @@ impl MerkleTree {
         }
     }
 
-    /// Rebuild only the nodes whose descendants were modified.
     pub fn rebuild(&mut self) {
         if self.dirty_parents.is_empty() {
             return;
@@ -202,7 +200,6 @@ impl MerkleTree {
         }
     }
 }
-
 
 fn hash_left_right(left: U256, right: U256) -> U256 {
     poseidon_hash(&[left, right]).unwrap()

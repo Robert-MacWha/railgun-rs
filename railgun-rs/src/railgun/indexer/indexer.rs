@@ -14,10 +14,7 @@ use crate::{
     account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, get_chain_config},
-    crypto::{
-        poseidon::poseidon_hash,
-        railgun_txid::{Txid, UtxoTreeOut},
-    },
+    crypto::{poseidon::poseidon_hash, railgun_txid::Txid},
     railgun::{
         address::RailgunAddress,
         indexer::{
@@ -26,6 +23,7 @@ use crate::{
         },
         merkle_tree::{
             MerkleTreeState, TxidLeafHash, TxidMerkleTree, UtxoLeafHash, UtxoMerkleTree,
+            UtxoTreeIndex,
             verifier::{ErasedMerkleVerifier, MerkleTreeVerifier, VerificationError},
         },
         note::utxo::{NoteError, UtxoNote},
@@ -371,11 +369,9 @@ impl Indexer {
             event.bound_params_hash,
         );
 
-        let txid_leaf_hash = TxidLeafHash::new(
-            txid,
-            event.utxo_tree_in,
-            UtxoTreeOut::included(event.utxo_tree_out, event.utxo_out_start_index),
-        );
+        let out_utxo_tree_index =
+            UtxoTreeIndex::included(event.utxo_tree_out, event.utxo_out_start_index);
+        let txid_leaf_hash = TxidLeafHash::new(txid, event.utxo_tree_in, out_utxo_tree_index);
 
         let tree_number = (self.txid_trees.len() as u32).saturating_sub(1);
         let start_position = self
@@ -427,8 +423,8 @@ fn insert_utxo_leaves(
 
         trees
             .entry(current_tree)
-            .or_insert_with(|| UtxoMerkleTree::with_erased_verifier(current_tree, verifier.clone()))
-            .insert_leaves(&remaining[..to_insert], position);
+            .or_insert_with(|| UtxoMerkleTree::new(current_tree).with_verifier(verifier.clone()))
+            .insert_leaves_raw(&remaining[..to_insert], position);
 
         remaining = &remaining[to_insert..];
         current_tree += 1;
@@ -457,7 +453,7 @@ fn insert_txid_leaves(
 
         trees
             .entry(current_tree)
-            .or_insert_with(|| TxidMerkleTree::with_erased_verifier(current_tree, verifier.clone()))
+            .or_insert_with(|| TxidMerkleTree::new(current_tree).with_verifier(verifier.clone()))
             .insert_leaves(&remaining[..to_insert], position);
 
         remaining = &remaining[to_insert..];

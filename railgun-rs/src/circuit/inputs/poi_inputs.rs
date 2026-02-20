@@ -9,12 +9,12 @@ use crate::{
     circuit_inputs,
     crypto::{
         keys::{NullifyingKey, SpendingPublicKey, U256Key},
-        railgun_txid::{Txid, UtxoTreeOut},
+        railgun_txid::Txid,
     },
     railgun::{
         merkle_tree::{
             MerkleProof, MerkleRoot, MerkleTreeError, TREE_DEPTH, TxidLeafHash, UtxoMerkleTree,
-            railgun_merkle_tree_zero,
+            UtxoTreeIndex, railgun_merkle_tree_zero,
         },
         note::{IncludedNote, Note, operation::Operation},
         poi::{ListKey, PoiNote},
@@ -166,7 +166,7 @@ impl PoiCircuitInputs {
         let txid_leaf_hash = TxidLeafHash::new(
             txid,
             operation.utxo_tree_number(),
-            crate::crypto::railgun_txid::UtxoTreeOut::PreInclusion,
+            UtxoTreeIndex::PreInclusion,
         );
         let txid_proof = MerkleProof::new_pre_inclusion(txid_leaf_hash.into());
 
@@ -246,7 +246,7 @@ impl PoiCircuitInputs {
             npks_out: pad_with_zero_value(npks_out, max_size),
             values_out: pad_with_zero(values_out, max_size),
             utxo_batch_global_start_position_out: U256::from(
-                UtxoTreeOut::PreInclusion.global_index(),
+                UtxoTreeIndex::PreInclusion.global_index(),
             ),
             railgun_txid_if_has_unshield: txid_if_has_unshield,
             railgun_txid_merkle_proof_indices: U256::from(txid_proof.indices),

@@ -1,6 +1,6 @@
 #![cfg(not(feature = "wasm"))]
 
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use alloy::{
     network::Ethereum,
@@ -17,15 +17,13 @@ use railgun_rs::{
     circuit::native::Groth16Prover,
     crypto::keys::{HexKey, SpendingKey, ViewingKey},
     railgun::{
-        address::RailgunAddress,
         broadcaster::{
-            broadcaster::{Broadcaster, Fee},
             transport::{MessageStream, WakuTransport, WakuTransportError},
             types::WakuMessage,
         },
         indexer::{indexer::Indexer, syncer},
         poi::PoiClient,
-        transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
+        transaction::operation_builder::OperationBuilder,
     },
 };
 use rand::{Rng, SeedableRng};

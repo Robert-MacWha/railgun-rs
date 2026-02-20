@@ -1,72 +1,12 @@
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize, Serializer};
 
-use crate::{
-    crypto::poseidon::poseidon_hash,
-    railgun::{indexer::indexer::TOTAL_LEAVES, merkle_tree::railgun_merkle_tree_zero},
-};
+use crate::{crypto::poseidon::poseidon_hash, railgun::merkle_tree::railgun_merkle_tree_zero};
 
-/// TxID
-///
-/// Serializes as a hex string WITHOUT a 0x prefix
+/// TxID uniquely identifies a Railgun Operation (`RailgunSmartWallet::Transaction`).
+/// Each TxID corresponds to a set of UTXO notes from a single Operation.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct Txid(U256);
-
-pub enum UtxoTreeOut {
-    /// Transactions that have been included in the UTXO merkle tree (IE those
-    /// that have been submitted on-chain to the RailgunSmartWallet) will have a
-    /// defined position in the tree.
-    Included { tree_number: u32, start_index: u32 },
-    /// Transactions that have been generated but not yet included on-chain (
-    /// IE those being prepared for POI proof generation) use the pre-inclusion
-    /// constants.
-    PreInclusion,
-    /// Transactions that only involve unshielding (IE those with no commitments)
-    /// do not add any leaves to the UTXO tree, so they use the unshield-only constants.
-    UnshieldOnly,
-}
-
-const GLOBAL_UTXO_TREE_UNSHIELD_EVENT_HARDCODED_VALUE: u64 = 99999;
-const GLOBAL_UTXO_POSITION_UNSHIELD_EVENT_HARDCODED_VALUE: u64 = 99999;
-const GLOBAL_UTXO_TREE_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE: u64 = 199999;
-const GLOBAL_UTXO_POSITION_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE: u64 = 199999;
-
-impl UtxoTreeOut {
-    pub fn included(tree_number: u32, start_index: u32) -> Self {
-        UtxoTreeOut::Included {
-            tree_number,
-            start_index,
-        }
-    }
-
-    pub fn pre_inclusion() -> Self {
-        UtxoTreeOut::PreInclusion
-    }
-
-    pub fn unshield_only() -> Self {
-        UtxoTreeOut::UnshieldOnly
-    }
-
-    /// TODO: Add tests for me
-    pub fn global_index(&self) -> u64 {
-        let (tree_number, start_index) = match self {
-            UtxoTreeOut::Included {
-                tree_number,
-                start_index,
-            } => (*tree_number as u64, *start_index as u64),
-            UtxoTreeOut::PreInclusion => (
-                GLOBAL_UTXO_TREE_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE,
-                GLOBAL_UTXO_POSITION_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE,
-            ),
-            UtxoTreeOut::UnshieldOnly => (
-                GLOBAL_UTXO_TREE_UNSHIELD_EVENT_HARDCODED_VALUE,
-                GLOBAL_UTXO_POSITION_UNSHIELD_EVENT_HARDCODED_VALUE,
-            ),
-        };
-
-        tree_number * (TOTAL_LEAVES as u64) + start_index
-    }
-}
 
 impl Txid {
     pub fn new(nullifiers: &[U256], commitments: &[U256], bound_params_hash: U256) -> Self {
@@ -131,7 +71,6 @@ mod tests {
     use ruint::uint;
 
     use super::*;
-    use crate::railgun::merkle_tree::TxidLeafHash;
 
     #[test]
     fn test_txid() {
@@ -149,20 +88,5 @@ uint!(34198991274555001477159037747741983086739304322809405028467147263259194165
         );
 
         insta::assert_debug_snapshot!(txid);
-    }
-
-    #[test]
-    fn test_txid_leaf_hash() {
-        let txid = Txid::from(uint!(0_U256));
-        let leaf_hash = TxidLeafHash::new(
-            txid,
-            1,
-            UtxoTreeOut::Included {
-                tree_number: 2,
-                start_index: 3,
-            },
-        );
-
-        insta::assert_debug_snapshot!(leaf_hash);
     }
 }

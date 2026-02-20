@@ -2,26 +2,150 @@ use ruint::aliases::U256;
 use serde::{Serialize, Serializer};
 
 use crate::{
-    crypto::{
-        poseidon::poseidon_hash,
-        railgun_txid::{Txid, UtxoTreeOut},
-    },
-    railgun::merkle_tree::{
-        merkle_proof::{MerkleProof, MerkleRoot},
-        merkle_tree::{MerkleTree, MerkleTreeError, MerkleTreeState},
-        verifier::{ErasedMerkleVerifier, MerkleTreeVerifier, VerificationError},
+    crypto::{poseidon::poseidon_hash, railgun_txid::Txid},
+    railgun::{
+        indexer::indexer::TOTAL_LEAVES,
+        merkle_tree::{
+            merkle_proof::{MerkleProof, MerkleRoot},
+            merkle_tree::{MerkleTree, MerkleTreeError, MerkleTreeState},
+            verifier::{ErasedMerkleVerifier, VerificationError},
+        },
     },
 };
 
-/// Typed leaf hash for TxID Merkle tree entries.
+/// TxID tree tracks all Operations (`RailgunSmartWallet::Transaction`) in Railgun.
+/// Each TxID coresponds to multiple UTXO operations.
 ///
-/// Serializes as a hex string WITHOUT a 0x prefix.
+/// TxID proofs are used to generate Merkle proofs for TxIDs when submitting to
+/// POI nodes.
+pub struct TxidMerkleTree {
+    inner: MerkleTree,
+    verifier: Option<ErasedMerkleVerifier>,
+}
+
+/// Txid leaf hash.  Dependant on the TxID and the position of the TxID in the
+/// UTXO tree.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct TxidLeafHash(U256);
 
+/// Global index of a TxID leaf in the UTXO tree.
+///
+/// Pre-inclusion TxIDs use the pre-inclusion constants. They are used when
+/// generating POI circuit inputs and submitting to broadcasters.
+///
+/// Included TxIDs have defined positions based on the index of their first UTXO
+/// note in the on-chain UTXO tree. They are used when submitting to POI nodes.
+pub enum UtxoTreeIndex {
+    /// Transactions that have been generated but not yet included on-chain (
+    /// IE those being prepared for POI proof generation) use the pre-inclusion
+    /// constants.
+    PreInclusion,
+    /// Transactions that have been included in the UTXO merkle tree (IE those
+    /// that have been submitted on-chain to the RailgunSmartWallet) will have a
+    /// defined position in the tree.
+    Included { tree_number: u32, start_index: u32 },
+    /// Transactions that only involve unshielding (IE those with no commitments)
+    /// do not add any leaves to the UTXO tree, so they use the unshield-only constants.
+    UnshieldOnly,
+}
+
+const GLOBAL_UTXO_TREE_UNSHIELD_EVENT_HARDCODED_VALUE: u64 = 99999;
+const GLOBAL_UTXO_POSITION_UNSHIELD_EVENT_HARDCODED_VALUE: u64 = 99999;
+const GLOBAL_UTXO_TREE_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE: u64 = 199999;
+const GLOBAL_UTXO_POSITION_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE: u64 = 199999;
+
+impl TxidMerkleTree {
+    pub fn new(number: u32) -> Self {
+        TxidMerkleTree {
+            inner: MerkleTree::new(number),
+            verifier: None,
+        }
+    }
+
+    pub fn from_state(state: MerkleTreeState) -> Self {
+        TxidMerkleTree {
+            inner: MerkleTree::from_state(state),
+            verifier: None,
+        }
+    }
+
+    pub fn with_verifier(mut self, verifier: Option<ErasedMerkleVerifier>) -> Self {
+        self.verifier = verifier;
+        self
+    }
+
+    pub fn number(&self) -> u32 {
+        self.inner.number()
+    }
+
+    pub fn root(&self) -> MerkleRoot {
+        self.inner.root()
+    }
+
+    pub fn leaves_len(&self) -> usize {
+        self.inner.leaves_len()
+    }
+
+    pub fn state(&self) -> MerkleTreeState {
+        self.inner.state()
+    }
+
+    pub fn into_state(self) -> MerkleTreeState {
+        self.inner.into_state()
+    }
+
+    pub fn generate_proof(&self, leaf: TxidLeafHash) -> Result<MerkleProof, MerkleTreeError> {
+        self.inner.generate_proof(leaf.into())
+    }
+
+    /// Insert one TxID leaf and immediately rebuild.
+    pub fn insert_leaf(&mut self, leaf: TxidLeafHash, position: usize) {
+        self.inner.insert_leaf(leaf.into(), position);
+    }
+
+    /// Insert leaves without immediately rebuilding.
+    pub(crate) fn insert_leaves(&mut self, leaves: &[TxidLeafHash], start_position: usize) {
+        let u256s: Vec<U256> = leaves.iter().map(|l| (*l).into()).collect();
+        self.inner.insert_leaves_raw(&u256s, start_position);
+    }
+
+    pub fn rebuild(&mut self) {
+        self.inner.rebuild();
+    }
+
+    /// Validates this tree's root against the embedded verifier, if any.
+    /// Returns `Ok(())` immediately if no verifier is set or the tree is empty.
+    pub async fn verify(&self) -> Result<(), VerificationError> {
+        let Some(verifier) = &self.verifier else {
+            return Ok(());
+        };
+
+        let leaves_len = self.inner.leaves_len();
+        if leaves_len == 0 {
+            return Ok(());
+        }
+
+        let tree_number = self.inner.number();
+        let tree_index = leaves_len as u64 - 1;
+        let root = self.inner.root();
+
+        verifier
+            .verify_root(tree_number, tree_index, root)
+            .await
+            .map_err(VerificationError::VerifierError)
+            .and_then(|valid| {
+                if valid {
+                    Ok(())
+                } else {
+                    Err(VerificationError::InvalidRoot { tree_number, root })
+                }
+            })
+    }
+}
+
 impl TxidLeafHash {
-    pub fn new(txid: Txid, utxo_tree_in: u32, utxo_tree_out: UtxoTreeOut) -> Self {
-        let global_position = utxo_tree_out.global_index();
+    pub fn new(txid: Txid, utxo_tree_in: u32, out_utxo_tree_index: UtxoTreeIndex) -> Self {
+        let global_position = out_utxo_tree_index.global_index();
 
         poseidon_hash(&[
             txid.into(),
@@ -54,124 +178,38 @@ impl Serialize for TxidLeafHash {
     }
 }
 
-/// Type-safe wrapper around [`MerkleTree`] whose leaves are [`TxidLeafHash`] values.
-///
-/// The TxID tree tracks all Operations (`RailgunSmartWallet::Transaction`) in Railgun.
-/// New TxIDs are added whenever a new Operation event is observed from the Railgun
-/// smart contracts.
-///
-/// TxID proofs are used to generate Merkle proofs for TxIDs when submitting a
-/// POI (Proof of Innocence) to a POI bundler, or to a broadcaster.
-pub struct TxidMerkleTree {
-    inner: MerkleTree,
-    verifier: Option<ErasedMerkleVerifier>,
-}
-
-impl TxidMerkleTree {
-    pub fn new(number: u32) -> Self {
-        TxidMerkleTree {
-            inner: MerkleTree::new(number),
-            verifier: None,
+impl UtxoTreeIndex {
+    pub fn included(tree_number: u32, start_index: u32) -> Self {
+        UtxoTreeIndex::Included {
+            tree_number,
+            start_index,
         }
     }
 
-    /// Creates a new tree with a typed verifier that will be called after each sync.
-    pub fn new_with_verifier<V: MerkleTreeVerifier<TxidLeafHash> + 'static>(
-        number: u32,
-        verifier: V,
-    ) -> Self {
-        TxidMerkleTree {
-            inner: MerkleTree::new(number),
-            verifier: Some(ErasedMerkleVerifier::new::<TxidLeafHash, V>(verifier)),
-        }
+    pub fn pre_inclusion() -> Self {
+        UtxoTreeIndex::PreInclusion
     }
 
-    /// Creates a new tree with a pre-erased verifier. Used by the indexer when
-    /// creating new trees so it can share a single verifier across all trees.
-    pub(crate) fn with_erased_verifier(
-        number: u32,
-        verifier: Option<ErasedMerkleVerifier>,
-    ) -> Self {
-        TxidMerkleTree {
-            inner: MerkleTree::new(number),
-            verifier,
-        }
+    pub fn unshield_only() -> Self {
+        UtxoTreeIndex::UnshieldOnly
     }
 
-    pub fn from_state(state: MerkleTreeState) -> Self {
-        TxidMerkleTree {
-            inner: MerkleTree::from_state(state),
-            verifier: None,
-        }
-    }
-
-    pub fn number(&self) -> u32 {
-        self.inner.number()
-    }
-
-    pub fn root(&self) -> MerkleRoot {
-        self.inner.root()
-    }
-
-    pub fn leaves_len(&self) -> usize {
-        self.inner.leaves_len()
-    }
-
-    pub fn state(&self) -> MerkleTreeState {
-        self.inner.state()
-    }
-
-    pub fn into_state(self) -> MerkleTreeState {
-        self.inner.into_state()
-    }
-
-    /// Insert one TxID leaf and immediately rebuild affected parents.
-    pub fn insert_leaf(&mut self, leaf: TxidLeafHash, position: usize) {
-        self.inner.insert_leaf(leaf.into(), position);
-    }
-
-    pub fn generate_proof(&self, leaf: TxidLeafHash) -> Result<MerkleProof, MerkleTreeError> {
-        self.inner.generate_proof(leaf.into())
-    }
-
-    /// Insert leaves without immediately rebuilding. Used by the indexer's bulk
-    /// sync path which calls [`Self::rebuild`] once after all events are processed.
-    pub(crate) fn insert_leaves(&mut self, leaves: &[TxidLeafHash], start_position: usize) {
-        let u256s: Vec<U256> = leaves.iter().map(|l| (*l).into()).collect();
-        self.inner.insert_leaves_raw(&u256s, start_position);
-    }
-
-    /// Rebuild only the nodes whose descendants were modified since the last rebuild.
-    pub fn rebuild(&mut self) {
-        self.inner.rebuild();
-    }
-
-    /// Validates this tree's root against the embedded verifier, if any.
-    /// Returns `Ok(())` immediately if no verifier is set or the tree is empty.
-    pub async fn verify(&self) -> Result<(), VerificationError> {
-        let Some(verifier) = &self.verifier else {
-            return Ok(());
+    pub fn global_index(&self) -> u64 {
+        let (tree_number, start_index) = match self {
+            UtxoTreeIndex::Included {
+                tree_number,
+                start_index,
+            } => (*tree_number as u64, *start_index as u64),
+            UtxoTreeIndex::PreInclusion => (
+                GLOBAL_UTXO_TREE_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE,
+                GLOBAL_UTXO_POSITION_PRE_TRANSACTION_POI_PROOF_HARDCODED_VALUE,
+            ),
+            UtxoTreeIndex::UnshieldOnly => (
+                GLOBAL_UTXO_TREE_UNSHIELD_EVENT_HARDCODED_VALUE,
+                GLOBAL_UTXO_POSITION_UNSHIELD_EVENT_HARDCODED_VALUE,
+            ),
         };
 
-        let leaves_len = self.inner.leaves_len();
-        if leaves_len == 0 {
-            return Ok(());
-        }
-
-        let tree_number = self.inner.number();
-        let tree_index = leaves_len as u64 - 1;
-        let root = self.inner.root();
-
-        verifier
-            .verify_root(tree_number, tree_index, root)
-            .await
-            .map_err(VerificationError::VerifierError)
-            .and_then(|valid| {
-                if valid {
-                    Ok(())
-                } else {
-                    Err(VerificationError::InvalidRoot { tree_number, root })
-                }
-            })
+        tree_number * (TOTAL_LEAVES as u64) + start_index
     }
 }
