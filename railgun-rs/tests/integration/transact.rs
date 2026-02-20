@@ -25,8 +25,6 @@ const USDC_ADDRESS: Address = address!("0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB
 const USDC: AssetId = AssetId::Erc20(USDC_ADDRESS);
 const CHAIN: ChainConfig = MAINNET_CONFIG;
 
-const INDEXER_STATE: &[u8] = include_bytes!("../fixtures/indexer_state.bincode");
-
 #[tokio::test]
 #[serial_test::serial]
 #[ignore]
@@ -58,7 +56,8 @@ async fn test_transact() {
 
     info!("Setting up indexer");
     let rpc_syncer = Box::new(syncer::RpcSyncer::new(provider.clone(), CHAIN));
-    let indexer_state = bitcode::deserialize(INDEXER_STATE).unwrap();
+    let indexer_state = std::fs::read("./tests/fixtures/indexer_state.bincode").unwrap();
+    let indexer_state = bitcode::deserialize(&indexer_state).unwrap();
     let mut indexer = Indexer::from_state(rpc_syncer, indexer_state).unwrap();
 
     info!("Setting up accounts");
