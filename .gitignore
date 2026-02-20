@@ -1,6 +1,5 @@
 /target
 .direnv
-.envrc
 
 t.json
 indexer_state_11155111.bincode

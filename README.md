@@ -15,6 +15,11 @@ Development secret management is handled via [SOPS](https://github.com/getsops/s
 To edit secrets: 
  - `sops secrets/secrets.yaml`
 
+To load secrets:
+ - `export $(sops -d secrets/secrets.yaml | xargs)`
+ - Or load them automatically with direnv
+
+
 To add a new contributor: 
  - Have them run `age-keygen -o ~/.config/sops/age/keys.txt` and share the public key.
  - Add the public key to `.sops.yaml`.
