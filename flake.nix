@@ -33,18 +33,22 @@
       {
         devShells.default = pkgs.mkShell {
           packages = [
+            # Rust toolchain and extensions
             rustToolchain
             pkgs.rust-analyzer
             pkgs.just
             pkgs.foundry
 
-            pkgs.cargo-bloat
-            pkgs.cargo-machete
+            # Wasm tools
             pkgs.binaryen
             pkgs.wasm-pack
-
             pkgs.nodejs_22
             pkgs.pnpm
+
+            # Cargo tools
+            pkgs.cargo-bloat
+            pkgs.cargo-machete
+            pkgs.cargo-sort
 
             pkgs.sops
           ];

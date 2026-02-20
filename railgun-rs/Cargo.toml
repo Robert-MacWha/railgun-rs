@@ -3,6 +3,12 @@ name = "railgun-rs"
 version = "0.1.0"
 edition = "2024"
 
+[package.metadata.graphql]
+scalars = { "BigInt" = "U256", "Bytes" = "Bytes" }
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -21,75 +27,60 @@ wasm = [
     "gloo-timers",
 ]
 
-[profile.release]
-debug = true
-
 [dependencies]
 aes = { workspace = true }
 aes-gcm = { workspace = true }
 alloy = { workspace = true }
 alloy-contract = { workspace = true }
 alloy-sol-types = { workspace = true }
-anyhow = { workspace = true }
 ark-bn254 = { workspace = true }
-ark-ec = { workspace = true }
-ark-ed-on-bn254 = { workspace = true }
+ark-circom = { workspace = true, optional = true }
 ark-ff = { workspace = true }
 ark-groth16 = { workspace = true }
-ark-poly = { workspace = true }
 ark-relations = { workspace = true }
-ark-serialize = { workspace = true }
 ark-std = { workspace = true }
 async-trait = { workspace = true }
 bech32 = { workspace = true }
 bitcode = { workspace = true, features = ["serde"] }
+blake-hash = { workspace = true, default-features = false }
+console_error_panic_hook = { workspace = true, optional = true }
 ctr = { workspace = true }
 curve25519-dalek = { workspace = true }
 ed25519-dalek = { workspace = true }
-ff_ce = { workspace = true }
 futures = { workspace = true }
-graphql_client = { workspace = true }
-hex = { workspace = true }
-num-bigint = { workspace = true, features = ["serde"] }
-num-traits = { workspace = true }
-rand = { workspace = true }
-reqwest = { version = "0.13", default-features = false, features = ["json"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-sha2 = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-wasm-bindgen = { workspace = true }
-tokio = { workspace = true }
-poseidon-rust = { workspace = true }
-ruint = { version = "1.17.2", features = ["num-bigint", "serde", "ark-ff-05"] }
-wasmer = { workspace = true, optional = true }
-ark-circom = { workspace = true, optional = true }
-wasm-bindgen-futures = { version = "0.4", optional = true }
-js-sys = { version = "0.3", optional = true }
-serde-wasm-bindgen = { version = "0.6", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 getrandom_02 = { package = "getrandom", version = "0.2", features = [
     "js",
 ], optional = true }
-getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
-blake-hash = { version = "0.2.0", default-features = false }
-tracing-wasm = { optional = true, version = "0.2.1" }
+gloo-timers = { workspace = true, features = ["futures"], optional = true }
+graphql_client = { workspace = true }
+hex = { workspace = true }
+js-sys = { workspace = true, optional = true }
+num-bigint = { workspace = true, features = ["serde"] }
+num-traits = { workspace = true }
+poseidon-rust = { workspace = true }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+reqwest = { workspace = true, default-features = false, features = ["json"] }
+ruint = { workspace = true, features = ["num-bigint", "serde", "ark-ff-05"] }
+serde = { workspace = true, features = ["derive"] }
+serde-wasm-bindgen = { workspace = true, optional = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-wasm = { workspace = true, optional = true }
 tsify-next = { workspace = true, features = ["js"], optional = true }
-serde_with = "3.16.1"
-web-time = "1.1.0"
-gloo-timers = { version = "0.3.0", features = ["futures"], optional = true }
-rand_chacha = "0.9.0"
+wasm-bindgen = { workspace = true }
+wasm-bindgen-futures = { workspace = true, optional = true }
+wasmer = { workspace = true, optional = true }
+web-time = { workspace = true }
 
 [dev-dependencies]
-insta = { version = "1.46.3" }
 criterion = { workspace = true }
+insta = { workspace = true }
 serial_test = { workspace = true }
 tracing-test = { workspace = true }
-
-[package.metadata.graphql]
-scalars = { "BigInt" = "U256", "Bytes" = "Bytes" }
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-O", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]

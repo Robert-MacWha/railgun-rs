@@ -143,21 +143,15 @@ struct MockTransport;
 
 #[async_trait]
 impl WakuTransport for MockTransport {
-    async fn subscribe(
-        &self,
-        content_topics: Vec<String>,
-    ) -> Result<MessageStream, WakuTransportError> {
+    async fn subscribe(&self, _: Vec<String>) -> Result<MessageStream, WakuTransportError> {
         todo!();
     }
 
-    async fn send(&self, content_topic: &str, payload: Vec<u8>) -> Result<(), WakuTransportError> {
+    async fn send(&self, _: &str, _: Vec<u8>) -> Result<(), WakuTransportError> {
         todo!();
     }
 
-    async fn retrieve_historical(
-        &self,
-        content_topic: &str,
-    ) -> Result<Vec<WakuMessage>, WakuTransportError> {
+    async fn retrieve_historical(&self, _: &str) -> Result<Vec<WakuMessage>, WakuTransportError> {
         todo!();
     }
 }
