@@ -26,6 +26,7 @@ use crate::{
         },
         merkle_tree::{
             MerkleTreeState, TxidLeafHash, TxidMerkleTree, UtxoLeafHash, UtxoMerkleTree,
+            verifier::{ErasedMerkleVerifier, MerkleTreeVerifier, VerificationError},
         },
         note::utxo::{NoteError, UtxoNote},
     },
@@ -45,6 +46,9 @@ pub struct Indexer {
 
     /// List of accounts being tracked by the indexer
     accounts: Vec<IndexedAccount>,
+
+    utxo_verifier: Option<ErasedMerkleVerifier>,
+    txid_verifier: Option<ErasedMerkleVerifier>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -64,6 +68,8 @@ pub enum SyncError {
     NoteError(#[from] NoteError),
     #[error("Validation error: {0}")]
     ValidationError(#[from] ValidationError),
+    #[error("Verification error: {0}")]
+    VerificationError(#[from] VerificationError),
     #[error("Syncer error: {0}")]
     SyncerError(Box<dyn std::error::Error>),
 }
@@ -89,6 +95,32 @@ impl Indexer {
             chain,
             synced_block: chain.deployment_block,
             accounts: Vec::new(),
+            utxo_verifier: None,
+            txid_verifier: None,
+        }
+    }
+
+    /// Creates an indexer with embedded verifiers that are called at the end of each
+    /// `sync_to()` to validate all UTXO and TXID tree roots against external sources.
+    pub fn new_with_verifiers<UV, TV>(
+        syncer: Box<dyn Syncer>,
+        chain: ChainConfig,
+        utxo_verifier: UV,
+        txid_verifier: TV,
+    ) -> Self
+    where
+        UV: MerkleTreeVerifier<UtxoLeafHash> + 'static,
+        TV: MerkleTreeVerifier<TxidLeafHash> + 'static,
+    {
+        Indexer {
+            utxo_trees: BTreeMap::new(),
+            txid_trees: BTreeMap::new(),
+            syncer: Arc::from(syncer),
+            chain,
+            synced_block: chain.deployment_block,
+            accounts: Vec::new(),
+            utxo_verifier: Some(ErasedMerkleVerifier::new::<UtxoLeafHash, UV>(utxo_verifier)),
+            txid_verifier: Some(ErasedMerkleVerifier::new::<TxidLeafHash, TV>(txid_verifier)),
         }
     }
 
@@ -113,6 +145,8 @@ impl Indexer {
             chain,
             synced_block: state.synced_block,
             accounts: state.accounts,
+            utxo_verifier: None,
+            txid_verifier: None,
         })
     }
 
@@ -249,6 +283,19 @@ impl Indexer {
         }
 
         self.synced_block = end_block;
+        self.verify_trees().await?;
+        Ok(())
+    }
+
+    /// Validates all UTXO and TXID tree roots against their embedded verifiers.
+    /// Returns immediately if no verifiers are set (trees without verifiers are skipped).
+    pub async fn verify_trees(&self) -> Result<(), VerificationError> {
+        for tree in self.utxo_trees.values() {
+            tree.verify().await?;
+        }
+        for tree in self.txid_trees.values() {
+            tree.verify().await?;
+        }
         Ok(())
     }
 
@@ -275,6 +322,7 @@ impl Indexer {
             event.treeNumber.saturating_to(),
             event.startPosition.saturating_to(),
             &leaves,
+            self.utxo_verifier.clone(),
         );
 
         for account in self.accounts.iter_mut() {
@@ -300,6 +348,7 @@ impl Indexer {
             event.treeNumber.saturating_to(),
             event.startPosition.saturating_to(),
             &leaves,
+            self.utxo_verifier.clone(),
         );
 
         for account in self.accounts.iter_mut() {
@@ -340,6 +389,7 @@ impl Indexer {
             tree_number,
             start_position,
             &[txid_leaf_hash],
+            self.txid_verifier.clone(),
         );
     }
 
@@ -349,6 +399,7 @@ impl Indexer {
             event.tree_number,
             event.leaf_index as usize,
             &[event.hash.into()],
+            self.utxo_verifier.clone(),
         );
 
         // TODO: Handle legacy events for accounts.
@@ -364,6 +415,7 @@ fn insert_utxo_leaves(
     tree_number: u32,
     start_position: usize,
     leaves: &[UtxoLeafHash],
+    verifier: Option<ErasedMerkleVerifier>,
 ) {
     let mut remaining = leaves;
     let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
@@ -375,7 +427,7 @@ fn insert_utxo_leaves(
 
         trees
             .entry(current_tree)
-            .or_insert_with(|| UtxoMerkleTree::new(current_tree))
+            .or_insert_with(|| UtxoMerkleTree::with_erased_verifier(current_tree, verifier.clone()))
             .insert_leaves(&remaining[..to_insert], position);
 
         remaining = &remaining[to_insert..];
@@ -393,6 +445,7 @@ fn insert_txid_leaves(
     tree_number: u32,
     start_position: usize,
     leaves: &[TxidLeafHash],
+    verifier: Option<ErasedMerkleVerifier>,
 ) {
     let mut remaining = leaves;
     let mut current_tree = tree_number + (start_position / TOTAL_LEAVES) as u32;
@@ -404,7 +457,7 @@ fn insert_txid_leaves(
 
         trees
             .entry(current_tree)
-            .or_insert_with(|| TxidMerkleTree::new(current_tree))
+            .or_insert_with(|| TxidMerkleTree::with_erased_verifier(current_tree, verifier.clone()))
             .insert_leaves(&remaining[..to_insert], position);
 
         remaining = &remaining[to_insert..];

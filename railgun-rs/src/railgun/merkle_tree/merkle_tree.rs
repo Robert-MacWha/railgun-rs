@@ -23,13 +23,6 @@ pub struct MerkleTree {
     dirty_parents: BTreeSet<usize>,
 }
 
-/// RAII batch of leaf inserts. Accumulated inserts are committed (rebuild fires) on drop.
-/// While a `MerkleTreeBatch` is alive the borrow checker prevents calling
-/// `root()` or `generate_proof()` on the underlying tree.
-pub struct MerkleTreeBatch<'a> {
-    tree: &'a mut MerkleTree,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerkleTreeState {
     pub number: u32,
@@ -148,14 +141,9 @@ impl MerkleTree {
         self.rebuild();
     }
 
-    /// Begin accumulating leaf inserts; rebuild fires on drop.
-    pub fn begin_batch(&mut self) -> MerkleTreeBatch<'_> {
-        MerkleTreeBatch { tree: self }
-    }
-
     /// Inserts leaves starting at the given position. Marks parent nodes as dirty
     /// for later rebuilding. Does not rebuild.
-    pub(crate) fn insert_leaves_raw(&mut self, leaves: &[U256], start_position: usize) {
+    pub fn insert_leaves_raw(&mut self, leaves: &[U256], start_position: usize) {
         if leaves.is_empty() {
             return;
         }
@@ -215,17 +203,6 @@ impl MerkleTree {
     }
 }
 
-impl<'a> MerkleTreeBatch<'a> {
-    pub fn insert_leaves(&mut self, leaves: &[U256], start_position: usize) {
-        self.tree.insert_leaves_raw(leaves, start_position);
-    }
-}
-
-impl Drop for MerkleTreeBatch<'_> {
-    fn drop(&mut self) {
-        self.tree.rebuild();
-    }
-}
 
 fn hash_left_right(left: U256, right: U256) -> U256 {
     poseidon_hash(&[left, right]).unwrap()
@@ -286,10 +263,8 @@ mod tests {
         )
         .into();
 
-        {
-            let mut batch = tree.begin_batch();
-            batch.insert_leaves(&leaves, 0);
-        }
+        tree.insert_leaves_raw(&leaves, 0);
+        tree.rebuild();
 
         let root = tree.root();
         assert_eq!(root, expected_root);
@@ -308,10 +283,8 @@ mod tests {
     fn test_state() {
         let mut tree = MerkleTree::new(0);
         let leaves: Vec<U256> = (0..10u64).map(|i| U256::from(i + 1)).collect();
-        {
-            let mut batch = tree.begin_batch();
-            batch.insert_leaves(&leaves, 0);
-        }
+        tree.insert_leaves_raw(&leaves, 0);
+        tree.rebuild();
 
         let state = tree.state();
         let rebuilt_tree = MerkleTree::from_state(state);

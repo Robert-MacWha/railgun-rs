@@ -10,9 +10,8 @@ fn bench_full_tree_fill(c: &mut Criterion) {
         b.iter(|| {
             let mut tree = MerkleTree::new(0);
             let leaves: Vec<U256> = (1..=FULL_TREE_SIZE as u64).map(U256::from).collect();
-            let mut batch = tree.begin_batch();
-            batch.insert_leaves(&leaves, 0);
-            // drop commits and rebuilds
+            tree.insert_leaves_raw(&leaves, 0);
+            tree.rebuild();
         });
     });
 }
@@ -20,10 +19,8 @@ fn bench_full_tree_fill(c: &mut Criterion) {
 fn bench_single_leaf_edit(c: &mut Criterion) {
     let mut tree = MerkleTree::new(0);
     let leaves: Vec<U256> = (1..=FULL_TREE_SIZE as u64).map(U256::from).collect();
-    {
-        let mut batch = tree.begin_batch();
-        batch.insert_leaves(&leaves, 0);
-    }
+    tree.insert_leaves_raw(&leaves, 0);
+    tree.rebuild();
 
     c.bench_function("single_leaf_edit", |b| {
         b.iter(|| {
