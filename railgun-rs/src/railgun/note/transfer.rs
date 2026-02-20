@@ -8,11 +8,13 @@ use crate::{
         keys::{U256Key, ViewingKey},
         poseidon::poseidon_hash,
     },
-    railgun::address::RailgunAddress,
-    railgun::merkle_tree::UtxoLeafHash,
-    railgun::note::{
-        EncryptableNote, Note,
-        encrypt::{EncryptError, encrypt_note},
+    railgun::{
+        address::RailgunAddress,
+        merkle_tree::UtxoLeafHash,
+        note::{
+            EncryptableNote, Note,
+            encrypt::{EncryptError, encrypt_note},
+        },
     },
 };
 
@@ -103,9 +105,11 @@ mod tests {
     use crate::{
         caip::AssetId,
         crypto::keys::{ByteKey, SpendingKey, ViewingKey},
-        railgun::address::RailgunAddress,
-        railgun::merkle_tree::UtxoLeafHash,
-        railgun::note::{Note, transfer::TransferNote},
+        railgun::{
+            address::RailgunAddress,
+            merkle_tree::UtxoLeafHash,
+            note::{Note, transfer::TransferNote},
+        },
     };
 
     #[test]

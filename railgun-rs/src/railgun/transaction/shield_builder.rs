@@ -5,9 +5,11 @@ use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
     caip::AssetId,
     chain_config::ChainConfig,
-    railgun::address::RailgunAddress,
-    railgun::note::shield::{ShieldError, create_shield_request},
-    railgun::transaction::tx_data::TxData,
+    railgun::{
+        address::RailgunAddress,
+        note::shield::{ShieldError, create_shield_request},
+        transaction::tx_data::TxData,
+    },
 };
 
 /// Basic builder for constructing shield transactions.

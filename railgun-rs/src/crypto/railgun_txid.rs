@@ -128,10 +128,9 @@ impl<'de> Deserialize<'de> for Txid {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use ruint::uint;
 
+    use super::*;
     use crate::railgun::merkle_tree::TxidLeafHash;
 
     #[test]

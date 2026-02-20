@@ -1,8 +1,8 @@
 use ruint::aliases::U256;
 
 use crate::{
-    crypto::railgun_txid::Txid, railgun::merkle_tree::MerkleRoot,
-    railgun::merkle_tree::TxidLeafHash,
+    crypto::railgun_txid::Txid,
+    railgun::merkle_tree::{MerkleRoot, TxidLeafHash},
 };
 
 pub trait IntoU256 {

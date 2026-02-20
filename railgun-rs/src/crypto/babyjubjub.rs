@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use ark_bn254::Fr;
 use ark_ff::{AdditiveGroup, BigInteger, Field, PrimeField};
 use blake_hash::Digest;
@@ -5,7 +7,6 @@ use num_bigint::{BigInt as NumBigInt, Sign};
 use num_traits::One;
 use poseidon_rust::poseidon_hash;
 use ruint::{aliases::U256, uint};
-use std::str::FromStr;
 
 use crate::crypto::railgun_zero::SNARK_PRIME;
 

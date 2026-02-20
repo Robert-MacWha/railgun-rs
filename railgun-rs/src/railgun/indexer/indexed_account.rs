@@ -8,11 +8,13 @@ use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
     account::RailgunAccount,
     caip::AssetId,
-    railgun::address::RailgunAddress,
-    railgun::indexer::{indexer::TOTAL_LEAVES, notebook::Notebook},
-    railgun::note::{
-        Note,
-        utxo::{NoteError, UtxoNote},
+    railgun::{
+        address::RailgunAddress,
+        indexer::{indexer::TOTAL_LEAVES, notebook::Notebook},
+        note::{
+            Note,
+            utxo::{NoteError, UtxoNote},
+        },
     },
 };
 

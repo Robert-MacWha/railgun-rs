@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-
 #[cfg(feature = "wasm")]
 use tsify_next::Tsify;
 

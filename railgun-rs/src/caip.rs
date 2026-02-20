@@ -104,8 +104,9 @@ impl FromStr for AssetId {
                 Ok(AssetId::Erc20(address))
             }
             "erc721" => {
-                let (addr_str, sub_id_str) =
-                    rest.split_once('/').ok_or(AssetIdParseError::InvalidFormat)?;
+                let (addr_str, sub_id_str) = rest
+                    .split_once('/')
+                    .ok_or(AssetIdParseError::InvalidFormat)?;
                 let address: Address = addr_str
                     .parse()
                     .map_err(|_| AssetIdParseError::InvalidAddress(addr_str.to_string()))?;
@@ -115,8 +116,9 @@ impl FromStr for AssetId {
                 Ok(AssetId::Erc721(address, sub_id))
             }
             "erc1155" => {
-                let (addr_str, sub_id_str) =
-                    rest.split_once('/').ok_or(AssetIdParseError::InvalidFormat)?;
+                let (addr_str, sub_id_str) = rest
+                    .split_once('/')
+                    .ok_or(AssetIdParseError::InvalidFormat)?;
                 let address: Address = addr_str
                     .parse()
                     .map_err(|_| AssetIdParseError::InvalidAddress(addr_str.to_string()))?;

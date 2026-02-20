@@ -141,11 +141,8 @@ impl JsProofResponse {
             },
         };
 
-        let public_inputs: Result<Vec<U256>, _> = self
-            .public_inputs
-            .iter()
-            .map(|s| parse_number(s))
-            .collect();
+        let public_inputs: Result<Vec<U256>, _> =
+            self.public_inputs.iter().map(|s| parse_number(s)).collect();
 
         Ok((proof, public_inputs?))
     }

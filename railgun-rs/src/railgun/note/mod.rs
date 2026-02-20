@@ -2,8 +2,10 @@ use rand::RngCore;
 use ruint::aliases::U256;
 
 use crate::{
-    abis::railgun::CommitmentCiphertext, caip::AssetId, crypto::keys::ViewingPublicKey,
-    railgun::merkle_tree::UtxoLeafHash, railgun::note::encrypt::EncryptError,
+    abis::railgun::CommitmentCiphertext,
+    caip::AssetId,
+    crypto::keys::ViewingPublicKey,
+    railgun::{merkle_tree::UtxoLeafHash, note::encrypt::EncryptError},
 };
 
 pub mod encrypt;

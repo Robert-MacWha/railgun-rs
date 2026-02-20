@@ -9,13 +9,12 @@ use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use crate::{
     caip::AssetId,
     chain_config::get_chain_config,
-    railgun::address::RailgunAddress,
-    railgun::indexer::{
-        indexer::{Indexer, IndexerState},
-        syncer::ChainedSyncer,
-        syncer::RpcSyncer,
-        syncer::SubsquidSyncer,
-        syncer::Syncer,
+    railgun::{
+        address::RailgunAddress,
+        indexer::{
+            indexer::{Indexer, IndexerState},
+            syncer::{ChainedSyncer, RpcSyncer, SubsquidSyncer, Syncer},
+        },
     },
     wasm::JsRailgunAccount,
 };

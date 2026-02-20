@@ -5,10 +5,11 @@ use ruint::aliases::U256;
 use crate::{
     caip::AssetId,
     crypto::keys::ViewingPublicKey,
-    railgun::merkle_tree::MerkleProof,
-    railgun::merkle_tree::UtxoLeafHash,
-    railgun::note::{IncludedNote, Note, utxo::UtxoNote},
-    railgun::poi::types::ListKey,
+    railgun::{
+        merkle_tree::{MerkleProof, UtxoLeafHash},
+        note::{IncludedNote, Note, utxo::UtxoNote},
+        poi::types::ListKey,
+    },
 };
 
 #[derive(Debug, Clone)]

@@ -1,7 +1,8 @@
+use std::collections::BTreeSet;
+
 use alloy::primitives::utils::keccak256_cached;
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 use thiserror::Error;
 use tracing::{info, warn};
 

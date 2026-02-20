@@ -4,21 +4,21 @@ use ruint::aliases::U256;
 use thiserror::Error;
 use tracing::info;
 
-use crate::circuit::inputs::circuit_input::{FromU256, IntoSignalVec};
-use crate::crypto::keys::U256Key;
-use crate::railgun::merkle_tree::MerkleRoot;
-use crate::railgun::merkle_tree::TREE_DEPTH;
 use crate::{
+    circuit::inputs::circuit_input::{FromU256, IntoSignalVec},
     circuit_inputs,
     crypto::{
-        keys::{NullifyingKey, SpendingPublicKey},
+        keys::{NullifyingKey, SpendingPublicKey, U256Key},
         railgun_txid::{Txid, UtxoTreeOut},
     },
-    railgun::merkle_tree::{
-        MerkleProof, MerkleTreeError, TxidLeafHash, UtxoMerkleTree, railgun_merkle_tree_zero,
+    railgun::{
+        merkle_tree::{
+            MerkleProof, MerkleRoot, MerkleTreeError, TREE_DEPTH, TxidLeafHash, UtxoMerkleTree,
+            railgun_merkle_tree_zero,
+        },
+        note::{IncludedNote, Note, operation::Operation},
+        poi::{ListKey, PoiNote},
     },
-    railgun::note::{IncludedNote, Note, operation::Operation},
-    railgun::poi::{ListKey, PoiNote},
 };
 
 // TODO: Consider making me into an enum with two variants on a generic Inner, so

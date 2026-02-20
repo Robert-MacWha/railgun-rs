@@ -94,16 +94,15 @@ pub fn encrypt_note<R: Rng + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use alloy::primitives::address;
+    use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
+    use tracing_test::traced_test;
+
+    use super::*;
     use crate::{
         crypto::keys::SpendingKey,
         railgun::note::utxo::{UtxoNote, UtxoType},
     };
-
-    use super::*;
-
-    use alloy::primitives::address;
-    use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
-    use tracing_test::traced_test;
 
     #[test]
     fn test_encrypt_snap() {

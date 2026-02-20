@@ -1,24 +1,21 @@
 use std::array::TryFromSliceError;
 
 use alloy::primitives::{Bytes, FixedBytes, U256, ruint::ParseError};
-use futures::StreamExt;
-use futures::{Stream, stream};
+use futures::{Stream, StreamExt, stream};
 use graphql_client::{GraphQLQuery, Response};
 use reqwest::Client;
 use thiserror::Error;
 use tracing::{info, warn};
 
-use crate::sleep::sleep;
 use crate::{
     abis::railgun::{
         CommitmentCiphertext, CommitmentPreimage, RailgunSmartWallet, ShieldCiphertext, TokenData,
         TokenType,
     },
-    railgun::indexer::{
-        syncer::compat::BoxedSyncStream,
-        syncer::decimal_bigint,
-        syncer::{LegacyCommitment, Operation, SyncEvent, Syncer},
+    railgun::indexer::syncer::{
+        LegacyCommitment, Operation, SyncEvent, Syncer, compat::BoxedSyncStream, decimal_bigint,
     },
+    sleep::sleep,
 };
 
 pub type BigInt = decimal_bigint::DecimalU256;

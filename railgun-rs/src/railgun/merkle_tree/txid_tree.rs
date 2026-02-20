@@ -1,13 +1,15 @@
 use ruint::aliases::U256;
-use serde::{Serializer, Serialize};
+use serde::{Serialize, Serializer};
 
-use crate::crypto::{
-    poseidon::poseidon_hash,
-    railgun_txid::{Txid, UtxoTreeOut},
-};
-use crate::railgun::merkle_tree::{
-    merkle_proof::{MerkleProof, MerkleRoot},
-    merkle_tree::{MerkleTree, MerkleTreeBatch, MerkleTreeError, MerkleTreeState},
+use crate::{
+    crypto::{
+        poseidon::poseidon_hash,
+        railgun_txid::{Txid, UtxoTreeOut},
+    },
+    railgun::merkle_tree::{
+        merkle_proof::{MerkleProof, MerkleRoot},
+        merkle_tree::{MerkleTree, MerkleTreeBatch, MerkleTreeError, MerkleTreeState},
+    },
 };
 
 /// Typed leaf hash for TxID Merkle tree entries.

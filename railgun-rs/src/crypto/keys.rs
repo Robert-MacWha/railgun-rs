@@ -1,17 +1,18 @@
 use ark_bn254::Fr;
 use ark_ff::{BigInteger, PrimeField};
-use curve25519_dalek::edwards::CompressedEdwardsY;
-use curve25519_dalek::{EdwardsPoint, Scalar};
+use curve25519_dalek::{EdwardsPoint, Scalar, edwards::CompressedEdwardsY};
 use ed25519_dalek::SigningKey;
 use rand::Rng;
 use ruint::aliases::U256;
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
-use crate::crypto::aes::{
-    AesError, Ciphertext, CiphertextCtr, decrypt_ctr, decrypt_gcm, encrypt_ctr, encrypt_gcm,
+use crate::crypto::{
+    aes::{
+        AesError, Ciphertext, CiphertextCtr, decrypt_ctr, decrypt_gcm, encrypt_ctr, encrypt_gcm,
+    },
+    poseidon::poseidon_hash,
 };
-use crate::crypto::poseidon::poseidon_hash;
 
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]

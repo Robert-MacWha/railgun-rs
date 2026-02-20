@@ -4,8 +4,9 @@ use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    circuit::proof::Proof, crypto::railgun_txid::Txid, railgun::merkle_tree::MerkleRoot,
-    railgun::merkle_tree::TxidLeafHash,
+    circuit::proof::Proof,
+    crypto::railgun_txid::Txid,
+    railgun::merkle_tree::{MerkleRoot, TxidLeafHash},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]

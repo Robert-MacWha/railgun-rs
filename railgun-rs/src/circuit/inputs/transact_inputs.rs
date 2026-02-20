@@ -4,14 +4,13 @@ use ruint::aliases::U256;
 use thiserror::Error;
 
 use crate::{
+    circuit::inputs::circuit_input::IntoSignalVec,
     circuit_inputs,
     railgun::{
         merkle_tree::{MerkleRoot, MerkleTreeError, UtxoMerkleTree},
         note::{IncludedNote, Note},
     },
 };
-
-use crate::circuit::inputs::circuit_input::IntoSignalVec;
 
 #[derive(Debug, Clone)]
 pub struct TransactCircuitInputs {

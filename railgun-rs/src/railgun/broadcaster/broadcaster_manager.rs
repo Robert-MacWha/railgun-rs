@@ -1,20 +1,17 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::primitives::Address;
-use futures::StreamExt;
-use futures::lock::Mutex;
+use futures::{StreamExt, lock::Mutex};
 use thiserror::Error;
 use tracing::info;
 
-use crate::railgun::address::RailgunAddress;
-use crate::railgun::broadcaster::content_topics::fee_content_topic;
-use crate::railgun::poi::ListKey;
-
-use super::broadcaster::{Broadcaster, Fee};
-use super::transport::{WakuTransport, WakuTransportError};
-use super::types::{
-    BROADCASTER_VERSION, BroadcasterFeeMessage, BroadcasterFeeMessageData, WakuMessage,
+use super::{
+    broadcaster::{Broadcaster, Fee},
+    transport::{WakuTransport, WakuTransportError},
+    types::{BROADCASTER_VERSION, BroadcasterFeeMessage, BroadcasterFeeMessageData, WakuMessage},
+};
+use crate::railgun::{
+    address::RailgunAddress, broadcaster::content_topics::fee_content_topic, poi::ListKey,
 };
 
 /// Error type for broadcaster operations.

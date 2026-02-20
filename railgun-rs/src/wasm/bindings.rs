@@ -1,7 +1,9 @@
 use wasm_bindgen::prelude::*;
 
-use crate::account::RailgunAccount;
-use crate::crypto::keys::{ByteKey, SpendingKey, ViewingKey};
+use crate::{
+    account::RailgunAccount,
+    crypto::keys::{ByteKey, SpendingKey, ViewingKey},
+};
 
 /// Parse a 32-byte hex string (with or without 0x prefix)
 fn parse_hex_32(s: &str, name: &str) -> Result<[u8; 32], JsError> {

@@ -2,8 +2,10 @@ use alloy::primitives::{Address, aliases::U120};
 use ruint::aliases::U256;
 
 use crate::{
-    abis, caip::AssetId, crypto::poseidon::poseidon_hash, railgun::merkle_tree::UtxoLeafHash,
-    railgun::note::Note,
+    abis,
+    caip::AssetId,
+    crypto::poseidon::poseidon_hash,
+    railgun::{merkle_tree::UtxoLeafHash, note::Note},
 };
 
 /// Unshield notes represent value exiting the Railgun system to an external address.
@@ -74,8 +76,10 @@ mod tests {
 
     use crate::{
         caip::AssetId,
-        railgun::merkle_tree::UtxoLeafHash,
-        railgun::note::{Note, unshield::UnshieldNote},
+        railgun::{
+            merkle_tree::UtxoLeafHash,
+            note::{Note, unshield::UnshieldNote},
+        },
     };
 
     #[test]

@@ -9,10 +9,7 @@ use tracing::{info, warn};
 use crate::{
     abis::railgun::RailgunSmartWallet,
     chain_config::ChainConfig,
-    railgun::indexer::{
-        syncer::compat::BoxedSyncStream,
-        syncer::{SyncEvent, Syncer},
-    },
+    railgun::indexer::syncer::{SyncEvent, Syncer, compat::BoxedSyncStream},
     sleep::sleep,
 };
 

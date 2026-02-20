@@ -5,18 +5,15 @@ use ark_circom::CircomReduction;
 use ark_ff::BigInt;
 use ark_groth16::{Groth16, prepare_verifying_key};
 use ark_std::rand::random;
-
 use ruint::aliases::U256;
 use tracing::info;
 
-use crate::circuit::native::{FsArtifactLoader, WasmerWitnessCalculator};
-use crate::circuit::prover::PublicInputs;
 use crate::circuit::{
     artifact_loader::ArtifactLoader,
-    inputs::PoiCircuitInputs,
-    inputs::TransactCircuitInputs,
+    inputs::{PoiCircuitInputs, TransactCircuitInputs},
+    native::{FsArtifactLoader, WasmerWitnessCalculator},
     proof::Proof,
-    prover::{PoiProver, TransactProver},
+    prover::{PoiProver, PublicInputs, TransactProver},
     witness::{CircuitType, WitnessCalculator},
 };
 

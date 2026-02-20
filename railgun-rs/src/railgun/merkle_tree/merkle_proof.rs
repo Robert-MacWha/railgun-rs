@@ -5,8 +5,7 @@ use ruint::aliases::U256;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_with::serde_as;
 
-use crate::crypto::poseidon::poseidon_hash;
-use crate::padded_u256::PaddedU256;
+use crate::{crypto::poseidon::poseidon_hash, padded_u256::PaddedU256};
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct MerkleRoot(U256);

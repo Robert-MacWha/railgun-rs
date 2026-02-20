@@ -1,18 +1,24 @@
 use std::pin::Pin;
 
-use futures::Stream;
-use futures::channel::mpsc::{self, UnboundedReceiver};
+use futures::{
+    Stream,
+    channel::mpsc::{self, UnboundedReceiver},
+};
 use js_sys::{Array, Function, Uint8Array};
 use thiserror::Error;
 use tracing::warn;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-use crate::railgun::broadcaster::broadcaster::{Broadcaster, Fee};
-use crate::railgun::broadcaster::broadcaster_manager::BroadcasterManager;
-use crate::railgun::broadcaster::transport::{MessageStream, WakuTransport, WakuTransportError};
-use crate::railgun::broadcaster::types::WakuMessage;
-use crate::wasm::transaction::JsPoiProvedTx;
+use crate::{
+    railgun::broadcaster::{
+        broadcaster::{Broadcaster, Fee},
+        broadcaster_manager::BroadcasterManager,
+        transport::{MessageStream, WakuTransport, WakuTransportError},
+        types::WakuMessage,
+    },
+    wasm::transaction::JsPoiProvedTx,
+};
 
 /// Error type for JS Waku transport operations.
 #[derive(Debug, Error)]

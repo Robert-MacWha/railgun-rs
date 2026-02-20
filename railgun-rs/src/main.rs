@@ -9,10 +9,6 @@ use alloy::{
     signers::local::PrivateKeySigner,
 };
 use async_trait::async_trait;
-use rand::{Rng, SeedableRng};
-use rand_chacha::ChaChaRng;
-use tracing::info;
-
 use railgun_rs::{
     abis::erc20::ERC20,
     account::RailgunAccount,
@@ -32,6 +28,9 @@ use railgun_rs::{
         transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
     },
 };
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaChaRng;
+use tracing::info;
 
 const CHAIN: ChainConfig = SEPOLIA_CONFIG;
 const USDC_ADDRESS: Address = address!("0x1c7d4b196cb0c7b01d743fbc6116a902379c7238");

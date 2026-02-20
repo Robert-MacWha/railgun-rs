@@ -1,6 +1,9 @@
 use ruint::aliases::U256;
 
-use crate::circuit::{inputs::PoiCircuitInputs, inputs::TransactCircuitInputs, proof::Proof};
+use crate::circuit::{
+    inputs::{PoiCircuitInputs, TransactCircuitInputs},
+    proof::Proof,
+};
 
 pub type PublicInputs = Vec<U256>;
 

@@ -178,9 +178,8 @@ fn xor_network_id(network_id_hex: &str) -> String {
 mod tests {
     use tracing_test::traced_test;
 
-    use crate::crypto::keys::ByteKey;
-
     use super::*;
+    use crate::crypto::keys::ByteKey;
 
     #[test]
     #[traced_test]

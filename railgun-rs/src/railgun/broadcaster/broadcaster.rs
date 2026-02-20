@@ -410,13 +410,12 @@ mod test {
     use rand_chacha::ChaChaRng;
     use ruint::uint;
 
+    use super::*;
     use crate::{
         circuit::proof::{G1Affine, G2Affine, Proof},
         crypto::keys::{ByteKey, HexKey},
         railgun::poi::PreTransactionPoi,
     };
-
-    use super::*;
 
     #[test]
     fn test_serialize_params() {

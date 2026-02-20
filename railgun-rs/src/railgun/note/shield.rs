@@ -72,8 +72,10 @@ mod tests {
     use crate::{
         caip::AssetId,
         crypto::keys::{SpendingKey, ViewingKey},
-        railgun::address::RailgunAddress,
-        railgun::note::{Note, shield::create_shield_request, utxo::UtxoNote},
+        railgun::{
+            address::RailgunAddress,
+            note::{Note, shield::create_shield_request, utxo::UtxoNote},
+        },
     };
 
     #[test]

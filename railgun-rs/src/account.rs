@@ -1,9 +1,9 @@
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::crypto::keys::SpendingKey;
-use crate::crypto::keys::ViewingKey;
-use crate::railgun::address::RailgunAddress;
+use crate::{
+    crypto::keys::{SpendingKey, ViewingKey},
+    railgun::address::RailgunAddress,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RailgunAccount {

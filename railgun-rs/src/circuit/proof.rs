@@ -94,9 +94,9 @@ impl From<G2Affine> for [[String; 2]; 2] {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     use ruint::uint;
+
+    use super::*;
 
     #[test]
     fn test_proof_serialization() {

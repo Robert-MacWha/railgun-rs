@@ -32,12 +32,15 @@
           ];
           targets = [ "wasm32-unknown-unknown" ];
         };
+
+        rustfmtNightly = pkgs.rust-bin.nightly.latest.rustfmt;
       in
       {
         devShells = {
           default = pkgs.mkShell {
             packages = [
               # Rust toolchain and extensions
+              rustfmtNightly
               rustToolchain
               pkgs.rust-analyzer
               pkgs.just
