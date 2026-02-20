@@ -26,7 +26,10 @@
         };
 
         rustToolchain = pkgs.rust-bin.stable."1.88.0".default.override {
-          extensions = [ "rust-src" ];
+          extensions = [
+            "rust-src"
+            "llvm-tools"
+          ];
           targets = [ "wasm32-unknown-unknown" ];
         };
       in
@@ -49,6 +52,7 @@
             pkgs.cargo-bloat
             pkgs.cargo-machete
             pkgs.cargo-sort
+            pkgs.cargo-llvm-cov
 
             pkgs.sops
           ];

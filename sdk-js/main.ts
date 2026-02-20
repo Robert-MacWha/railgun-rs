@@ -37,7 +37,7 @@ async function main() {
     const WETH = wasm.erc20_asset(WETH_ADDRESS);
 
     console.log("Setup")
-    const indexerState = new Uint8Array(await readFile(INDEXER_STATE_PATH));
+    // const indexerState = new Uint8Array(await readFile(INDEXER_STATE_PATH));
     const subsquidSyncer = wasm.JsSyncer.withSubsquid("https://rail-squid.squids.live/squid-railgun-eth-sepolia-v2/v/v1/graphql");
     const rpcSyncer = await wasm.JsSyncer.withRpc(
         RPC_URL,
@@ -45,8 +45,8 @@ async function main() {
         10n,
     );
     const syncer = wasm.JsSyncer.withChained([subsquidSyncer, rpcSyncer]);
-    const indexer = await wasm.JsIndexer.from_state(syncer, indexerState);
-    // const indexer = wasm.JsIndexer.new(syncer, CHAIN_ID);
+    // const indexer = await wasm.JsIndexer.from_state(syncer, indexerState);
+    const indexer = wasm.JsIndexer.new(syncer, CHAIN_ID);
 
     const account1 = new wasm.JsRailgunAccount(SPENDING_KEY, VIEWING_KEY, CHAIN_ID);
     console.log("Account 1 address:", account1.address);
@@ -98,7 +98,7 @@ async function main() {
         account1,
         account2.address,
         USDC,
-        "100",
+        "10",
         ""
     );
 

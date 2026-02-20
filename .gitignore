@@ -1,5 +1,5 @@
-/target
+target/
 .direnv
 
 t.json
-indexer_state_11155111.bincode
+*.bincode

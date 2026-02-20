@@ -71,11 +71,11 @@ web-time = "1.1.0"
 
 [profile.release]
 debug = true
+strip = false
 opt-level = "z"
 # lto = true
-codegen-units = 1
+codegen-units = 12
 # panic = "abort"
-strip = false
 
 [profile.dev.package."*"]
 opt-level = "z"
