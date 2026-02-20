@@ -21,7 +21,7 @@ pub trait IncludedNote: Note + Clone {
     fn tree_number(&self) -> u32;
     fn leaf_index(&self) -> u32;
     fn viewing_pubkey(&self) -> ViewingPublicKey;
-    fn nullifier(&self, leaf_index: u32) -> U256;
+    fn nullifier(&self, leaf_index: U256) -> U256;
     fn spending_pubkey(&self) -> [U256; 2];
     fn sign(&self, inputs: &[U256]) -> [U256; 3];
     fn nullifying_key(&self) -> U256;

@@ -60,7 +60,7 @@ impl Notebook {
         let Some((&leaf_index, _)) = self
             .unspent
             .iter()
-            .find(|(leaf_index, note)| note.nullifier(**leaf_index) == nullifier)
+            .find(|(leaf_index, note)| note.nullifier(U256::from(**leaf_index)) == nullifier)
         else {
             return None;
         };

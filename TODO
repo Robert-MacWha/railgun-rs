@@ -18,9 +18,14 @@
   - not be being included properly
 - [x] Send a POI for a transfer note 
 - [ ] Make managed merke trees that verify themselves
+  - Should be simple, but will help quite a bit for the next task.
+- [ ] Implement a json-rpc txid syncer
+  - Needs to do call trace, parsing logs by hand since each `transaction` is the group of all operations in a given block.
 - [ ] Refactor and tidy up
-  - [x] Pick and STICK WITH a consistent type for representing proof values / amounts. Right now I'm in conversion hell.  ruint seems like a good choice.
-- Optimize performance
+
+
+
+- Optimize performance / size
   - Benchmark current performance + components
   - [x] Try to use `https://github.com/philsippl/circom-witness-rs` for witness generation.  Seems to be ~30x faster for native, and probably faster for wasm too since we avoid wasmer overhead.
     - ~~https://zkmopro.org/blog/circom-comparison/#witnesscalc~~

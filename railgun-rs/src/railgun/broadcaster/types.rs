@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "wasm")]
 use tsify_next::Tsify;
 
+use crate::railgun::poi::ListKey;
+
 /// A message received from the Waku network.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "wasm", derive(Tsify))]
@@ -44,7 +46,7 @@ pub struct BroadcasterFeeMessageData {
     pub relay_adapt: String,
     /// Required POI list keys for this broadcaster
     #[serde(rename = "requiredPOIListKeys")]
-    pub required_poi_list_keys: Vec<String>,
+    pub required_poi_list_keys: Vec<ListKey>,
     /// Reliability score (0.0-1.0)
     pub reliability: f64,
 }

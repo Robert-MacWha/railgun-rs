@@ -1,5 +1,5 @@
 use ruint::{aliases::U256};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
 use crate::{
     crypto::{poseidon::poseidon_hash, railgun_zero::railgun_merkle_tree_zero},
@@ -152,6 +152,18 @@ impl Serialize for Txid {
         S: Serializer,
     {
         serializer.serialize_str(&format!("{:064x}", self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for Txid {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let s = s.strip_prefix("0x").unwrap_or(&s);
+        let value = U256::from_str_radix(s, 16).map_err(serde::de::Error::custom)?;
+        Ok(Txid(value))
     }
 }
 

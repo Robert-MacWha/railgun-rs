@@ -7,7 +7,7 @@ use crate::{
     crypto::{keys::ViewingPublicKey, railgun_utxo::UtxoLeafHash},
     railgun::merkle_tree::merkle_proof::MerkleProof,
     railgun::note::{IncludedNote, Note, utxo::UtxoNote},
-    railgun::poi::poi_client::ListKey,
+    railgun::poi::types::ListKey,
 };
 
 #[derive(Debug, Clone)]
@@ -55,7 +55,7 @@ impl IncludedNote for PoiNote {
         self.inner.viewing_pubkey()
     }
 
-    fn nullifier(&self, leaf_index: u32) -> U256 {
+    fn nullifier(&self, leaf_index: U256) -> U256 {
         self.inner.nullifier(leaf_index)
     }
 

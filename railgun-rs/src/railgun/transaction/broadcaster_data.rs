@@ -16,10 +16,7 @@ use crate::{
         broadcaster::broadcaster::Fee,
         merkle_tree::merkle_tree::UtxoMerkleTree,
         note::{operation::Operation, utxo::UtxoNote},
-        poi::{
-            poi_client::{ListKey, PreTransactionPoi},
-            poi_note::PoiNote,
-        },
+        poi::{ListKey, PoiNote, PreTransactionPoi},
         transaction::tx_data::TxData,
     },
 };
@@ -115,7 +112,7 @@ impl PoiProvedOperation {
             let pre_transaction_poi = PreTransactionPoi {
                 proof,
                 txid_merkleroot: inputs.railgun_txid_merkleroot_after_transaction,
-                poi_merkleroot: inputs.poi_merkleroots,
+                poi_merkleroots: inputs.poi_merkleroots,
                 blinded_commitments_out: public_inputs[0..inputs.nullifiers.len()].to_vec(),
                 railgun_txid_if_has_unshield: inputs.railgun_txid_if_has_unshield,
             };

@@ -1,126 +1,135 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
-use alloy::primitives::{ChainId, FixedBytes};
-use ruint::aliases::U256;
-use serde::Serialize;
+use alloy::primitives::ChainId;
+use reqwest::Client;
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use thiserror::Error;
 use tracing::info;
 
-pub use crate::railgun::poi::{
-    inner_client::PoiClientError,
-    inner_types::{BlindedCommitmentType, ListKey, PoisPerListMap, TxidVersion},
-};
-use crate::{
-    circuit::proof::Proof,
-    crypto::{
-        keys::hex_to_u256,
-        railgun_txid::{Txid, TxidLeafHash},
+use crate::railgun::{
+    merkle_tree::merkle_proof::{MerkleProof, MerkleRoot},
+    note::utxo::UtxoNote,
+    poi::{
+        poi_note::PoiNote,
+        types::{
+            BlindedCommitment, BlindedCommitmentData, ChainParams, GetMerkleProofsParams,
+            GetPoisPerListParams, ListKey, NodeStatusAllNetworks, PoisPerListMap,
+            SubmitTransactProofParams, TransactProofData, TxidVersion,
+            ValidatePoiMerklerootsParams, ValidateTxidMerklerootParams, ValidatedRailgunTxidStatus,
+        },
     },
-    railgun::{
-        merkle_tree::merkle_proof::{MerkleProof, MerkleRoot},
-        note::utxo::UtxoNote,
-        poi::{inner_types::ValidatePoiMerklerootsParams, poi_note::PoiNote},
-    },
+    transaction::broadcaster_data::{PoiProvedOperation, PoiProvedTransaction},
 };
 
 pub struct PoiClient {
-    inner: crate::railgun::poi::inner_client::InnerPoiClient,
+    http: Client,
+    url: String,
+    next_id: AtomicU64,
+
     chain: ChainId,
-    list_keys: Vec<ListKey>,
-}
-
-pub struct BlindedCommitmentData {
-    pub commitment_type: BlindedCommitmentType,
-    pub blinded_commitment: [u8; 32],
-}
-
-#[derive(Debug, Clone)]
-pub struct ValidatedRailgunTxidStatus {
-    pub tree: u32,
-    pub index: u32,
-    pub merkleroot: Txid,
-}
-
-pub type PreTransactionPoisPerTxidLeafPerList =
-    HashMap<ListKey, HashMap<TxidLeafHash, PreTransactionPoi>>;
-
-/// POI proof for a single operation, proving that the input notes have valid POI.
-#[derive(Debug, Clone, Serialize)]
-pub struct PreTransactionPoi {
-    #[serde(rename = "snarkProof")]
-    pub proof: Proof,
-    #[serde(rename = "txidMerkleroot")]
-    pub txid_merkleroot: MerkleRoot,
-    #[serde(rename = "poiMerkleroots")]
-    pub poi_merkleroot: Vec<MerkleRoot>,
-    #[serde(rename = "blindedCommitmentsOut")]
-    pub blinded_commitments_out: Vec<U256>,
-    #[serde(rename = "railgunTxidIfHasUnshield")]
-    pub railgun_txid_if_has_unshield: Txid,
+    status: NodeStatusAllNetworks,
 }
 
 #[derive(Debug, Error)]
-pub enum PoiMerkleProofError {
-    #[error("Hex decoding error: {0}")]
-    HexDecode(#[from] hex::FromHexError),
-    #[error("Integer parsing error: {0}")]
-    ParseInt(#[from] std::num::ParseIntError),
+pub enum PoiClientError {
+    #[error("HTTP error: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("JSON-RPC error: {0}")]
+    Rpc(JsonRpcError),
+    #[error("Null result from RPC")]
+    NullResult,
+    #[error("Unexpected response: {0}")]
+    UnexpectedResponse(String),
+    #[error("Invalid POI Merkle root for list key {0:?}: {1}")]
+    InvalidPoiMerkleRoot(ListKey, MerkleRoot),
+}
+
+#[derive(Debug, Serialize)]
+struct JsonRpcRequest<P: Serialize> {
+    jsonrpc: &'static str,
+    method: &'static str,
+    id: u64,
+    params: P,
+}
+
+#[derive(Debug, Deserialize)]
+struct JsonRpcResponse<R> {
+    #[allow(dead_code)]
+    jsonrpc: String,
+    #[allow(dead_code)]
+    id: u64,
+    result: Option<R>,
+    error: Option<JsonRpcError>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct JsonRpcError {
+    pub code: i64,
+    pub message: String,
+    pub data: Option<serde_json::Value>,
 }
 
 impl PoiClient {
     pub async fn new(url: impl Into<String>, chain: ChainId) -> Result<Self, PoiClientError> {
-        let inner = crate::railgun::poi::inner_client::InnerPoiClient::new(url);
-        let status = inner.node_status().await?;
-        let list_keys = status.list_keys;
-        info!(
-            "Initialized POI client for chain {}, found list keys: {:?}",
-            chain, list_keys
-        );
+        let next_id = AtomicU64::new(1);
+        let http = Client::new();
+        let url = url.into();
+
+        let status: NodeStatusAllNetworks = call(
+            &next_id,
+            &http,
+            &url,
+            "ppoi_node_status",
+            serde_json::json!({}),
+        )
+        .await?;
+        // info!("Fetched POI node status: {:#?}", status);
 
         Ok(Self {
-            inner,
+            http,
+            url,
+            next_id,
             chain,
-            list_keys,
+            status,
         })
     }
 
+    /// Checks the health of the POI node
     pub async fn health(&self) -> bool {
-        match self.inner.health().await {
+        let resp = self.call::<Vec<()>, String>("ppoi_health", vec![]).await;
+        match resp {
             Ok(status) if status.to_lowercase() == "ok" => true,
             _ => false,
         }
     }
 
+    /// Returns the list keys that the POI node is tracking
     pub fn list_keys(&self) -> Vec<ListKey> {
-        self.list_keys.clone()
+        self.status.list_keys.clone()
     }
 
-    /// Returns a map of list keys to their corresponding POIs for the given blinded for all list
-    /// keys for the chain.
+    /// Returns the POIs for the given list keys and blinded commitments.
     pub async fn pois(
         &self,
-        blinded_commitment_data: Vec<BlindedCommitmentData>,
+        list_keys: Vec<ListKey>,
+        blinded_commitment_datas: Vec<BlindedCommitmentData>,
     ) -> Result<PoisPerListMap, PoiClientError> {
-        let blinded_commitment_datas: Vec<crate::railgun::poi::inner_types::BlindedCommitmentData> =
-            blinded_commitment_data
-                .into_iter()
-                .map(
-                    |data| crate::railgun::poi::inner_types::BlindedCommitmentData {
-                        commitment_type: data.commitment_type,
-                        blinded_commitment: format!("0x{}", hex::encode(data.blinded_commitment)),
-                    },
-                )
-                .collect();
-
-        self.inner
-            .pois_per_list(crate::railgun::poi::inner_types::GetPoisPerListParams {
+        self.call(
+            "ppoi_pois_per_list",
+            GetPoisPerListParams {
                 chain: self.chain(),
-                list_keys: self.list_keys.clone(),
+                list_keys,
                 blinded_commitment_datas,
-            })
-            .await
+            },
+        )
+        .await
     }
 
+    /// Converts a list of UTXO notes into POI notes by fetching the necessary
+    /// merkle proofs from the POI node for the given list keys.
     pub async fn note_to_poi_note(
         &self,
         notes: Vec<UtxoNote>,
@@ -128,7 +137,7 @@ impl PoiClient {
     ) -> Result<Vec<PoiNote>, PoiClientError> {
         let blinded_commitments = notes
             .iter()
-            .map(|n| n.blinded_commitment().to_be_bytes())
+            .map(|n| n.blinded_commitment().into())
             .collect();
         let proofs = self.merkle_proofs(blinded_commitments, list_keys).await?;
 
@@ -148,49 +157,25 @@ impl PoiClient {
         Ok(poi_notes)
     }
 
+    /// Fetches the POI merkle proofs for the given blinded commitments and
+    /// list keys.
     pub async fn merkle_proofs(
         &self,
-        blinded_commitments: Vec<[u8; 32]>,
+        blinded_commitments: Vec<BlindedCommitment>,
         list_keys: &[ListKey],
     ) -> Result<HashMap<ListKey, Vec<MerkleProof>>, PoiClientError> {
-        let blinded_commitments: Vec<crate::railgun::poi::inner_types::BlindedCommitment> =
-            blinded_commitments
-                .into_iter()
-                .map(|bc| format!("0x{}", hex::encode(bc)))
-                .collect();
-
         let mut proofs = HashMap::new();
         for list_key in list_keys.iter() {
-            let list_key_proofs = self
-                .inner
-                .merkle_proofs(crate::railgun::poi::inner_types::GetMerkleProofsParams {
-                    chain: self.chain(),
-                    list_key: list_key.clone(),
-                    blinded_commitments: blinded_commitments.clone(),
-                })
+            let list_key_proofs: Vec<MerkleProof> = self
+                .call(
+                    "ppoi_merkle_proofs",
+                    GetMerkleProofsParams {
+                        chain: self.chain(),
+                        list_key: list_key.clone(),
+                        blinded_commitments: blinded_commitments.clone(),
+                    },
+                )
                 .await?;
-
-            let list_key_proofs: Vec<MerkleProof> = list_key_proofs
-                .into_iter()
-                .map(|proof| proof.try_into())
-                .collect::<Result<_, PoiMerkleProofError>>()?;
-
-            //? Validate that the proofs are correct for the blinded commitments
-            for proof in &list_key_proofs {
-                let valid = self
-                    .validate_poi_merkleroot(list_key.clone(), proof.root.clone())
-                    .await?;
-                if !valid {
-                    return Err(PoiClientError::InvalidPoiMerkleRoot(
-                        list_key.clone(),
-                        proof.root,
-                    ));
-                }
-                info!(
-                    "Validated POI Merkle root for list key {}: {}",
-                    list_key, proof.root
-                );
-            }
 
             proofs.insert(list_key.clone(), list_key_proofs);
         }
@@ -198,31 +183,52 @@ impl PoiClient {
         Ok(proofs)
     }
 
+    /// Submits a proved transaction to the POI node
+    pub async fn submit(&self, tx: PoiProvedTransaction) -> Result<(), PoiClientError> {
+        for op in tx.operations {
+            self.submit_operation(op).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Submits a proved operation to the POI node.
+    /// TODO: Update this to accept a new IncludedOperation or IndexedOperation that
+    /// comes from txid syncing. We need to provide real txid merkle root / merkle root index,
+    /// not the dummy values used for broadcasting / proving.
+    pub async fn submit_operation(&self, op: PoiProvedOperation) -> Result<(), PoiClientError> {
+        let validated = self.validated_txid().await?;
+
+        for (list_key, poi) in op.pois.iter() {
+            let transact_proof_data = TransactProofData {
+                snark_proof: poi.proof.clone().into(),
+                poi_merkleroots: poi.poi_merkleroots.clone(),
+                txid_merkleroot: poi.txid_merkleroot,
+                txid_merkleroot_index: validated.index,
+                blinded_commitments_out: poi.blinded_commitments_out.clone(),
+                railgun_txid_if_has_unshield: poi.railgun_txid_if_has_unshield,
+            };
+
+            let resp: serde_json::Value = self
+                .call(
+                    "ppoi_submit_transact_proof",
+                    SubmitTransactProofParams {
+                        chain: self.chain(),
+                        list_key: list_key.clone(),
+                        transact_proof_data,
+                    },
+                )
+                .await?;
+
+            info!("Submitted proof for list key {}: {}", list_key, resp);
+        }
+
+        Ok(())
+    }
+
     /// Returns the current validated txid status from the POI node.
     pub async fn validated_txid(&self) -> Result<ValidatedRailgunTxidStatus, PoiClientError> {
-        let resp: crate::railgun::poi::inner_types::ValidatedRailgunTxidStatus =
-            self.inner.validated_txid(self.chain()).await?;
-
-        let Some(merkleroot) = resp.validated_merkleroot else {
-            return Err(PoiClientError::UnexpectedResponse(
-                "validated_merkleroot is None".to_string(),
-            ));
-        };
-
-        let Some(global_index) = resp.validated_txid_index else {
-            return Err(PoiClientError::UnexpectedResponse(
-                "validated_txid_index is None".to_string(),
-            ));
-        };
-
-        let tree = (global_index >> 16) as u32;
-        let index = (global_index & 0xFFFF) as u32;
-
-        Ok(ValidatedRailgunTxidStatus {
-            tree,
-            index,
-            merkleroot: hex_to_u256(&merkleroot).into(),
-        })
+        self.call("ppoi_validated_txid", self.chain()).await
     }
 
     /// Validates a txid merkle root against the POI node.
@@ -232,54 +238,91 @@ impl PoiClient {
         index: u64,
         merkleroot: MerkleRoot,
     ) -> Result<bool, PoiClientError> {
-        let txid: FixedBytes<32> = merkleroot.into();
-
-        self.inner
-            .validate_txid_merkleroot(
-                crate::railgun::poi::inner_types::ValidateTxidMerklerootParams {
-                    chain: self.chain(),
-                    tree: tree as u64,
-                    index,
-                    merkleroot: hex::encode(*txid),
-                },
-            )
-            .await
+        self.call(
+            "ppoi_validate_txid_merkleroot",
+            ValidateTxidMerklerootParams {
+                chain: self.chain(),
+                tree,
+                index,
+                merkleroot,
+            },
+        )
+        .await
     }
 
+    /// Validates a POI merkle root against the POI node.
     pub async fn validate_poi_merkleroot(
         &self,
         list_key: ListKey,
         merkleroot: MerkleRoot,
     ) -> Result<bool, PoiClientError> {
-        self.inner
-            .validate_poi_merkleroots(ValidatePoiMerklerootsParams {
+        self.call(
+            "ppoi_validate_poi_merkleroots",
+            ValidatePoiMerklerootsParams {
                 chain: self.chain(),
-                list_key: list_key,
-                poi_merkleroots: vec![merkleroot.to_string()],
-            })
-            .await
+                list_key,
+                poi_merkleroots: vec![merkleroot],
+            },
+        )
+        .await
     }
 
-    fn chain(&self) -> crate::railgun::poi::inner_types::ChainParams {
-        crate::railgun::poi::inner_types::ChainParams {
+    fn chain(&self) -> ChainParams {
+        ChainParams {
             chain_type: 0.to_string(), // EVM
             chain_id: self.chain.to_string(),
-            txid_version: crate::railgun::poi::inner_types::TxidVersion::V2PoseidonMerkle,
+            txid_version: TxidVersion::V2PoseidonMerkle,
         }
     }
 }
 
-impl TryFrom<crate::railgun::poi::inner_types::MerkleProof> for MerkleProof {
-    type Error = PoiMerkleProofError;
-
-    fn try_from(
-        proof: crate::railgun::poi::inner_types::MerkleProof,
-    ) -> Result<MerkleProof, Self::Error> {
-        Ok(MerkleProof {
-            element: hex_to_u256(&proof.leaf),
-            elements: proof.elements.iter().map(|s| hex_to_u256(s)).collect(),
-            indices: hex_to_u256(&proof.indices).saturating_to(),
-            root: hex_to_u256(&proof.root).into(),
-        })
+impl PoiClient {
+    async fn call<P: Serialize, R: DeserializeOwned>(
+        &self,
+        method: &'static str,
+        params: P,
+    ) -> Result<R, PoiClientError> {
+        call(&self.next_id, &self.http, &self.url, method, params).await
     }
 }
+
+async fn call<P: Serialize, R: DeserializeOwned>(
+    next_id: &AtomicU64,
+    http: &Client,
+    url: &str,
+    method: &'static str,
+    params: P,
+) -> Result<R, PoiClientError> {
+    let id = next_id.fetch_add(1, Ordering::Relaxed);
+    let req = JsonRpcRequest {
+        jsonrpc: "2.0",
+        method,
+        id,
+        params,
+    };
+
+    info!("Calling RPC method: {}", method);
+    info!("Request: {}", serde_json::to_string(&req).unwrap());
+
+    let resp: JsonRpcResponse<R> = http
+        .post(url)
+        .header("connection", "close")
+        .json(&req)
+        .send()
+        .await?
+        .json()
+        .await?;
+
+    if let Some(err) = resp.error {
+        return Err(PoiClientError::Rpc(err));
+    }
+    resp.result.ok_or(PoiClientError::NullResult)
+}
+
+impl std::fmt::Display for JsonRpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RPC error {}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for JsonRpcError {}

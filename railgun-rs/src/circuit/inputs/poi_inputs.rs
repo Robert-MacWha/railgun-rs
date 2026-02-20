@@ -19,7 +19,7 @@ use crate::{
         merkle_tree::{MerkleTreeError, UtxoMerkleTree},
     },
     railgun::note::{IncludedNote, Note, operation::Operation},
-    railgun::poi::{poi_client::ListKey, poi_note::PoiNote},
+    railgun::poi::{ListKey, PoiNote},
 };
 
 // TODO: Consider making me into an enum with two variants on a generic Inner, so
@@ -27,13 +27,13 @@ use crate::{
 #[derive(Debug)]
 pub struct PoiCircuitInputs {
     // Public Inputs
-    /// A merkle root from the txid merkle tree after this note's
+    /// The pre-inclusion Merkle root of the txid
     pub railgun_txid_merkleroot_after_transaction: MerkleRoot,
-    poi_merkleroots_padded: Vec<MerkleRoot>,
     /// POI Merkle roots from the blinded commitment proofs, from
     /// `poi_client::merkle_proofs`. A seperate padded version is
     /// kept for circuit inputs.
     pub poi_merkleroots: Vec<MerkleRoot>,
+    poi_merkleroots_padded: Vec<MerkleRoot>,
 
     // Private inputs
 
@@ -234,8 +234,8 @@ impl PoiCircuitInputs {
 
         Ok(PoiCircuitInputs {
             railgun_txid_merkleroot_after_transaction: txid_proof.root,
-            poi_merkleroots_padded: pad_with_zero_value(poi_merkleroots.clone(), max_size),
-            poi_merkleroots,
+            poi_merkleroots: poi_merkleroots.clone(),
+            poi_merkleroots_padded: pad_with_zero_value(poi_merkleroots, max_size),
             bound_params_hash: bound_params_hash,
             nullifiers: pad_with_zero_value(nullifiers, max_size),
             commitments: pad_with_zero_value(commitments, max_size),

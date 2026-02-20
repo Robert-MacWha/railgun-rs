@@ -9,6 +9,7 @@ use tracing::info;
 
 use crate::railgun::address::RailgunAddress;
 use crate::railgun::broadcaster::content_topics::fee_content_topic;
+use crate::railgun::poi::ListKey;
 
 use super::broadcaster::{Broadcaster, Fee};
 use super::transport::{WakuTransport, WakuTransportError};
@@ -43,7 +44,7 @@ struct TokenFeeData {
 struct BroadcasterData {
     railgun_address: RailgunAddress,
     identifier: Option<String>,
-    required_poi_list_keys: Vec<String>,
+    required_poi_list_keys: Vec<ListKey>,
     token_fees: HashMap<Address, TokenFeeData>,
 }
 

@@ -28,8 +28,8 @@ use railgun_rs::{
             types::WakuMessage,
         },
         indexer::{indexer::Indexer, syncer},
-        poi::poi_client::PoiClient,
-        transaction::operation_builder::OperationBuilder,
+        poi::PoiClient,
+        transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
     },
 };
 
@@ -82,8 +82,8 @@ async fn main() {
     let rpc = Box::new(syncer::RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
     let chained = Box::new(syncer::ChainedSyncer::new(vec![subsquid, rpc]));
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    // let mut indexer = Indexer::new(chained, CHAIN);
     let mut indexer = Indexer::from_state(chained, indexer_state).unwrap();
+    // let mut indexer = Indexer::new(chained, CHAIN);
     indexer.add_account(&account1);
 
     info!("Syncing indexer");
@@ -96,47 +96,64 @@ async fn main() {
     let prover = Groth16Prover::new_native("./artifacts");
     let poi_client = PoiClient::new(PPOI_URL, CHAIN.id).await.unwrap();
 
-    let broadcaster_address = RailgunAddress::from_str("0zk1qyjftlcuuxwjj574e5979wzt5veel9wmnh8peq6slvd668pz9ggzerv7j6fe3z53latpxdq2zqzs7l780x9gu7hfsgn93m27fwx3k6pk8fsrtgrp45ywuctqpkg").unwrap();
-    let fee = Fee {
-        token: WETH_ADDRESS,
-        per_unit_gas: 1000000000000000000,
-        recipient: broadcaster_address,
-        expiration: 0,
-        fees_id: "000".to_string(),
-        available_wallets: 1,
-        relay_adapt: Address::ZERO,
-        reliability: 99,
-        list_keys: vec![
-            "efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".to_string(),
-        ],
-    };
+    // let shield = ShieldBuilder::new(CHAIN)
+    //     .shield(account1.address(), USDC, 1000)
+    //     .build()
+    //     .unwrap();
+    // provider
+    //     .send_transaction(shield.into())
+    //     .await
+    //     .unwrap()
+    //     .get_receipt()
+    //     .await
+    //     .unwrap();
+
+    // indexer.sync().await.unwrap();
+    // let balance_1 = indexer.balance(account1.address());
+    // info!("Account 1 balance: {:?}", balance_1);
+
+    // let broadcaster_address = RailgunAddress::from_str("0zk1qyjftlcuuxwjj574e5979wzt5veel9wmnh8peq6slvd668pz9ggzerv7j6fe3z53latpxdq2zqzs7l780x9gu7hfsgn93m27fwx3k6pk8fsrtgrp45ywuctqpkg").unwrap();
+    // let fee = Fee {
+    //     token: WETH_ADDRESS,
+    //     per_unit_gas: 1000000000000000000,
+    //     recipient: broadcaster_address,
+    //     expiration: 0,
+    //     fees_id: "000".to_string(),
+    //     available_wallets: 1,
+    //     relay_adapt: Address::ZERO,
+    //     reliability: 99,
+    //     list_keys: vec!["efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".into()],
+    // };
 
     let mut builder = OperationBuilder::new();
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
     builder.set_unshield(account1.clone(), address, USDC, 100);
     let prepared: railgun_rs::railgun::transaction::broadcaster_data::PoiProvedTransaction =
         builder
-            .build_with_broadcast(
+            .build_with_poi(
                 &mut indexer,
                 &prover,
                 &poi_client,
-                &provider,
-                account1.clone(),
-                &fee,
+                // &provider,
+                // account1.clone(),
+                // &fee,
                 CHAIN,
                 &mut rand,
             )
             .await
             .unwrap();
 
-    let transport = Arc::new(MockTransport);
-    let broadcaster = Broadcaster::new(transport, CHAIN.id, broadcaster_address, None, fee);
-    broadcaster.broadcast(&prepared, &mut rand).await.unwrap();
+    poi_client.submit(prepared).await.unwrap();
 
-    info!(
-        "Prepared operation with {} operations",
-        prepared.operations.len()
-    );
+    // let transport = Arc::new(MockTransport);
+    // poi_client.submit(prepared).await.unwrap();
+    // let broadcaster = Broadcaster::new(transport, CHAIN.id, broadcaster_address, None, fee);
+    // broadcaster.broadcast(&prepared, &mut rand).await.unwrap();
+
+    // info!(
+    //     "Prepared operation with {} operations",
+    //     prepared.operations.len()
+    // );
 }
 
 struct MockTransport;

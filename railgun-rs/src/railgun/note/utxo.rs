@@ -14,8 +14,10 @@ use crate::{
         poseidon::poseidon_hash,
         railgun_utxo::UtxoLeafHash,
     },
-    railgun::note::{IncludedNote, Note},
-    railgun::poi::poi_client::BlindedCommitmentType,
+    railgun::{
+        note::{IncludedNote, Note},
+        poi::BlindedCommitmentType,
+    },
 };
 
 /// Note represents a Railgun from the chain.
@@ -232,8 +234,8 @@ impl IncludedNote for UtxoNote {
     /// Returns the note's nullifier for a given leaf index
     ///
     /// Hash of (nullifying_key, leaf_index)
-    fn nullifier(&self, leaf_index: u32) -> U256 {
-        poseidon_hash(&[self.nullifying_key(), U256::from(leaf_index)]).unwrap()
+    fn nullifier(&self, leaf_index: U256) -> U256 {
+        poseidon_hash(&[self.nullifying_key(), leaf_index]).unwrap()
     }
 
     /// Returns the note's spending public key
@@ -342,7 +344,7 @@ mod tests {
     #[traced_test]
     fn test_note_nullifier() {
         let note = test_note();
-        let leaf_index = 5u32;
+        let leaf_index = U256::from(5u32);
         let nullifier = note.nullifier(leaf_index);
 
         insta::assert_debug_snapshot!(nullifier);

@@ -8,7 +8,7 @@ use crate::{
     caip::AssetId,
     railgun::{
         note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote},
-        poi::poi_note::PoiNote,
+        poi::PoiNote,
     },
 };
 

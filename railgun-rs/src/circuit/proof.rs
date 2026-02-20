@@ -1,6 +1,6 @@
 use ark_bn254::Bn254;
 use ruint::aliases::U256;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::abis;
 
@@ -8,7 +8,7 @@ use crate::abis;
 ///
 /// Serializes into a SnarkJS-compatible format, with decimal strings for all
 /// field elements and arrays for the g1 / g2 points.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Proof {
     #[serde(rename = "pi_a")]
     pub a: G1Affine,
@@ -18,14 +18,14 @@ pub struct Proof {
     pub c: G1Affine,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(into = "[String; 2]")]
 pub struct G1Affine {
     pub x: U256,
     pub y: U256,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(into = "[[String; 2]; 2]")]
 pub struct G2Affine {
     pub x: [U256; 2],

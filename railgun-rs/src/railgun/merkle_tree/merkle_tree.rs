@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::marker::PhantomData;
 use thiserror::Error;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     crypto::{
@@ -162,6 +162,10 @@ impl<C: TreeConfig> MerkleTree<C> {
             "Merkle tree has dirty parents, root may be outdated"
         );
 
+        if !self.dirty_parents.is_empty() {
+            warn!("Merkle tree has dirty parents, root may be outdated");
+        }
+
         let element = element.into();
 
         let initial_index = self.tree[0]
@@ -185,7 +189,12 @@ impl<C: TreeConfig> MerkleTree<C> {
             index /= 2;
         }
 
-        let proof = MerkleProof::new(element.into(), elements, initial_index as u32, self.root());
+        let proof = MerkleProof::new(
+            element.into(),
+            elements,
+            U256::from(initial_index),
+            self.root(),
+        );
         if !proof.verify() {
             return Err(MerkleTreeError::InvalidProof);
         }

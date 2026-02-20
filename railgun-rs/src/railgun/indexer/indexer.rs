@@ -229,7 +229,7 @@ impl Indexer {
         let mut i = 0;
         while let Some(event) = stream.next().await {
             i += 1;
-            if i % 100 == 0 {
+            if i % 1000 == 0 {
                 info!("Processing event #{}", i);
             }
 

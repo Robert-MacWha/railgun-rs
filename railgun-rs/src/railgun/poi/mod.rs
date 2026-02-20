@@ -1,4 +1,10 @@
-mod inner_client;
-mod inner_types;
-pub mod poi_client;
-pub mod poi_note;
+mod poi_client;
+mod poi_note;
+mod types;
+
+pub use poi_client::{PoiClient, PoiClientError};
+pub use poi_note::PoiNote;
+pub use types::{
+    BlindedCommitment, BlindedCommitmentType, ListKey, PreTransactionPoi,
+    PreTransactionPoisPerTxidLeafPerList, TxidVersion,
+};

@@ -42,7 +42,7 @@ use crate::{
             unshield::UnshieldNote,
             utxo::UtxoNote,
         },
-        poi::poi_client::{ListKey, PoiClient, PoiClientError},
+        poi::{ListKey, PoiClient, PoiClientError},
         transaction::{
             broadcaster_data::{
                 PoiProvedOperation, PoiProvedOperationError, PoiProvedTransaction, ProvedOperation,
@@ -444,9 +444,10 @@ impl OperationBuilder {
 
         // Validate all POI merkle roots
         //? Should always pass, but sanity check to ensure proofs are valid before broadcasting
+        #[cfg(debug_assertions)]
         for poi_op in poi_operations.iter() {
             for (list_key, poi) in poi_op.pois.iter() {
-                for merkleroot in &poi.poi_merkleroot {
+                for merkleroot in &poi.poi_merkleroots {
                     let valid = poi_client
                         .validate_poi_merkleroot(list_key.clone(), *merkleroot)
                         .await?;

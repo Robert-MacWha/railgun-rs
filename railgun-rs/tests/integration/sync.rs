@@ -10,7 +10,7 @@ use railgun_rs::{
     railgun::{
         indexer::{indexer::Indexer, syncer},
         merkle_tree::merkle_tree::{TxidMerkleTree, UtxoMerkleTree},
-        poi::poi_client::PoiClient,
+        poi::PoiClient,
     },
 };
 use ruint::aliases::U256;

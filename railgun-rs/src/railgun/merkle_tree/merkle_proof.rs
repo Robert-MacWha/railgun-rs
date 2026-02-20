@@ -2,27 +2,34 @@ use std::fmt::Display;
 
 use alloy::primitives::FixedBytes;
 use ruint::aliases::U256;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
+use serde_with::serde_as;
 
 use crate::crypto::poseidon::poseidon_hash;
+use crate::padded_u256::PaddedU256;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct MerkleRoot(U256);
 
-#[derive(Debug, Clone)]
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MerkleProof {
     /// The leaf element
+    #[serde_as(as = "PaddedU256")]
+    #[serde(rename = "leaf")]
     pub element: U256,
     /// Sibling elements along the proof path
+    #[serde_as(as = "Vec<PaddedU256>")]
     pub elements: Vec<U256>,
     /// Bit-packed indices of the proof path
-    pub indices: u32,
+    #[serde_as(as = "PaddedU256")]
+    pub indices: U256,
     /// The expected Merkle root
     pub root: MerkleRoot,
 }
 
 impl MerkleProof {
-    pub fn new(element: U256, elements: Vec<U256>, indices: u32, root: MerkleRoot) -> Self {
+    pub fn new(element: U256, elements: Vec<U256>, indices: U256, root: MerkleRoot) -> Self {
         Self {
             element,
             elements,
@@ -41,7 +48,7 @@ impl MerkleProof {
 
     /// Creates a deterministic proof with a given element where the proof path is all zeros.
     pub fn new_deterministic(element: U256) -> Self {
-        let indices = 0;
+        let indices = U256::ZERO;
         let elements = [U256::ZERO; 16].to_vec();
 
         let mut root = element;
@@ -54,7 +61,7 @@ impl MerkleProof {
 
     pub fn verify(&self) -> bool {
         let mut indices_bits = Vec::new();
-        let mut idx = self.indices;
+        let mut idx: u32 = self.indices.saturating_to();
         for _ in 0..self.elements.len() {
             indices_bits.push(idx & 1);
             idx >>= 1;
@@ -106,6 +113,17 @@ impl Serialize for MerkleRoot {
         S: Serializer,
     {
         serializer.serialize_str(&format!("{:064x}", self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for MerkleRoot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let value = U256::from_str_radix(&s, 16).map_err(serde::de::Error::custom)?;
+        Ok(MerkleRoot(value))
     }
 }
 
