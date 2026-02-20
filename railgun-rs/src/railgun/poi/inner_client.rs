@@ -3,7 +3,10 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::info;
 
-use crate::railgun::poi::{inner_types::*, poi_client::PoiMerkleProofError};
+use crate::railgun::{
+    merkle_tree::merkle_proof::MerkleRoot,
+    poi::{inner_types::*, poi_client::PoiMerkleProofError},
+};
 
 #[derive(Debug, Serialize)]
 struct JsonRpcRequest<P: Serialize> {
@@ -50,6 +53,8 @@ pub enum PoiClientError {
     UnexpectedResponse(String),
     #[error("Merkle proof error: {0}")]
     MerkleProof(#[from] PoiMerkleProofError),
+    #[error("Invalid POI Merkle root for list key {0}: {1}")]
+    InvalidPoiMerkleRoot(ListKey, MerkleRoot),
 }
 
 // TODO: Replace me with jsonrpsee or jsonrpc_client! macros. Would be much

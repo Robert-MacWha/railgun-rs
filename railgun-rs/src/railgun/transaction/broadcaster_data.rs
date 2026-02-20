@@ -107,16 +107,16 @@ impl PoiProvedOperation {
                 self.txid_leaf_hash = Some(inputs.txid_leaf_hash);
             }
 
-            let proof = prover
+            let (proof, public_inputs) = prover
                 .prove_poi(&inputs)
                 .await
                 .map_err(PoiProvedOperationError::Prover)?;
 
             let pre_transaction_poi = PreTransactionPoi {
                 proof,
-                txid_merkleroot: inputs.railgun_txid_merkle_root_after_transaction,
-                poi_merkleroots: inputs.poi_merkle_roots,
-                blinded_commitments_out: self.operation.blinded_commitments(),
+                txid_merkleroot: inputs.railgun_txid_merkleroot_after_transaction,
+                poi_merkleroot: inputs.poi_merkleroots,
+                blinded_commitments_out: public_inputs[0..inputs.nullifiers.len()].to_vec(),
                 railgun_txid_if_has_unshield: inputs.railgun_txid_if_has_unshield,
             };
 

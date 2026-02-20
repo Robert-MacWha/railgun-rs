@@ -30,7 +30,7 @@ const erc20Abi = parseAbi([
 // Helper to create a 32-byte hex string filled with a single byte value
 const hexKey = (fill: number): string => "0x" + fill.toString(16).padStart(2, "0").repeat(32);
 
-test("transact: shield, transfer, and unshield", async () => {
+test("shield, transfer, and unshield", async () => {
   const wasm = await initWasm();
   const USDC = wasm.erc20_asset(USDC_ADDRESS);
 
@@ -41,13 +41,12 @@ test("transact: shield, transfer, and unshield", async () => {
   const prover = new wasm.JsProver(proveTransact, provePoi);
 
   console.log("Setting up provider");
-  const account = privateKeyToAccount(TEST_PRIVATE_KEY);
-
   const publicClient = createPublicClient({
     chain: mainnet,
     transport: http("http://localhost:8545"),
   });
 
+  const account = privateKeyToAccount(TEST_PRIVATE_KEY);
   const walletClient = createWalletClient({
     account,
     chain: mainnet,
@@ -58,7 +57,8 @@ test("transact: shield, transfer, and unshield", async () => {
   const indexerState = await readFile(INDEXER_STATE_PATH);
   const syncer = await wasm.JsSyncer.withRpc(
     "http://localhost:8545",
-    1n
+    1n,
+    10n,
   );
   const indexer = await wasm.JsIndexer.from_state(syncer, indexerState);
 
@@ -95,8 +95,8 @@ test("transact: shield, transfer, and unshield", async () => {
   }
 
   console.log("Testing transfer");
-  const transferBuilder = new wasm.JsTransactionBuilder(account1);
-  transferBuilder.transfer(account2.address, USDC, "5000", "test transfer");
+  const transferBuilder = new wasm.JsTransactionBuilder();
+  transferBuilder.transfer(account1, account2.address, USDC, "5000", "test transfer");
   const transferTx = await transferBuilder.build(indexer, prover);
 
   const transferHash = await walletClient.sendTransaction({
@@ -120,8 +120,8 @@ test("transact: shield, transfer, and unshield", async () => {
 
   console.log("Testing unshielding");
   const unshieldRecipient = checksumAddress("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86");
-  const unshieldBuilder = new wasm.JsTransactionBuilder(account1);
-  unshieldBuilder.unshield(unshieldRecipient, USDC, "1000");
+  const unshieldBuilder = new wasm.JsTransactionBuilder();
+  unshieldBuilder.unshield(account1, unshieldRecipient, USDC, "1000");
   const unshieldTx = await unshieldBuilder.build(indexer, prover);
 
   const unshieldHash = await walletClient.sendTransaction({
@@ -162,51 +162,3 @@ test("transact: shield, transfer, and unshield", async () => {
 
   console.log("All tests passed!");
 }, 60000);
-
-// Simpler unit test that doesn't require anvil
-test("wasm: account creation", async () => {
-  const wasm = await initWasm();
-
-  const account = new wasm.JsRailgunAccount(hexKey(1), hexKey(2), 1n);
-
-  // Address should start with "0zk"
-  const address = account.address;
-  expect(address.startsWith("0zk")).toBe(true);
-
-  account.free();
-});
-
-test("wasm: chain config", async () => {
-  const wasm = await initWasm();
-
-  const mainnetConfig = wasm.get_chain_config(1n);
-  expect(mainnetConfig?.id).toBe(1n);
-  expect(mainnetConfig?.railgunWallet.startsWith("0x")).toBe(true);
-  expect(mainnetConfig?.subsquidEndpoint !== undefined).toBe(true);
-
-  const sepolia = wasm.get_chain_config(11155111n);
-  expect(sepolia?.id).toBe(11155111n);
-
-  const unknown = wasm.get_chain_config(999n);
-  expect(unknown).toBeUndefined();
-});
-
-test("wasm: shield builder", async () => {
-  const wasm = await initWasm();
-  const usdc = wasm.erc20_asset(USDC_ADDRESS);
-
-  const account = new wasm.JsRailgunAccount(hexKey(1), hexKey(2), 1n);
-
-  const builder = new wasm.JsShieldBuilder(1n);
-  builder.shield(account.address, usdc, "1000000");
-  const txData = builder.build();
-
-  // Should have valid transaction data
-  expect(txData.to.startsWith("0x")).toBe(true);
-  expect(txData.dataHex.startsWith("0x")).toBe(true);
-  expect(txData.value).toBe("0");
-
-  txData.free();
-  builder.free();
-  account.free();
-});

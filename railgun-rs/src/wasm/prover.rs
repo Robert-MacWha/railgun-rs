@@ -11,7 +11,7 @@ use wasm_bindgen_futures::JsFuture;
 use crate::circuit::{
     inputs::{PoiCircuitInputs, TransactCircuitInputs},
     proof::{G1Affine, G2Affine, Proof},
-    prover::{PoiProver, TransactProver},
+    prover::{PoiProver, PublicInputs, TransactProver},
 };
 
 /// JavaScript-backed prover that delegates to snarkjs or similar.
@@ -50,6 +50,8 @@ pub struct JsProofResponse {
     pub b: [[String; 2]; 2],
     /// G1 point C: [x, y] as decimal strings
     pub c: [String; 2],
+    /// Public inputs as decimal strings
+    pub public_inputs: Vec<String>,
 }
 
 #[derive(Debug, Error)]
@@ -85,7 +87,7 @@ impl TransactProver for JsProver {
     async fn prove_transact(
         &self,
         inputs: &TransactCircuitInputs,
-    ) -> Result<Proof, Box<dyn std::error::Error>> {
+    ) -> Result<(Proof, PublicInputs), Box<dyn std::error::Error>> {
         let circuit_name = format!(
             "transact/{:02}x{:02}",
             inputs.nullifiers.len(),
@@ -101,7 +103,7 @@ impl PoiProver for JsProver {
     async fn prove_poi(
         &self,
         inputs: &PoiCircuitInputs,
-    ) -> Result<Proof, Box<dyn std::error::Error>> {
+    ) -> Result<(Proof, PublicInputs), Box<dyn std::error::Error>> {
         let circuit_name = format!(
             "poi/{:02}x{:02}",
             inputs.nullifiers.len(),
@@ -122,24 +124,30 @@ impl From<HashMap<String, Vec<U256>>> for JsCircuitInputs {
     }
 }
 
-impl TryFrom<JsProofResponse> for Proof {
-    type Error = JsProverError;
-
-    fn try_from(value: JsProofResponse) -> Result<Self, Self::Error> {
-        Ok(Proof {
+impl JsProofResponse {
+    fn into_proof_and_inputs(self) -> Result<(Proof, PublicInputs), JsProverError> {
+        let proof = Proof {
             a: G1Affine {
-                x: parse_number(&value.a[0])?,
-                y: parse_number(&value.a[1])?,
+                x: parse_number(&self.a[0])?,
+                y: parse_number(&self.a[1])?,
             },
             b: G2Affine {
-                x: [parse_number(&value.b[0][0])?, parse_number(&value.b[0][1])?],
-                y: [parse_number(&value.b[1][0])?, parse_number(&value.b[1][1])?],
+                x: [parse_number(&self.b[0][0])?, parse_number(&self.b[0][1])?],
+                y: [parse_number(&self.b[1][0])?, parse_number(&self.b[1][1])?],
             },
             c: G1Affine {
-                x: parse_number(&value.c[0])?,
-                y: parse_number(&value.c[1])?,
+                x: parse_number(&self.c[0])?,
+                y: parse_number(&self.c[1])?,
             },
-        })
+        };
+
+        let public_inputs: Result<Vec<U256>, _> = self
+            .public_inputs
+            .iter()
+            .map(|s| parse_number(s))
+            .collect();
+
+        Ok((proof, public_inputs?))
     }
 }
 
@@ -147,7 +155,7 @@ async fn call_js_prover(
     func: &Function,
     circuit_name: &str,
     inputs: HashMap<String, Vec<U256>>,
-) -> Result<Proof, JsProverError> {
+) -> Result<(Proof, PublicInputs), JsProverError> {
     let js_inputs: JsCircuitInputs = inputs.into();
     let serializer = serde_wasm_bindgen::Serializer::new()
         .serialize_maps_as_objects(true)
@@ -167,9 +175,9 @@ async fn call_js_prover(
         .map_err(|e| JsProverError::Js(e))?;
 
     let response: JsProofResponse = serde_wasm_bindgen::from_value(result)?;
-    let proof = response.try_into()?;
+    let (proof, public_inputs) = response.into_proof_and_inputs()?;
 
-    Ok(proof)
+    Ok((proof, public_inputs))
 }
 
 fn parse_number(s: &str) -> Result<U256, JsProverError> {

@@ -10,6 +10,7 @@ use ruint::aliases::U256;
 use tracing::info;
 
 use crate::circuit::native::{FsArtifactLoader, WasmerWitnessCalculator};
+use crate::circuit::prover::PublicInputs;
 use crate::circuit::{
     artifact_loader::ArtifactLoader,
     inputs::PoiCircuitInputs,
@@ -47,7 +48,7 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> TransactProver for G
     async fn prove_transact(
         &self,
         inputs: &TransactCircuitInputs,
-    ) -> Result<Proof, Box<dyn std::error::Error>> {
+    ) -> Result<(Proof, PublicInputs), Box<dyn std::error::Error>> {
         let circuit_type = CircuitType::Transact {
             nullifiers: inputs.nullifiers.len(),
             commitments: inputs.commitments_out.len(),
@@ -63,7 +64,7 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> PoiProver for Groth1
     async fn prove_poi(
         &self,
         inputs: &PoiCircuitInputs,
-    ) -> Result<Proof, Box<dyn std::error::Error>> {
+    ) -> Result<(Proof, PublicInputs), Box<dyn std::error::Error>> {
         let circuit_type = CircuitType::Poi {
             nullifiers: inputs.nullifiers.len(),
             commitments: inputs.commitments.len(),
@@ -78,7 +79,7 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> Groth16Prover<W, A> 
         &self,
         circuit_type: CircuitType,
         inputs: HashMap<String, Vec<U256>>,
-    ) -> Result<Proof, Box<dyn std::error::Error>> {
+    ) -> Result<(Proof, PublicInputs), Box<dyn std::error::Error>> {
         info!("Loading artifacts");
         let pk = self.artifact_loader.load_proving_key(circuit_type).await?;
         let matrices = self.artifact_loader.load_matrices(circuit_type).await?;
@@ -106,12 +107,18 @@ impl<W: WitnessCalculator + Sync, A: ArtifactLoader + Sync> Groth16Prover<W, A> 
 
         info!("Verifying proof");
         let public_inputs = &witnesses[1..matrices.num_instance_variables];
+        info!("Public inputs: {:#?}", public_inputs);
         let pvk = prepare_verifying_key(&pk.vk);
         let verified =
             Groth16::<Bn254, CircomReduction>::verify_proof(&pvk, &proof, &public_inputs).unwrap();
         assert!(verified, "Proof verification failed");
 
+        let public_inputs = public_inputs
+            .iter()
+            .map(|x| BigInt::from(*x).into())
+            .collect();
+
         info!("Proof verified successfully");
-        Ok(proof.into())
+        Ok((proof.into(), public_inputs))
     }
 }

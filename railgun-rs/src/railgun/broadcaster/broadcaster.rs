@@ -521,7 +521,7 @@ mod test {
                         },
                     },
                     txid_merkleroot: uint!(9_U256).into(),
-                    poi_merkleroots: vec![uint!(10_U256).into(), uint!(11_U256).into()],
+                    poi_merkleroot: vec![uint!(10_U256).into(), uint!(11_U256).into()],
                     blinded_commitments_out: vec![uint!(12_U256), uint!(13_U256)],
                     railgun_txid_if_has_unshield: uint!(14_U256).into(),
                 },

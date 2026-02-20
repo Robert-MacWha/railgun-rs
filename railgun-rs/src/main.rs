@@ -81,13 +81,13 @@ async fn main() {
     ));
     let rpc = Box::new(syncer::RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
     let chained = Box::new(syncer::ChainedSyncer::new(vec![subsquid, rpc]));
-    // let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    let mut indexer = Indexer::new(chained, CHAIN);
-    // let mut indexer = Indexer::from_state(chained, indexer_state).unwrap();
+    let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
+    // let mut indexer = Indexer::new(chained, CHAIN);
+    let mut indexer = Indexer::from_state(chained, indexer_state).unwrap();
     indexer.add_account(&account1);
 
     info!("Syncing indexer");
-    indexer.sync_to(10277095).await.unwrap();
+    indexer.sync().await.unwrap();
 
     info!("Saving indexer");
     let indexer_state = bitcode::serialize(&indexer.state()).unwrap();

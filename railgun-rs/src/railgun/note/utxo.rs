@@ -94,11 +94,14 @@ impl UtxoNote {
             encrypted.memo.to_vec(),
         ];
 
-        let ciphertext = Ciphertext {
-            iv: encrypted.ciphertext[0][..16].try_into().unwrap(),
-            tag: encrypted.ciphertext[0][16..].try_into().unwrap(),
-            data,
-        };
+        let mut iv = [0u8; 16];
+        let mut tag = [0u8; 16];
+
+        iv.copy_from_slice(&encrypted.ciphertext[0][..16]);
+        tag.copy_from_slice(&encrypted.ciphertext[0][16..]);
+
+        let ciphertext = Ciphertext { iv, tag, data };
+
         // iv (16) | tag (16)
         // master_public_key (32)
         // token_hash (32)
@@ -107,8 +110,14 @@ impl UtxoNote {
 
         let token_data = TokenData::from_hash(&bundle[1])?;
         let asset_id = AssetId::from(token_data);
-        let random: [u8; 16] = bundle[2][0..16].try_into().unwrap();
-        let value: u128 = u128::from_be_bytes(bundle[2][16..32].try_into().unwrap());
+
+        let mut random = [0u8; 16];
+        random.copy_from_slice(&bundle[2][..16]);
+
+        let mut value_bytes = [0u8; 16];
+        value_bytes.copy_from_slice(&bundle[2][16..]);
+        let value = u128::from_be_bytes(value_bytes);
+
         let memo = if bundle.len() > 3 {
             std::str::from_utf8(&bundle[3]).unwrap_or("")
         } else {
@@ -143,15 +152,22 @@ impl UtxoNote {
         ];
 
         let shield_key = ViewingPublicKey::from_bytes(req.ciphertext.shieldKey.into());
-        let shared_key = viewing_key.derive_shared_key(shield_key).unwrap();
+        let shared_key = viewing_key.derive_shared_key(shield_key)?;
+
+        let mut iv = [0u8; 16];
+        let mut tag = [0u8; 16];
+        iv.copy_from_slice(&encrypted_bundle[0][..16]);
+        tag.copy_from_slice(&encrypted_bundle[0][16..]);
 
         let ciphertext = Ciphertext {
-            iv: encrypted_bundle[0][..16].try_into().unwrap(),
-            tag: encrypted_bundle[0][16..].try_into().unwrap(),
+            iv,
+            tag,
             data: vec![encrypted_bundle[1][..16].to_vec()],
         };
         let decrypted = shared_key.decrypt_gcm(&ciphertext)?;
-        let random: [u8; 16] = decrypted[0][0..16].try_into().unwrap();
+
+        let mut random = [0u8; 16];
+        random.copy_from_slice(&decrypted[0][..16]);
 
         Ok(UtxoNote::new(
             spending_key,

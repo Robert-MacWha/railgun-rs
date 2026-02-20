@@ -106,6 +106,7 @@ export function createProveFunction(config: ProverConfig): ProveFunction {
         [proof.pi_b[1][0].toString(), proof.pi_b[1][1].toString()],
       ],
       c: [proof.pi_c[0].toString(), proof.pi_c[1].toString()],
+      publicInputs: publicSignals,
     };
   };
 }

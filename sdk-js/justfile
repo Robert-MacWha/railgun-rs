@@ -18,14 +18,7 @@ run:
 wasm:
     wasm-pack build --target nodejs ../railgun-rs --out-dir ../sdk-js/pkg --features wasm --no-default-features
 
-test: wasm unit integration
-
-test-only: unit integration
-
-unit:
-    bun test --test-name-pattern "wasm:"
-
-integration:
+test:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -37,7 +30,7 @@ integration:
     # Wait for anvil to be ready
     sleep 2
 
-    bun test --test-name-pattern "transact:" --timeout 120000
+    pnpm test --timeout 120000
 
 anvil:
     anvil --fork-url {{fork_url}} --fork-block-number {{fork_block}} --port 8545 --auto-impersonate --load-state ../railgun-rs/tests/fixtures/state.json

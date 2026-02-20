@@ -19,7 +19,7 @@ use crate::circuit::inputs::circuit_input::IntoSignalVec;
 #[derive(Debug, Clone)]
 pub struct TransactCircuitInputs {
     // Public Inputs
-    pub merkle_root: MerkleRoot,
+    pub merkleroot: MerkleRoot,
     pub bound_params_hash: U256,
     pub nullifiers: Vec<U256>,
     pub commitments_out: Vec<U256>,
@@ -56,7 +56,7 @@ impl TransactCircuitInputs {
             return Err(TransactCircuitInputsError::EmptyInputNotes);
         }
 
-        let merkle_root = merkle_tree.root();
+        let merkleroot = merkle_tree.root();
         let merkle_proofs: Vec<_> = notes_in
             .iter()
             .map(|note| merkle_tree.generate_proof(note.hash()))
@@ -74,7 +74,7 @@ impl TransactCircuitInputs {
         let public_key = note_zero.spending_pubkey();
         let public_key = [public_key[0], public_key[1]];
 
-        let mut unsigned = vec![merkle_root.into(), bound_params_hash];
+        let mut unsigned = vec![merkleroot.into(), bound_params_hash];
         unsigned.extend_from_slice(&nullifiers);
         unsigned.extend_from_slice(&commitments);
         let signature = note_zero.sign(&unsigned);
@@ -107,7 +107,7 @@ impl TransactCircuitInputs {
             .collect();
 
         Ok(TransactCircuitInputs {
-            merkle_root,
+            merkleroot,
             bound_params_hash,
             nullifiers,
             commitments_out: commitments,
@@ -125,7 +125,7 @@ impl TransactCircuitInputs {
     }
 
     circuit_inputs!(
-        merkle_root => "merkleRoot",
+        merkleroot => "merkleRoot",
         bound_params_hash => "boundParamsHash",
         nullifiers => "nullifiers",
         commitments_out => "commitmentsOut",

@@ -19,7 +19,7 @@ use crate::{
     railgun::{
         merkle_tree::merkle_proof::{MerkleProof, MerkleRoot},
         note::utxo::UtxoNote,
-        poi::poi_note::PoiNote,
+        poi::{inner_types::ValidatePoiMerklerootsParams, poi_note::PoiNote},
     },
 };
 
@@ -52,7 +52,7 @@ pub struct PreTransactionPoi {
     #[serde(rename = "txidMerkleroot")]
     pub txid_merkleroot: MerkleRoot,
     #[serde(rename = "poiMerkleroots")]
-    pub poi_merkleroots: Vec<MerkleRoot>,
+    pub poi_merkleroot: Vec<MerkleRoot>,
     #[serde(rename = "blindedCommitmentsOut")]
     pub blinded_commitments_out: Vec<U256>,
     #[serde(rename = "railgunTxidIfHasUnshield")]
@@ -124,12 +124,13 @@ impl PoiClient {
     pub async fn note_to_poi_note(
         &self,
         notes: Vec<UtxoNote>,
+        list_keys: &[ListKey],
     ) -> Result<Vec<PoiNote>, PoiClientError> {
         let blinded_commitments = notes
             .iter()
             .map(|n| n.blinded_commitment().to_be_bytes())
             .collect();
-        let proofs = self.merkle_proofs(blinded_commitments).await?;
+        let proofs = self.merkle_proofs(blinded_commitments, list_keys).await?;
 
         let mut poi_notes = Vec::new();
         for (i, note) in notes.into_iter().enumerate() {
@@ -150,6 +151,7 @@ impl PoiClient {
     pub async fn merkle_proofs(
         &self,
         blinded_commitments: Vec<[u8; 32]>,
+        list_keys: &[ListKey],
     ) -> Result<HashMap<ListKey, Vec<MerkleProof>>, PoiClientError> {
         let blinded_commitments: Vec<crate::railgun::poi::inner_types::BlindedCommitment> =
             blinded_commitments
@@ -158,7 +160,7 @@ impl PoiClient {
                 .collect();
 
         let mut proofs = HashMap::new();
-        for list_key in self.list_keys.iter() {
+        for list_key in list_keys.iter() {
             let list_key_proofs = self
                 .inner
                 .merkle_proofs(crate::railgun::poi::inner_types::GetMerkleProofsParams {
@@ -168,10 +170,27 @@ impl PoiClient {
                 })
                 .await?;
 
-            let list_key_proofs = list_key_proofs
+            let list_key_proofs: Vec<MerkleProof> = list_key_proofs
                 .into_iter()
                 .map(|proof| proof.try_into())
-                .collect::<Result<Vec<_>, PoiMerkleProofError>>()?;
+                .collect::<Result<_, PoiMerkleProofError>>()?;
+
+            //? Validate that the proofs are correct for the blinded commitments
+            for proof in &list_key_proofs {
+                let valid = self
+                    .validate_poi_merkleroot(list_key.clone(), proof.root.clone())
+                    .await?;
+                if !valid {
+                    return Err(PoiClientError::InvalidPoiMerkleRoot(
+                        list_key.clone(),
+                        proof.root,
+                    ));
+                }
+                info!(
+                    "Validated POI Merkle root for list key {}: {}",
+                    list_key, proof.root
+                );
+            }
 
             proofs.insert(list_key.clone(), list_key_proofs);
         }
@@ -184,7 +203,7 @@ impl PoiClient {
         let resp: crate::railgun::poi::inner_types::ValidatedRailgunTxidStatus =
             self.inner.validated_txid(self.chain()).await?;
 
-        let Some(merkle_root) = resp.validated_merkleroot else {
+        let Some(merkleroot) = resp.validated_merkleroot else {
             return Err(PoiClientError::UnexpectedResponse(
                 "validated_merkleroot is None".to_string(),
             ));
@@ -202,7 +221,7 @@ impl PoiClient {
         Ok(ValidatedRailgunTxidStatus {
             tree,
             index,
-            merkleroot: hex_to_u256(&merkle_root).into(),
+            merkleroot: hex_to_u256(&merkleroot).into(),
         })
     }
 
@@ -224,6 +243,20 @@ impl PoiClient {
                     merkleroot: hex::encode(*txid),
                 },
             )
+            .await
+    }
+
+    pub async fn validate_poi_merkleroot(
+        &self,
+        list_key: ListKey,
+        merkleroot: MerkleRoot,
+    ) -> Result<bool, PoiClientError> {
+        self.inner
+            .validate_poi_merkleroots(ValidatePoiMerklerootsParams {
+                chain: self.chain(),
+                list_key: list_key,
+                poi_merkleroots: vec![merkleroot.to_string()],
+            })
             .await
     }
 

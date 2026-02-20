@@ -12,8 +12,9 @@ use crate::{
     railgun::address::RailgunAddress,
     railgun::indexer::{
         indexer::{Indexer, IndexerState},
-        rpc_syncer::RpcSyncer,
-        subsquid_syncer::SubsquidSyncer,
+        syncer::ChainedSyncer,
+        syncer::RpcSyncer,
+        syncer::SubsquidSyncer,
         syncer::Syncer,
     },
     wasm::JsRailgunAccount,
@@ -44,7 +45,11 @@ impl JsSyncer {
     }
 
     #[wasm_bindgen(js_name = "withRpc")]
-    pub async fn with_rpc(rpc_url: &str, chain_id: u64) -> Result<JsSyncer, JsError> {
+    pub async fn with_rpc(
+        rpc_url: &str,
+        chain_id: u64,
+        batch_size: u64,
+    ) -> Result<JsSyncer, JsError> {
         let provider = ProviderBuilder::new()
             .network::<Ethereum>()
             .connect(rpc_url)
@@ -56,8 +61,19 @@ impl JsSyncer {
             .ok_or_else(|| JsError::new(&format!("Unsupported chain ID: {}", chain_id)))?;
 
         Ok(JsSyncer {
-            inner: Box::new(RpcSyncer::new(provider, chain)),
+            inner: Box::new(RpcSyncer::new(provider, chain).with_batch_size(batch_size)),
         })
+    }
+
+    #[wasm_bindgen(js_name = "withChained")]
+    pub fn with_chained(syncers: Vec<JsSyncer>) -> JsSyncer {
+        let inner = syncers
+            .into_iter()
+            .map(|js_syncer| js_syncer.inner)
+            .collect();
+        JsSyncer {
+            inner: Box::new(ChainedSyncer::new(inner)),
+        }
     }
 }
 

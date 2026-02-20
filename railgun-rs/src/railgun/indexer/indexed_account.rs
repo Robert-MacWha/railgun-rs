@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
@@ -112,7 +112,13 @@ impl IndexedAccount {
                 Err(NoteError::Aes(_e)) => {
                     continue;
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    warn!(
+                        "Failed to decrypt Shield note at tree {}, leaf {}: {}",
+                        tree_number, leaf_index, e
+                    );
+                    continue;
+                }
                 Ok(n) => n,
             };
 
@@ -163,7 +169,13 @@ impl IndexedAccount {
 
             let note = match note {
                 Err(NoteError::Aes(_)) => continue,
-                Err(e) => return Err(e),
+                Err(e) => {
+                    warn!(
+                        "Failed to decrypt Transact note at tree {}, leaf {}: {}",
+                        tree_number, leaf_index, e
+                    );
+                    continue;
+                }
                 Ok(n) => n,
             };
 

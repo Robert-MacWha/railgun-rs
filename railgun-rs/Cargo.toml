@@ -7,7 +7,7 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["native"]
+default = ["wasm"]
 native = ["wasmer", "ark-circom", "reqwest/rustls"]
 wasm = [
     "wasm-bindgen-futures",

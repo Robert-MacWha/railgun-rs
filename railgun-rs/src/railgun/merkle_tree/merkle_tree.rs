@@ -293,7 +293,7 @@ mod tests {
     /// Test that the empty tree root is correct for the UTXO tree config.
     #[test]
     #[traced_test]
-    fn test_merkle_root() {
+    fn test_merkleroot() {
         let tree = MerkleTree::<UtxoTreeConfig>::new(0);
         let expected_root: MerkleRoot = uint!(
             9493149700940509817378043077993653487291699154667385859234945399563579865744_U256

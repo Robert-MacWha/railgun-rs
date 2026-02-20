@@ -28,15 +28,20 @@ use crate::{
 pub struct PoiCircuitInputs {
     // Public Inputs
     /// A merkle root from the txid merkle tree after this note's
-    pub railgun_txid_merkle_root_after_transaction: MerkleRoot,
-    pub poi_merkle_roots: Vec<MerkleRoot>,
+    pub railgun_txid_merkleroot_after_transaction: MerkleRoot,
+    poi_merkleroots_padded: Vec<MerkleRoot>,
+    /// POI Merkle roots from the blinded commitment proofs, from
+    /// `poi_client::merkle_proofs`. A seperate padded version is
+    /// kept for circuit inputs.
+    pub poi_merkleroots: Vec<MerkleRoot>,
 
     // Private inputs
 
     // Railgun Transaction info
     bound_params_hash: U256,
 
-    //? Required for prover
+    //? Public so the prover can calculate input / output sizes for circuit
+    //? selection.
     pub nullifiers: Vec<U256>,
     pub commitments: Vec<U256>,
 
@@ -181,7 +186,8 @@ impl PoiCircuitInputs {
             .collect::<Result<Vec<_>, _>>()?;
 
         info!("Assembling circuit inputs");
-        let poi_merkle_roots: Vec<MerkleRoot> = poi_proofs.iter().map(|p| p.root).collect();
+        // TODO: POI Merkle roots are not generating correctly.
+        let poi_merkleroots: Vec<MerkleRoot> = poi_proofs.iter().map(|p| p.root).collect();
         let poi_in_merkle_proof_indices =
             poi_proofs.iter().map(|p| U256::from(p.indices)).collect();
         let poi_in_merkle_proof_path_elements =
@@ -227,8 +233,9 @@ impl PoiCircuitInputs {
         let max_size = circuit_size(nullifiers.len(), commitments.len());
 
         Ok(PoiCircuitInputs {
-            railgun_txid_merkle_root_after_transaction: txid_proof.root,
-            poi_merkle_roots: pad_with_zero_value(poi_merkle_roots, max_size),
+            railgun_txid_merkleroot_after_transaction: txid_proof.root,
+            poi_merkleroots_padded: pad_with_zero_value(poi_merkleroots.clone(), max_size),
+            poi_merkleroots,
             bound_params_hash: bound_params_hash,
             nullifiers: pad_with_zero_value(nullifiers, max_size),
             commitments: pad_with_zero_value(commitments, max_size),
@@ -258,7 +265,7 @@ impl PoiCircuitInputs {
     }
 
     circuit_inputs!(
-        railgun_txid_merkle_root_after_transaction => "anyRailgunTxidMerklerootAfterTransaction",
+        railgun_txid_merkleroot_after_transaction => "anyRailgunTxidMerklerootAfterTransaction",
         bound_params_hash => "boundParamsHash",
         nullifiers => "nullifiers",
         commitments => "commitmentsOut",
@@ -275,7 +282,7 @@ impl PoiCircuitInputs {
         railgun_txid_if_has_unshield => "railgunTxidIfHasUnshield",
         railgun_txid_merkle_proof_indices => "railgunTxidMerkleProofIndices",
         railgun_txid_merkle_proof_path_elements => "railgunTxidMerkleProofPathElements",
-        poi_merkle_roots => "poiMerkleroots",
+        poi_merkleroots_padded => "poiMerkleroots",
         poi_in_merkle_proof_indices => "poiInMerkleProofIndices",
         poi_in_merkle_proof_path_elements => "poiInMerkleProofPathElements"
     );

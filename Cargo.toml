@@ -60,3 +60,6 @@ opt-level = "z"
 codegen-units = 1
 # panic = "abort"
 strip = false
+
+[profile.dev.package."*"]
+opt-level = "z"

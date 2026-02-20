@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use alloy::primitives::FixedBytes;
 use ruint::aliases::U256;
 use serde::{Serialize, Serializer};
@@ -104,6 +106,12 @@ impl Serialize for MerkleRoot {
         S: Serializer,
     {
         serializer.serialize_str(&format!("{:064x}", self.0))
+    }
+}
+
+impl Display for MerkleRoot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:064x}", self.0)
     }
 }
 

@@ -256,6 +256,13 @@ impl ViewingKey {
         Ok(SharedKey::new(self, point))
     }
 
+    pub fn derive_shared_key_blinded(&self, blinded: BlindedKey) -> Result<SharedKey, KeyError> {
+        let point = CompressedEdwardsY(blinded.0)
+            .decompress()
+            .ok_or(KeyError::DecompressionFailed)?;
+        Ok(SharedKey::new(self, point))
+    }
+
     /// Generate a shared secret compatible with @noble/ed25519's `ed.getSharedSecret`
     ///
     /// TODO: Make me my own type
@@ -271,13 +278,6 @@ impl ViewingKey {
         let shared_secret = x_point * scalar;
 
         Ok(SharedKey(shared_secret.to_bytes()))
-    }
-
-    pub fn derive_shared_key_blinded(&self, blinded: BlindedKey) -> Result<SharedKey, KeyError> {
-        let point = CompressedEdwardsY(blinded.0)
-            .decompress()
-            .ok_or(KeyError::DecompressionFailed)?;
-        Ok(SharedKey::new(self, point))
     }
 
     pub fn encrypt_gcm<R: Rng>(

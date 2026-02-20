@@ -33,7 +33,7 @@ use crate::{
         address::RailgunAddress,
         broadcaster::broadcaster::Fee,
         indexer::indexer::Indexer,
-        merkle_tree::merkle_tree::UtxoMerkleTree,
+        merkle_tree::{merkle_proof::MerkleRoot, merkle_tree::UtxoMerkleTree},
         note::{
             IncludedNote,
             encrypt::EncryptError,
@@ -102,7 +102,11 @@ pub enum BuildError {
     Estimator(Box<dyn std::error::Error>),
     #[error("POI Proved Operation error: {0}")]
     PoiProvedOperation(#[from] PoiProvedOperationError),
+    #[error("Invalid POI merkleroot for list key {0}: {1}")]
+    InvalidPoiMerkleroot(ListKey, MerkleRoot),
 }
+
+const FEE_BUFFER: f64 = 1.3;
 
 impl OperationBuilder {
     pub fn new() -> Self {
@@ -412,7 +416,7 @@ impl OperationBuilder {
         for operation in proved_operations {
             let op = operation.operation;
             let in_notes = op.in_notes;
-            let poi_in_notes = poi_client.note_to_poi_note(in_notes).await?;
+            let poi_in_notes = poi_client.note_to_poi_note(in_notes, list_keys).await?;
 
             //? Need to create a new operation since the generic can't be
             //? trivially cast.
@@ -436,6 +440,24 @@ impl OperationBuilder {
         // Attach POI proofs to each operation
         for poi_op in poi_operations.iter_mut() {
             poi_op.add_pois(poi_prover, list_keys, utxo_trees).await?;
+        }
+
+        // Validate all POI merkle roots
+        //? Should always pass, but sanity check to ensure proofs are valid before broadcasting
+        for poi_op in poi_operations.iter() {
+            for (list_key, poi) in poi_op.pois.iter() {
+                for merkleroot in &poi.poi_merkleroot {
+                    let valid = poi_client
+                        .validate_poi_merkleroot(list_key.clone(), *merkleroot)
+                        .await?;
+                    if !valid {
+                        return Err(BuildError::InvalidPoiMerkleroot(
+                            list_key.clone(),
+                            *merkleroot,
+                        ));
+                    }
+                }
+            }
         }
 
         Ok(PoiProvedTransaction {
@@ -691,14 +713,14 @@ async fn create_transaction<R: Rng, N: IncludedNote>(
         TransactCircuitInputs::from_inputs(utxo_tree, bound_params.hash(), notes_in, &notes_out)?;
 
     info!("Proving transaction");
-    let proof = prover
+    let (proof, _) = prover
         .prove_transact(&inputs)
         .await
         .map_err(BuildError::Prover)?;
 
     let transaction = abis::railgun::Transaction {
         proof: proof.into(),
-        merkleRoot: inputs.merkle_root.into(),
+        merkleRoot: inputs.merkleroot.into(),
         nullifiers: inputs.nullifiers.iter().map(|n| n.clone().into()).collect(),
         commitments: inputs
             .commitments_out
@@ -716,7 +738,8 @@ async fn create_transaction<R: Rng, N: IncludedNote>(
 }
 
 /// Calculate the broadcaster's fee based on the estimated gas cost, gas price in wei,
-/// and broadcaster's fee rate.
+/// broadcaster's fee rate, and a buffer.
 fn calculate_fee(gas_cost: u128, gas_price_wei: u128, fee_rate: u128) -> u128 {
-    (gas_cost * gas_price_wei * fee_rate) / 10_u128.pow(18)
+    let raw = (gas_cost * gas_price_wei * fee_rate) / 10_u128.pow(18);
+    ((raw as f64) * FEE_BUFFER).ceil() as u128
 }
