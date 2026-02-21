@@ -1,6 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 use alloy::primitives::ChainId;
@@ -23,7 +26,12 @@ use crate::railgun::{
     },
 };
 
+#[derive(Clone)]
 pub struct PoiClient {
+    inner: Arc<PoiClientInner>,
+}
+
+pub struct PoiClientInner {
     http: Client,
     url: String,
     next_id: AtomicU64,
@@ -88,11 +96,13 @@ impl PoiClient {
         // info!("Fetched POI node status: {:#?}", status);
 
         Ok(Self {
-            http,
-            url,
-            next_id,
-            chain,
-            status,
+            inner: Arc::new(PoiClientInner {
+                http,
+                url,
+                next_id,
+                chain,
+                status,
+            }),
         })
     }
 
@@ -107,7 +117,7 @@ impl PoiClient {
 
     /// Returns the list keys that the POI node is tracking
     pub fn list_keys(&self) -> Vec<ListKey> {
-        self.status.list_keys.clone()
+        self.inner.status.list_keys.clone()
     }
 
     /// Returns the POIs for the given list keys and blinded commitments.
@@ -252,7 +262,7 @@ impl PoiClient {
     fn chain(&self) -> ChainParams {
         ChainParams {
             chain_type: 0.to_string(), // EVM
-            chain_id: self.chain.to_string(),
+            chain_id: self.inner.chain.to_string(),
             txid_version: TxidVersion::V2PoseidonMerkle,
         }
     }
@@ -264,7 +274,14 @@ impl PoiClient {
         method: &'static str,
         params: P,
     ) -> Result<R, PoiClientError> {
-        call(&self.next_id, &self.http, &self.url, method, params).await
+        call(
+            &self.inner.next_id,
+            &self.inner.http,
+            &self.inner.url,
+            method,
+            params,
+        )
+        .await
     }
 }
 

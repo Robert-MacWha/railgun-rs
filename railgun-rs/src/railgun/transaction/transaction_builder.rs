@@ -54,12 +54,29 @@ use crate::{
 };
 
 /// A builder for constructing railgun transactions (transfers, unshields)
-#[derive(Clone)]
-pub struct TransactionBuilder {
+pub struct TransactionBuilder<'a, M = Standard> {
     transfers: Vec<TransferData>,
     unshields: BTreeMap<AssetId, UnshieldData>,
     broadcaster_fee: Option<TransferData>,
     signers: BTreeMap<ViewingPublicKey, Arc<dyn Signer>>,
+
+    chain: ChainConfig,
+    indexer: &'a UtxoIndexer,
+    prover: &'a dyn TransactProver,
+    mode: M,
+}
+
+pub struct Standard;
+pub struct WithPoi<'a> {
+    poi_client: &'a PoiClient,
+    poi_prover: &'a dyn PoiProver,
+}
+pub struct WithBroadcast<'a> {
+    poi_client: &'a PoiClient,
+    poi_prover: &'a dyn PoiProver,
+    estimator: &'a dyn GasEstimator,
+    fee_payer: Arc<dyn Signer>,
+    fee: Fee,
 }
 
 #[derive(Clone)]
@@ -107,24 +124,93 @@ pub enum BuildError {
 
 const FEE_BUFFER: f64 = 1.3;
 
-impl TransactionBuilder {
-    pub fn new() -> Self {
+impl<'a> TransactionBuilder<'a, Standard> {
+    pub fn new(
+        indexer: &'a UtxoIndexer,
+        prover: &'a dyn TransactProver,
+        chain: ChainConfig,
+    ) -> Self {
         Self {
             transfers: Vec::new(),
             unshields: BTreeMap::new(),
             broadcaster_fee: None,
             signers: BTreeMap::new(),
+            indexer,
+            prover,
+            chain,
+            mode: Standard,
+        }
+    }
+}
+
+impl<'a, M> TransactionBuilder<'a, M> {
+    fn standard(&self) -> TransactionBuilder<'a, Standard> {
+        TransactionBuilder {
+            transfers: self.transfers.clone(),
+            unshields: self.unshields.clone(),
+            broadcaster_fee: self.broadcaster_fee.clone(),
+            signers: self.signers.clone(),
+            indexer: self.indexer,
+            prover: self.prover,
+            chain: self.chain,
+            mode: Standard,
+        }
+    }
+
+    pub fn with_poi(
+        self,
+        poi_client: &'a PoiClient,
+        poi_prover: &'a dyn PoiProver,
+    ) -> TransactionBuilder<'a, WithPoi<'a>> {
+        TransactionBuilder {
+            transfers: self.transfers,
+            unshields: self.unshields,
+            broadcaster_fee: self.broadcaster_fee,
+            signers: self.signers,
+            indexer: self.indexer,
+            prover: self.prover,
+            chain: self.chain,
+            mode: WithPoi {
+                poi_client,
+                poi_prover,
+            },
+        }
+    }
+
+    pub fn with_broadcast(
+        self,
+        poi_client: &'a PoiClient,
+        poi_prover: &'a dyn PoiProver,
+        estimator: &'a dyn GasEstimator,
+        fee_payer: Arc<dyn Signer>,
+        fee: Fee,
+    ) -> TransactionBuilder<'a, WithBroadcast<'a>> {
+        TransactionBuilder {
+            transfers: self.transfers,
+            unshields: self.unshields,
+            broadcaster_fee: self.broadcaster_fee,
+            signers: self.signers,
+            indexer: self.indexer,
+            prover: self.prover,
+            chain: self.chain,
+            mode: WithBroadcast {
+                poi_client,
+                poi_prover,
+                estimator,
+                fee_payer,
+                fee,
+            },
         }
     }
 
     pub fn transfer(
-        &mut self,
+        mut self,
         from: Arc<dyn Signer>,
         to: RailgunAddress,
         asset: AssetId,
         value: u128,
         memo: &str,
-    ) {
+    ) -> Self {
         self.signers
             .insert(from.viewing_key().public_key(), from.clone());
 
@@ -136,15 +222,16 @@ impl TransactionBuilder {
             memo: memo.to_string(),
         };
         self.transfers.push(transfer_data);
+        self
     }
 
     pub fn set_unshield(
-        &mut self,
+        mut self,
         from: Arc<dyn Signer>,
         to: Address,
         asset: AssetId,
         value: u128,
-    ) {
+    ) -> Self {
         self.signers
             .insert(from.viewing_key().public_key(), from.clone());
 
@@ -161,8 +248,103 @@ impl TransactionBuilder {
                 old.unwrap().asset
             );
         }
+        self
     }
+}
 
+impl<'a> TransactionBuilder<'a, Standard> {
+    /// Builds and proves a transaction for railgun.
+    ///
+    /// The resulting transaction can be self-broadcasted, but does not include
+    /// any POI proofs.
+    pub async fn build<R: Rng>(self, rng: &mut R) -> Result<TxData, BuildError> {
+        let in_notes = self.indexer.all_unspent();
+        let operations = self.build_operations(in_notes, rng)?;
+
+        let proved = self
+            .prove_operations(
+                self.prover,
+                &self.indexer.utxo_trees,
+                &operations,
+                self.chain,
+                0,
+                rng,
+            )
+            .await?;
+
+        Ok(proved.tx_data)
+    }
+}
+
+impl<'a> TransactionBuilder<'a, WithPoi<'a>> {
+    /// Builds and proves a transaction for railgun.
+    ///
+    /// The resulting transaction can be self-broadcasted, but does not include
+    /// any POI proofs.
+
+    /// Builds and proves a transaction for railgun with POI proofs.
+    pub async fn build<R: Rng>(&self, rng: &mut R) -> Result<PoiProvedTransaction, BuildError> {
+        let in_notes = self.indexer.all_unspent();
+        let operations = self.build_operations(in_notes, rng)?;
+
+        let proved = self
+            .prove_operations(
+                self.prover,
+                &self.indexer.utxo_trees,
+                &operations,
+                self.chain,
+                0,
+                rng,
+            )
+            .await?;
+
+        let list_keys = self.mode.poi_client.list_keys();
+        self.prove_poi(
+            self.mode.poi_prover,
+            &self.mode.poi_client,
+            proved,
+            &self.indexer.utxo_trees,
+            &list_keys,
+            None,
+        )
+        .await
+    }
+}
+
+impl<'a> TransactionBuilder<'a, WithBroadcast<'a>> {
+    /// Builds a transaction with fee calculation and POI proofs for broadcasting.
+    ///
+    /// Calculates the broadcaster fee iteratively, proves the transaction,
+    /// and generates POI proofs.
+    pub async fn build<R: Rng>(&self, rng: &mut R) -> Result<PoiProvedTransaction, BuildError> {
+        let in_notes = self.indexer.all_unspent();
+
+        let proved = calculate_fee_to_convergence(
+            self.standard(),
+            &in_notes,
+            self.prover,
+            &self.indexer.utxo_trees,
+            self.mode.estimator,
+            self.mode.fee_payer.clone(),
+            &self.mode.fee,
+            self.chain,
+            rng,
+        )
+        .await?;
+
+        self.prove_poi(
+            self.mode.poi_prover,
+            &self.mode.poi_client,
+            proved,
+            &self.indexer.utxo_trees,
+            &self.mode.fee.list_keys,
+            Some(self.mode.fee.clone()),
+        )
+        .await
+    }
+}
+
+impl<'a, M> TransactionBuilder<'a, M> {
     fn set_broadcaster_fee(
         &mut self,
         from: Arc<dyn Signer>,
@@ -182,101 +364,11 @@ impl TransactionBuilder {
         self.broadcaster_fee = Some(fee_data);
     }
 
-    /// Builds and proves a transaction for railgun.
-    ///
-    /// The resulting transaction can be self-broadcasted, but does not include
-    /// any POI proofs.
-    pub async fn build<R: Rng>(
-        &self,
-        indexer: &UtxoIndexer,
-        prover: &impl TransactProver,
-        chain: ChainConfig,
-        rng: &mut R,
-    ) -> Result<TxData, BuildError> {
-        let in_notes = indexer.all_unspent();
-        let operations = self.build_operations(in_notes, rng)?;
-
-        let proved = self
-            .prove_operations(prover, &indexer.utxo_trees, &operations, chain, 0, rng)
-            .await?;
-
-        Ok(proved.tx_data)
-    }
-
-    /// Builds and proves a transaction for railgun with POI proofs.
-    pub async fn build_with_poi<R: Rng>(
-        &self,
-        indexer: &UtxoIndexer,
-        prover: &(impl TransactProver + PoiProver),
-        poi_client: &PoiClient,
-        chain: ChainConfig,
-        rng: &mut R,
-    ) -> Result<PoiProvedTransaction, BuildError> {
-        let in_notes = indexer.all_unspent();
-        let operations = self.build_operations(in_notes, rng)?;
-
-        let proved = self
-            .prove_operations(prover, &indexer.utxo_trees, &operations, chain, 0, rng)
-            .await?;
-
-        let list_keys = poi_client.list_keys();
-        self.prove_poi(
-            prover,
-            poi_client,
-            proved,
-            &indexer.utxo_trees,
-            &list_keys,
-            None,
-        )
-        .await
-    }
-
-    /// Builds a transaction with fee calculation and POI proofs for broadcasting.
-    ///
-    /// Calculates the broadcaster fee iteratively, proves the transaction,
-    /// and generates POI proofs.
-    pub async fn build_with_broadcast<R: Rng>(
-        &self,
-        indexer: &UtxoIndexer,
-        prover: &(impl TransactProver + PoiProver),
-        poi_client: &PoiClient,
-        estimator: &impl GasEstimator,
-        fee_payer: Arc<dyn Signer>,
-        fee: &Fee,
-        chain: ChainConfig,
-        rng: &mut R,
-    ) -> Result<PoiProvedTransaction, BuildError> {
-        let in_notes = indexer.all_unspent();
-
-        let proved = calculate_fee_to_convergence(
-            self,
-            &in_notes,
-            prover,
-            &indexer.utxo_trees,
-            estimator,
-            fee_payer,
-            fee,
-            chain,
-            rng,
-        )
-        .await?;
-
-        self.prove_poi(
-            prover,
-            poi_client,
-            proved,
-            &indexer.utxo_trees,
-            &fee.list_keys,
-            Some(fee.clone()),
-        )
-        .await
-    }
-
     /// Proves the operations and returns a proved transaction that can be
     /// executed in railgun on-chain.
     async fn prove_operations<R: Rng>(
         &self,
-        prover: &impl TransactProver,
+        prover: &dyn TransactProver,
         utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
         operations: &[Operation<UtxoNote>],
         chain: ChainConfig,
@@ -409,7 +501,7 @@ impl TransactionBuilder {
     /// Attach POI proofs to a proved transaction.
     async fn prove_poi(
         &self,
-        poi_prover: &impl PoiProver,
+        poi_prover: &dyn PoiProver,
         poi_client: &PoiClient,
         proved: ProvedTransaction,
         utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
@@ -556,11 +648,11 @@ fn add_change_note<R: Rng, N: IncludedNote + Clone>(
 /// Calculate fee iteratively until convergence. It iteratively builds and proves
 /// transactions until the fee converges to a stable value.
 async fn calculate_fee_to_convergence<R: Rng>(
-    builder: &TransactionBuilder,
+    builder: TransactionBuilder<'_, Standard>,
     in_notes: &[UtxoNote],
-    prover: &impl TransactProver,
+    prover: &dyn TransactProver,
     utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
-    estimator: &impl GasEstimator,
+    estimator: &dyn GasEstimator,
     fee_payer: Arc<dyn Signer>,
     fee: &Fee,
     chain: ChainConfig,
@@ -573,7 +665,7 @@ async fn calculate_fee_to_convergence<R: Rng>(
         .await
         .map_err(BuildError::Estimator)?;
 
-    let mut fee_builder = builder.clone();
+    let mut fee_builder = builder;
     let mut last_fee: u128 = calculate_fee(1000000, gas_price_wei, fee.per_unit_gas);
     fee_builder.set_broadcaster_fee(
         fee_payer.clone(),
@@ -648,7 +740,7 @@ async fn calculate_fee_to_convergence<R: Rng>(
 
 /// Creates a list of railgun transactions for a list of operations.
 async fn create_transactions<R: Rng>(
-    prover: &impl TransactProver,
+    prover: &dyn TransactProver,
     utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
     operations: &[Operation<UtxoNote>],
     chain: ChainConfig,
@@ -686,7 +778,7 @@ async fn create_transactions<R: Rng>(
 
 /// Creates a railgun transaction for a single operation.
 async fn create_transaction<R: Rng>(
-    prover: &impl TransactProver,
+    prover: &dyn TransactProver,
     utxo_tree: &UtxoMerkleTree,
     operation: &Operation<UtxoNote>,
     chain: ChainConfig,

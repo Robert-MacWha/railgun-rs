@@ -97,7 +97,7 @@ async fn main() {
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
     let mut indexer = UtxoIndexer::from_state(chained, smart_wallet_verifier, indexer_state);
     // let mut indexer = UtxoIndexer::new(chained, smart_wallet_verifier);
-    indexer.add_account(account1.clone());
+    indexer.register(account1.clone());
 
     info!("Syncing indexer");
     indexer.sync().await.unwrap();
@@ -138,20 +138,10 @@ async fn main() {
     //     list_keys: vec!["efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".into()],
     // };
 
-    let mut builder = TransactionBuilder::new();
-    // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
-    builder.set_unshield(account1.clone(), address, USDC, 100);
-    let prepared: PoiProvedTransaction = builder
-        .build_with_poi(
-            &mut indexer,
-            &prover,
-            &poi_client,
-            // &provider,
-            // account1.clone(),
-            // &fee,
-            CHAIN,
-            &mut rand,
-        )
+    let tx = TransactionBuilder::new(&indexer, &prover, CHAIN)
+        .set_unshield(account1.clone(), address, USDC, 100)
+        .with_poi(&poi_client, &prover)
+        .build(&mut rand)
         .await
         .unwrap();
 

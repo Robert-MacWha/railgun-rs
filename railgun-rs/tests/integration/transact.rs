@@ -75,8 +75,8 @@ async fn test_transact() {
         railgun_rs::railgun::signer::PrivateKeySigner::new_evm(random(), random(), CHAIN.id);
     let account_2 =
         railgun_rs::railgun::signer::PrivateKeySigner::new_evm(random(), random(), CHAIN.id);
-    indexer.add_account(account_1.clone());
-    indexer.add_account(account_2.clone());
+    indexer.register(account_1.clone());
+    indexer.register(account_2.clone());
 
     // Test Shielding
     info!("Testing shielding");
@@ -101,16 +101,15 @@ async fn test_transact() {
 
     // Test Transfer
     info!("Testing transfer");
-    let mut builder = TransactionBuilder::new();
-    builder.transfer(
-        account_1.clone(),
-        account_2.address(),
-        USDC,
-        5_000,
-        "test transfer",
-    );
-    let transfer_tx = builder
-        .build(&mut indexer, &prover, CHAIN, &mut rand::rng())
+    let transfer_tx = TransactionBuilder::new(&indexer, &prover, CHAIN)
+        .transfer(
+            account_1.clone(),
+            account_2.address(),
+            USDC,
+            5_000,
+            "test transfer",
+        )
+        .build(&mut rand::rng())
         .await
         .unwrap();
 
@@ -131,15 +130,14 @@ async fn test_transact() {
 
     // Test Unshielding
     info!("Testing unshielding");
-    let mut builder = TransactionBuilder::new();
-    builder.set_unshield(
-        account_1.clone(),
-        address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"),
-        USDC,
-        1_000,
-    );
-    let unshield_tx = builder
-        .build(&mut indexer, &prover, CHAIN, &mut rand::rng())
+    let unshield_tx = TransactionBuilder::new(&indexer, &prover, CHAIN)
+        .set_unshield(
+            account_1.clone(),
+            address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"),
+            USDC,
+            1_000,
+        )
+        .build(&mut rand::rng())
         .await
         .unwrap();
 

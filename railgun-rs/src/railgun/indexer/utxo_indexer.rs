@@ -121,7 +121,7 @@ impl UtxoIndexer {
 
     /// Adds an account to the indexer. The indexer will track the balance and
     /// transactions for this account as it syncs.
-    pub fn add_account(&mut self, signer: Arc<dyn Signer>) {
+    pub fn register(&mut self, signer: Arc<dyn Signer>) {
         let account = IndexedAccount::new(signer.clone());
         self.accounts.push(account);
 
@@ -138,7 +138,7 @@ impl UtxoIndexer {
     /// Resyncing is necessary to initially populate an account's state. Resyncing
     /// can be skipped if an account is being added after a restart, since matched
     /// events are persisted and will be replayed to populate the account's state.
-    pub async fn add_account_and_resync(
+    pub async fn register_resync(
         &mut self,
         signer: Arc<dyn Signer>,
         from_block: Option<u64>,

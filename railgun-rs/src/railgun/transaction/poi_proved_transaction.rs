@@ -61,7 +61,7 @@ impl PoiProvedOperation {
     /// Add POI proofs to this operation for the provided list keys.
     pub async fn add_pois(
         &mut self,
-        prover: &impl PoiProver,
+        prover: &dyn PoiProver,
         list_keys: &[ListKey],
         utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
     ) -> Result<(), PoiProvedOperationError> {
