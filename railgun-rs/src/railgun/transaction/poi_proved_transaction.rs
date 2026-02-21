@@ -75,8 +75,12 @@ impl PoiProvedOperation {
                 continue;
             }
 
-            let out_commitments: Vec<_> =
-                self.operation.out_notes().iter().map(|n| n.hash().into()).collect();
+            let out_commitments: Vec<_> = self
+                .operation
+                .out_notes()
+                .iter()
+                .map(|n| n.hash().into())
+                .collect();
             let out_npks: Vec<_> = self
                 .operation
                 .out_encryptable_notes()

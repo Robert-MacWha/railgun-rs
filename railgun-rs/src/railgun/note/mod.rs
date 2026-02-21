@@ -15,17 +15,21 @@ pub mod transfer;
 pub mod unshield;
 pub mod utxo;
 
+pub trait SignableNote {
+    fn sign(&self, inputs: &[U256]) -> [U256; 3];
+}
+
 /// Included notes are notes that have been included in a transaction and are
 /// on-chain in railgun's merkle tree.
-pub trait IncludedNote: Note + Clone {
+pub trait IncludedNote: Note {
     fn tree_number(&self) -> u32;
     fn leaf_index(&self) -> u32;
-    fn viewing_pubkey(&self) -> ViewingPublicKey;
-    fn nullifier(&self, leaf_index: U256) -> U256;
     fn spending_pubkey(&self) -> [U256; 2];
-    fn sign(&self, inputs: &[U256]) -> [U256; 3];
+    fn viewing_pubkey(&self) -> ViewingPublicKey;
     fn nullifying_key(&self) -> U256;
+    fn nullifier(&self, leaf_index: U256) -> U256;
     fn random(&self) -> [u8; 16];
+    fn blinded_commitment(&self) -> U256;
 }
 
 pub trait EncryptableNote: Note {

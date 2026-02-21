@@ -11,7 +11,7 @@ use crate::crypto::keys::{HexKey, MasterPublicKey, SpendingKey, ViewingKey, View
 pub struct RailgunAddress {
     master_key: MasterPublicKey,
     viewing_pubkey: ViewingPublicKey,
-    chain: ChainId,
+    chain_id: ChainId,
     // pub version: u8,
 }
 
@@ -46,19 +46,19 @@ impl RailgunAddress {
     pub fn new(
         master_key: MasterPublicKey,
         viewing_pubkey: ViewingPublicKey,
-        chain_id: alloy::primitives::ChainId,
+        chain_id: ChainId,
     ) -> Self {
         RailgunAddress {
             master_key,
             viewing_pubkey,
-            chain: ChainId::EVM(chain_id),
+            chain_id,
         }
     }
 
     pub fn from_private_keys(
         spending_key: SpendingKey,
         viewing_key: ViewingKey,
-        chain_id: alloy::primitives::ChainId,
+        chain_id: ChainId,
     ) -> Self {
         let master_key =
             MasterPublicKey::new(spending_key.public_key(), viewing_key.nullifying_key());
@@ -75,13 +75,13 @@ impl RailgunAddress {
     }
 
     pub fn chain(&self) -> ChainId {
-        self.chain
+        self.chain_id
     }
 }
 
 impl Display for RailgunAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let network_id = xor_network_id(&encode_chain_id(&self.chain));
+        let network_id = xor_network_id(&encode_chain_id(&self.chain_id));
 
         let address_string = format!(
             "{:02}{}{}{}",
@@ -126,7 +126,7 @@ impl FromStr for RailgunAddress {
         Ok(RailgunAddress {
             master_key,
             viewing_pubkey,
-            chain: chain_id,
+            chain_id,
         })
     }
 }
@@ -190,7 +190,7 @@ mod tests {
 
         let expected_address_string = "0zk1qyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszunpd9kxwatwqypqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqyqszqgpqy3t4umn";
 
-        let railgun_address = RailgunAddress::new(master_key, viewing_pubkey, chain);
+        let railgun_address = RailgunAddress::new(master_key, viewing_pubkey, ChainId::EVM(chain));
 
         let address_string = railgun_address.to_string();
         let parsed_address = RailgunAddress::from_str(&address_string).unwrap();

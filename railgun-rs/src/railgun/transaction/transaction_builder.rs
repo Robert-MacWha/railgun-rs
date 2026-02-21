@@ -11,7 +11,10 @@
 //! A "Transaction" means an EVM transaction.
 //!  - A transaction can have many operations across many trees and addresses.
 
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use alloy::primitives::Address;
 use rand::Rng;
@@ -21,7 +24,6 @@ use tracing::{info, warn};
 
 use crate::{
     abis,
-    account::RailgunAccount,
     caip::AssetId,
     chain_config::ChainConfig,
     circuit::{
@@ -43,6 +45,7 @@ use crate::{
             utxo::UtxoNote,
         },
         poi::{ListKey, PoiClient, PoiClientError},
+        signer::Signer,
         transaction::{
             GasEstimator, PoiProvedOperation, PoiProvedOperationError, PoiProvedTransaction,
             ProvedOperation, ProvedTransaction, TxData,
@@ -56,12 +59,12 @@ pub struct TransactionBuilder {
     transfers: Vec<TransferData>,
     unshields: BTreeMap<AssetId, UnshieldData>,
     broadcaster_fee: Option<TransferData>,
-    accounts: BTreeMap<ViewingPublicKey, RailgunAccount>,
+    signers: BTreeMap<ViewingPublicKey, Arc<dyn Signer>>,
 }
 
 #[derive(Clone)]
 struct TransferData {
-    pub from: RailgunAccount,
+    pub from: Arc<dyn Signer>,
     pub to: RailgunAddress,
     pub asset: AssetId,
     pub value: u128,
@@ -70,7 +73,7 @@ struct TransferData {
 
 #[derive(Clone)]
 struct UnshieldData {
-    pub from: RailgunAccount,
+    pub from: Arc<dyn Signer>,
     pub to: Address,
     pub asset: AssetId,
     pub value: u128,
@@ -110,19 +113,19 @@ impl TransactionBuilder {
             transfers: Vec::new(),
             unshields: BTreeMap::new(),
             broadcaster_fee: None,
-            accounts: BTreeMap::new(),
+            signers: BTreeMap::new(),
         }
     }
 
     pub fn transfer(
         &mut self,
-        from: RailgunAccount,
+        from: Arc<dyn Signer>,
         to: RailgunAddress,
         asset: AssetId,
         value: u128,
         memo: &str,
     ) {
-        self.accounts
+        self.signers
             .insert(from.viewing_key().public_key(), from.clone());
 
         let transfer_data = TransferData {
@@ -135,8 +138,14 @@ impl TransactionBuilder {
         self.transfers.push(transfer_data);
     }
 
-    pub fn set_unshield(&mut self, from: RailgunAccount, to: Address, asset: AssetId, value: u128) {
-        self.accounts
+    pub fn set_unshield(
+        &mut self,
+        from: Arc<dyn Signer>,
+        to: Address,
+        asset: AssetId,
+        value: u128,
+    ) {
+        self.signers
             .insert(from.viewing_key().public_key(), from.clone());
 
         let unshield_data = UnshieldData {
@@ -156,12 +165,12 @@ impl TransactionBuilder {
 
     fn set_broadcaster_fee(
         &mut self,
-        from: RailgunAccount,
+        from: Arc<dyn Signer>,
         to: RailgunAddress,
         asset: AssetId,
         value: u128,
     ) {
-        self.accounts
+        self.signers
             .insert(from.viewing_key().public_key(), from.clone());
         let fee_data = TransferData {
             from,
@@ -232,7 +241,7 @@ impl TransactionBuilder {
         prover: &(impl TransactProver + PoiProver),
         poi_client: &PoiClient,
         estimator: &impl GasEstimator,
-        fee_payer: RailgunAccount,
+        fee_payer: Arc<dyn Signer>,
         fee: &Fee,
         chain: ChainConfig,
         rng: &mut R,
@@ -316,13 +325,14 @@ impl TransactionBuilder {
     /// contains notes from the same owner, tree, and asset.
     ///
     /// Creates change notes when input value exceeds output value.
-    fn build_operations<N: IncludedNote, R: Rng>(
+    fn build_operations<R: Rng>(
         &self,
-        in_notes: Vec<N>,
+        in_notes: Vec<UtxoNote>,
         rng: &mut R,
-    ) -> Result<Vec<Operation<N>>, BuildError> {
+    ) -> Result<Vec<Operation<UtxoNote>>, BuildError> {
         //? Collect all output notes into draft operations, grouped by (from_address, asset_id).
-        let mut draft_operations: HashMap<(RailgunAddress, AssetId), Operation<N>> = HashMap::new();
+        let mut draft_operations: HashMap<(RailgunAddress, AssetId), Operation<UtxoNote>> =
+            HashMap::new();
         for transfer in &self.transfers {
             draft_operations
                 .entry((transfer.from.address(), transfer.asset))
@@ -468,7 +478,7 @@ impl TransactionBuilder {
 }
 
 /// Selects input notes for an operation.
-fn select_in_notes<N: IncludedNote>(
+fn select_in_notes<N: IncludedNote + Clone>(
     from: RailgunAddress,
     asset: AssetId,
     value: u128,
@@ -518,7 +528,10 @@ fn split_trees<N: IncludedNote>(operation: Operation<N>) -> Vec<Operation<N>> {
 
 /// Adds a change note to the operation if required. The change note sends any
 /// excess consumed value back to the sender's address.
-fn add_change_note<R: Rng, N: IncludedNote>(operation: Operation<N>, rng: &mut R) -> Operation<N> {
+fn add_change_note<R: Rng, N: IncludedNote + Clone>(
+    operation: Operation<N>,
+    rng: &mut R,
+) -> Operation<N> {
     let in_value = operation.in_value();
     let out_value = operation.out_value();
     let change_value = in_value.saturating_sub(out_value);
@@ -548,7 +561,7 @@ async fn calculate_fee_to_convergence<R: Rng>(
     prover: &impl TransactProver,
     utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
     estimator: &impl GasEstimator,
-    fee_payer: RailgunAccount,
+    fee_payer: Arc<dyn Signer>,
     fee: &Fee,
     chain: ChainConfig,
     rng: &mut R,
@@ -634,10 +647,10 @@ async fn calculate_fee_to_convergence<R: Rng>(
 }
 
 /// Creates a list of railgun transactions for a list of operations.
-async fn create_transactions<R: Rng, N: IncludedNote>(
+async fn create_transactions<R: Rng>(
     prover: &impl TransactProver,
     utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,
-    operations: &[Operation<N>],
+    operations: &[Operation<UtxoNote>],
     chain: ChainConfig,
     min_gas_price: u128,
     adapt_contract: Address,
@@ -672,10 +685,10 @@ async fn create_transactions<R: Rng, N: IncludedNote>(
 }
 
 /// Creates a railgun transaction for a single operation.
-async fn create_transaction<R: Rng, N: IncludedNote>(
+async fn create_transaction<R: Rng>(
     prover: &impl TransactProver,
     utxo_tree: &UtxoMerkleTree,
-    operation: &Operation<N>,
+    operation: &Operation<UtxoNote>,
     chain: ChainConfig,
     min_gas_price: u128,
     adapt_contract: Address,

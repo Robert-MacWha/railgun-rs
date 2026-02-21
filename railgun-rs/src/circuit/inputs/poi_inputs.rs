@@ -179,13 +179,13 @@ impl PoiCircuitInputs {
     /// Builds POI circuit inputs for the post-transaction re-proof using the
     /// actual on-chain TXID position. Used when submitting to the POI aggregator.
     #[allow(clippy::too_many_arguments)]
-    pub fn from_inputs_included(
+    pub fn from_inputs_included<S>(
         spending_pubkey: SpendingPublicKey,
         nullifying_key: NullifyingKey,
         utxo_merkle_tree: &UtxoMerkleTree,
         utxo_tree_in: u32,
         bound_params_hash: U256,
-        in_notes: &[PoiNote],
+        in_notes: &[PoiNote<S>],
         out_commitments: &[U256],
         out_npks: &[U256],
         out_values: &[U256],
@@ -219,9 +219,9 @@ impl PoiCircuitInputs {
         )
     }
 
-    fn compute_nullifiers(
+    fn compute_nullifiers<S>(
         utxo_merkle_tree: &UtxoMerkleTree,
-        in_notes: &[PoiNote],
+        in_notes: &[PoiNote<S>],
     ) -> Result<Vec<U256>, PoiCircuitInputsError> {
         info!("UTXO proofs");
         let utxo_proofs: Vec<_> = in_notes
@@ -236,12 +236,12 @@ impl PoiCircuitInputs {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn assemble(
+    fn assemble<S>(
         spending_pubkey: SpendingPublicKey,
         nullifying_pubkey: NullifyingKey,
         bound_params_hash: U256,
         utxo_tree_in: u32,
-        in_notes: &[PoiNote],
+        in_notes: &[PoiNote<S>],
         out_commitments: &[U256],
         out_npks: &[U256],
         out_values: &[U256],
@@ -256,7 +256,6 @@ impl PoiCircuitInputs {
     ) -> Result<Self, PoiCircuitInputsError> {
         // Per-note POI proofs
         info!("Generating POI proofs");
-        // TODO: POI Merkle roots are not generating correctly.
         let poi_proofs = in_notes
             .iter()
             .map(|n| {
@@ -273,8 +272,6 @@ impl PoiCircuitInputs {
         let poi_in_merkle_proof_path_elements =
             poi_proofs.iter().map(|p| p.elements.clone()).collect();
 
-        //? Only include output note data for commitment notes. Unshield note
-        //? data is included separately.
         let randoms_in = in_notes
             .iter()
             .map(|n| U256::from_be_slice(&n.random()))

@@ -6,6 +6,7 @@ use crate::abis::railgun::RailgunSmartWallet;
 
 /// TODO: Consider making types for shield, transact, and nullified so we don't need to use the anvil
 /// types if it's more convenient.
+#[derive(Clone, Serialize, Deserialize)]
 pub enum SyncEvent {
     Shield(RailgunSmartWallet::Shield, u64),
     Transact(RailgunSmartWallet::Transact, u64),
@@ -23,6 +24,7 @@ pub struct Operation {
     pub utxo_out_start_index: u32,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LegacyCommitment {
     pub hash: U256,
     pub tree_number: u32,

@@ -4,4 +4,7 @@ pub mod indexer;
 pub mod merkle_tree;
 pub mod note;
 pub mod poi;
+mod poi_provider;
+mod provider;
+pub mod signer;
 pub mod transaction;

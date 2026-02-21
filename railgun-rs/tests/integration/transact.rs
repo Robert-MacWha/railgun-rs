@@ -8,13 +8,13 @@ use alloy::{
 };
 use railgun_rs::{
     abis::erc20::ERC20,
-    account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, MAINNET_CONFIG},
     circuit::native::Groth16Prover,
     railgun::{
         indexer::{UtxoIndexer, syncer},
         merkle_tree::SmartWalletUtxoVerifier,
+        signer::Signer,
         transaction::{ShieldBuilder, TransactionBuilder},
     },
 };
@@ -71,10 +71,12 @@ async fn test_transact() {
     );
 
     info!("Setting up accounts");
-    let account_1 = RailgunAccount::new(random(), random(), CHAIN.id);
-    let account_2 = RailgunAccount::new(random(), random(), CHAIN.id);
-    indexer.add_account(&account_1);
-    indexer.add_account(&account_2);
+    let account_1 =
+        railgun_rs::railgun::signer::PrivateKeySigner::new_evm(random(), random(), CHAIN.id);
+    let account_2 =
+        railgun_rs::railgun::signer::PrivateKeySigner::new_evm(random(), random(), CHAIN.id);
+    indexer.add_account(account_1.clone());
+    indexer.add_account(account_2.clone());
 
     // Test Shielding
     info!("Testing shielding");

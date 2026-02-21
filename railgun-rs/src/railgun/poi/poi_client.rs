@@ -11,7 +11,7 @@ use tracing::info;
 
 use crate::railgun::{
     merkle_tree::{MerkleProof, MerkleRoot, MerkleTreeVerifier},
-    note::utxo::UtxoNote,
+    note::{IncludedNote, utxo::UtxoNote},
     poi::{
         poi_note::PoiNote,
         types::{
@@ -129,11 +129,11 @@ impl PoiClient {
 
     /// Converts a list of UTXO notes into POI notes by fetching the necessary
     /// merkle proofs from the POI node for the given list keys.
-    pub async fn note_to_poi_note(
+    pub async fn note_to_poi_note<S>(
         &self,
-        notes: Vec<UtxoNote>,
+        notes: Vec<UtxoNote<S>>,
         list_keys: &[ListKey],
-    ) -> Result<Vec<PoiNote>, PoiClientError> {
+    ) -> Result<Vec<PoiNote<S>>, PoiClientError> {
         let blinded_commitments = notes
             .iter()
             .map(|n| n.blinded_commitment().into())

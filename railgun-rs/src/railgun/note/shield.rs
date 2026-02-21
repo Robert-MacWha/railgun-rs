@@ -64,6 +64,8 @@ pub fn create_shield_request<R: Rng>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use alloy::primitives::Address;
     use rand::Rng;
     use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
@@ -73,8 +75,9 @@ mod tests {
         caip::AssetId,
         crypto::keys::{SpendingKey, ViewingKey},
         railgun::{
-            address::RailgunAddress,
+            address::{ChainId, RailgunAddress},
             note::{Note, shield::create_shield_request, utxo::UtxoNote},
+            signer::{PrivateKeySigner, Signer},
         },
     };
 
@@ -86,7 +89,8 @@ mod tests {
         let spending_key: SpendingKey = rng.random();
         let viewing_key: ViewingKey = rng.random();
 
-        let recipient = RailgunAddress::from_private_keys(spending_key, viewing_key, 1);
+        let recipient =
+            RailgunAddress::from_private_keys(spending_key, viewing_key, ChainId::EVM(1));
         let asset: AssetId = AssetId::Erc20(Address::from([0u8; 20]));
         let value: u128 = 1_000_000;
 
@@ -101,17 +105,17 @@ mod tests {
 
         let spending_key: SpendingKey = rng.random();
         let viewing_key: ViewingKey = rng.random();
+        let signer = PrivateKeySigner::new_evm(spending_key, viewing_key, 1);
+        let recipient = signer.address();
 
-        let recipient = RailgunAddress::from_private_keys(spending_key, viewing_key, 1);
         let asset: AssetId = AssetId::Erc20(Address::from([0u8; 20]));
         let value: u128 = 1_000_000;
 
         let shield_request = create_shield_request(recipient, asset, value, &mut rng).unwrap();
 
         // Decrypt the note
-        let decrypted =
-            UtxoNote::decrypt_shield_request(spending_key, viewing_key, 1, 0, shield_request)
-                .expect("Failed to decrypt shield note");
+        let decrypted = UtxoNote::decrypt_shield_request(signer, 1, 0, shield_request)
+            .expect("Failed to decrypt shield note");
 
         assert_eq!(decrypted.value(), value);
         assert_eq!(decrypted.asset(), asset);

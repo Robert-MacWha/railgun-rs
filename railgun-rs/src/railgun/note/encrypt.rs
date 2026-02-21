@@ -94,6 +94,8 @@ pub fn encrypt_note<R: Rng + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use alloy::primitives::address;
     use rand_chacha::{ChaChaRng, rand_core::SeedableRng};
     use tracing_test::traced_test;
@@ -101,7 +103,10 @@ mod tests {
     use super::*;
     use crate::{
         crypto::keys::SpendingKey,
-        railgun::note::utxo::{UtxoNote, UtxoType},
+        railgun::{
+            note::utxo::{UtxoNote, UtxoType},
+            signer::{PrivateKeySigner, Signer},
+        },
     };
 
     #[test]
@@ -115,11 +120,9 @@ mod tests {
         // Receiver keys
         let receiver_spending_key = SpendingKey::from_bytes([3u8; 32]);
         let receiver_viewing_key = ViewingKey::from_bytes([4u8; 32]);
-        let receiver = RailgunAddress::from_private_keys(
-            receiver_spending_key,
-            receiver_viewing_key,
-            chain_id,
-        );
+        let receiver =
+            PrivateKeySigner::new_evm(receiver_spending_key, receiver_viewing_key, chain_id)
+                .address();
 
         let shared_random = [5u8; 16];
         let value = 1000u128;
@@ -153,11 +156,9 @@ mod tests {
         // Receiver keys
         let receiver_spending_key = SpendingKey::from_bytes([3u8; 32]);
         let receiver_viewing_key = ViewingKey::from_bytes([4u8; 32]);
-        let receiver = RailgunAddress::from_private_keys(
-            receiver_spending_key,
-            receiver_viewing_key,
-            chain_id,
-        );
+        let signer =
+            PrivateKeySigner::new_evm(receiver_spending_key, receiver_viewing_key, chain_id);
+        let receiver = signer.address();
 
         let shared_random = [5u8; 16];
         let value = 1000u128;
@@ -177,23 +178,14 @@ mod tests {
         .unwrap();
 
         // Receiver decrypts with their own keys
-        let decrypted = UtxoNote::decrypt(
-            receiver_spending_key,
-            receiver_viewing_key,
-            1,
-            0,
-            &encrypted,
-        )
-        .unwrap();
-
+        let decrypted = UtxoNote::decrypt(signer.clone(), 1, 0, &encrypted).unwrap();
         let expected = UtxoNote::new(
-            receiver_spending_key,
-            receiver_viewing_key,
             1,
             0,
+            signer,
             asset,
             value,
-            &shared_random,
+            shared_random,
             memo,
             UtxoType::Transact,
         );

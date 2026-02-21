@@ -1,19 +1,18 @@
 use std::collections::BTreeMap;
 
 use ruint::aliases::U256;
-use serde::{Deserialize, Serialize};
 
 use crate::railgun::note::{IncludedNote, utxo::UtxoNote};
 
 /// A Notebook holds a collection of spent and unspent notes for a Railgun account,
 /// on a single tree.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default)]
 pub struct Notebook {
     pub unspent: BTreeMap<u32, UtxoNote>,
-    pub spent: BTreeMap<u32, UtxoNote>,
+    pub spent: BTreeMap<u32, SpentNote>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct SpentNote {
     inner: UtxoNote,
 }
@@ -30,7 +29,7 @@ impl Notebook {
         &self.unspent
     }
 
-    pub fn spent(&self) -> &BTreeMap<u32, UtxoNote> {
+    pub fn spent(&self) -> &BTreeMap<u32, SpentNote> {
         &self.spent
     }
 
@@ -42,7 +41,7 @@ impl Notebook {
         }
 
         for (note_position, note) in &self.spent {
-            all_notes.insert(*note_position, note.clone());
+            all_notes.insert(*note_position, note.inner.clone());
         }
 
         all_notes
@@ -67,7 +66,7 @@ impl Notebook {
         let note = self.unspent.remove(&leaf_index).unwrap();
 
         let spent_note = SpentNote { inner: note };
-        self.spent.insert(leaf_index, spent_note.inner.clone());
+        self.spent.insert(leaf_index, spent_note.clone());
         Some(spent_note)
     }
 }

@@ -8,7 +8,7 @@ use crate::{
     circuit_inputs,
     railgun::{
         merkle_tree::{MerkleRoot, MerkleTreeError, UtxoMerkleTree},
-        note::{IncludedNote, Note},
+        note::{IncludedNote, Note, SignableNote},
     },
 };
 
@@ -42,7 +42,7 @@ pub enum TransactCircuitInputsError {
 }
 
 impl TransactCircuitInputs {
-    pub fn from_inputs<N: IncludedNote>(
+    pub fn from_inputs<N: IncludedNote + SignableNote>(
         merkle_tree: &UtxoMerkleTree,
         bound_params_hash: U256,
         notes_in: &[N],

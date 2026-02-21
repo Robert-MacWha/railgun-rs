@@ -1,3 +1,5 @@
+use std::{fmt::Debug, sync::Arc};
+
 use ruint::aliases::U256;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -8,36 +10,43 @@ use crate::{
     crypto::{
         aes::{AesError, Ciphertext},
         keys::{
-            BlindedKey, ByteKey, KeyError, MasterPublicKey, SpendingKey, U256Key, ViewingKey,
+            BlindedKey, ByteKey, KeyError, MasterPublicKey, SpendingPublicKey, U256Key,
             ViewingPublicKey,
         },
         poseidon::poseidon_hash,
     },
     railgun::{
         merkle_tree::UtxoLeafHash,
-        note::{IncludedNote, Note},
+        note::{IncludedNote, Note, SignableNote},
         poi::BlindedCommitmentType,
+        signer::{Signer, SpendingKeyProvider, ViewingKeyProvider},
     },
 };
 
-/// Note represents a Railgun from the chain.
-///
-/// TODO: Pre-compute all the note's hashes at creation / decryption and
-/// store as fields.  Saves compute and makes error handling easier.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UtxoNote {
-    spending_key: SpendingKey,
-    viewing_key: ViewingKey,
+/// Railgun UTXO note
+#[derive(Clone, Serialize, Deserialize)]
+pub struct UtxoNote<S = Arc<dyn Signer>> {
     tree_number: u32,
     leaf_index: u32,
+    spending_pubkey: SpendingPublicKey,
+    viewing_pubkey: ViewingPublicKey,
+
     random: [u8; 16],
     value: u128,
     asset: AssetId,
     memo: String,
     type_: UtxoType,
+
+    hash: UtxoLeafHash,
+    npk: U256,
+    nullifying_key: U256,
+    blinded_commitment: U256,
+
+    #[serde(skip)]
+    signer: S,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UtxoType {
     Shield,
     Transact,
@@ -53,41 +62,51 @@ pub enum NoteError {
     Key(#[from] KeyError),
 }
 
-impl UtxoNote {
+impl UtxoNote<Arc<dyn Signer>> {
     pub fn new(
-        spending_key: SpendingKey,
-        viewing_key: ViewingKey,
         tree_number: u32,
         leaf_index: u32,
+        signer: Arc<dyn Signer>,
         asset: AssetId,
         value: u128,
-        random: &[u8; 16],
+        random: [u8; 16],
         memo: &str,
         type_: UtxoType,
     ) -> Self {
+        let note_hash = note_hash(signer.as_ref(), signer.as_ref(), asset, value, &random);
+        let npk = note_public_key(signer.as_ref(), signer.as_ref(), &random);
+        let nullifying_key = nullifying_key(signer.as_ref());
+        let blinded_commitment = blinded_commitment(note_hash.into(), npk, tree_number, leaf_index);
+
         UtxoNote {
-            spending_key,
-            viewing_key,
             tree_number,
             leaf_index,
-            random: *random,
-            value,
+            spending_pubkey: signer.as_ref().spending_key().public_key(),
+            viewing_pubkey: signer.as_ref().viewing_key().public_key(),
             asset,
+            value,
+            random,
             memo: memo.to_string(),
             type_,
+            hash: note_hash,
+            npk,
+            nullifying_key,
+            blinded_commitment,
+            signer,
         }
     }
 
     /// Decrypt a note
     pub fn decrypt(
-        spending_key: SpendingKey,
-        viewing_key: ViewingKey,
+        signer: Arc<dyn Signer>,
         tree_number: u32,
         leaf_index: u32,
         encrypted: &CommitmentCiphertext,
-    ) -> Result<UtxoNote, NoteError> {
+    ) -> Result<Self, NoteError> {
         let blinded_sender = BlindedKey::from_bytes(encrypted.blindedSenderViewingKey.into());
-        let shared_key = viewing_key.derive_shared_key_blinded(blinded_sender)?;
+        let shared_key = signer
+            .viewing_key()
+            .derive_shared_key_blinded(blinded_sender)?;
 
         let data: Vec<Vec<u8>> = vec![
             encrypted.ciphertext[1].to_vec(),
@@ -127,13 +146,12 @@ impl UtxoNote {
         };
 
         Ok(UtxoNote::new(
-            spending_key,
-            viewing_key,
             tree_number,
             leaf_index,
+            signer,
             asset_id,
             value,
-            &random,
+            random,
             memo,
             UtxoType::Transact,
         ))
@@ -141,12 +159,11 @@ impl UtxoNote {
 
     /// Decrypts a shield note into a Note
     pub fn decrypt_shield_request(
-        spending_key: SpendingKey,
-        viewing_key: ViewingKey,
+        signer: Arc<dyn Signer>,
         tree_number: u32,
         leaf_index: u32,
         req: ShieldRequest,
-    ) -> Result<UtxoNote, NoteError> {
+    ) -> Result<Self, NoteError> {
         let encrypted_bundle: [[u8; 32]; 3] = [
             req.ciphertext.encryptedBundle[0].into(),
             req.ciphertext.encryptedBundle[1].into(),
@@ -154,7 +171,7 @@ impl UtxoNote {
         ];
 
         let shield_key = ViewingPublicKey::from_bytes(req.ciphertext.shieldKey.into());
-        let shared_key = viewing_key.derive_shared_key(shield_key)?;
+        let shared_key = signer.viewing_key().derive_shared_key(shield_key)?;
 
         let mut iv = [0u8; 16];
         let mut tag = [0u8; 16];
@@ -168,24 +185,45 @@ impl UtxoNote {
         };
         let decrypted = shared_key.decrypt_gcm(&ciphertext)?;
 
+        let asset_id = AssetId::from(req.preimage.token.clone());
+        let value = req.preimage.value.saturating_to();
+
         let mut random = [0u8; 16];
         random.copy_from_slice(&decrypted[0][..16]);
 
         Ok(UtxoNote::new(
-            spending_key,
-            viewing_key,
             tree_number,
             leaf_index,
-            req.preimage.token.clone().into(),
-            req.preimage.value.saturating_to(),
-            &random,
+            signer,
+            asset_id,
+            value,
+            random,
             "",
             UtxoType::Shield,
         ))
     }
+
+    pub fn without_signer(&self) -> UtxoNote<()> {
+        UtxoNote {
+            tree_number: self.tree_number,
+            leaf_index: self.leaf_index,
+            spending_pubkey: self.spending_pubkey,
+            viewing_pubkey: self.viewing_pubkey,
+            asset: self.asset,
+            value: self.value,
+            random: self.random,
+            memo: self.memo.clone(),
+            type_: self.type_,
+            hash: self.hash,
+            npk: self.npk,
+            nullifying_key: self.nullifying_key,
+            blinded_commitment: self.blinded_commitment,
+            signer: (),
+        }
+    }
 }
 
-impl Note for UtxoNote {
+impl<S> Note for UtxoNote<S> {
     fn asset(&self) -> AssetId {
         self.asset
     }
@@ -199,26 +237,15 @@ impl Note for UtxoNote {
     }
 
     fn hash(&self) -> UtxoLeafHash {
-        poseidon_hash(&[
-            self.note_public_key(),
-            self.asset.hash(),
-            U256::from(self.value),
-        ])
-        .unwrap()
-        .into()
+        self.hash
     }
 
     fn note_public_key(&self) -> U256 {
-        let master_key = MasterPublicKey::new(
-            self.spending_key.public_key(),
-            self.viewing_key.nullifying_key(),
-        );
-
-        poseidon_hash(&[master_key.to_u256(), U256::from_be_slice(&self.random)]).unwrap()
+        self.npk
     }
 }
 
-impl IncludedNote for UtxoNote {
+impl<S> IncludedNote for UtxoNote<S> {
     fn tree_number(&self) -> u32 {
         self.tree_number
     }
@@ -228,74 +255,91 @@ impl IncludedNote for UtxoNote {
     }
 
     fn viewing_pubkey(&self) -> ViewingPublicKey {
-        self.viewing_key.public_key()
+        self.viewing_pubkey
     }
 
     /// Returns the note's nullifier for a given leaf index
     ///
     /// Hash of (nullifying_key, leaf_index)
     fn nullifier(&self, leaf_index: U256) -> U256 {
-        poseidon_hash(&[self.nullifying_key(), leaf_index]).unwrap()
-    }
-
-    /// Returns the note's spending public key
-    fn spending_pubkey(&self) -> [U256; 2] {
-        let pubkey = self.spending_key.public_key();
-        [pubkey.x_u256(), pubkey.y_u256()]
-    }
-
-    fn sign(&self, inputs: &[U256]) -> [U256; 3] {
-        let sig_hash = poseidon_hash(inputs).unwrap();
-        let signature = self.spending_key.sign(sig_hash);
-        [signature.r8_x, signature.r8_y, signature.s]
-    }
-
-    /// Returns the note's nullifying key
-    ///
-    /// Hash of (viewing_private_key)
-    fn nullifying_key(&self) -> U256 {
-        poseidon_hash(&[self.viewing_key.to_u256()]).unwrap()
+        poseidon_hash(&[self.nullifying_key, leaf_index]).unwrap()
     }
 
     fn random(&self) -> [u8; 16] {
         self.random
     }
-}
 
-impl UtxoNote {
-    pub fn utxo_type(&self) -> UtxoType {
-        self.type_.clone()
+    fn spending_pubkey(&self) -> [U256; 2] {
+        [self.spending_pubkey.x_u256(), self.spending_pubkey.y_u256()]
     }
 
-    pub fn blinded_commitment(&self) -> U256 {
-        poseidon_hash(&[
-            self.hash().into(),
-            self.note_public_key(),
-            U256::from((self.tree_number as u128) * 65536 + (self.leaf_index as u128)),
-        ])
-        .unwrap()
+    fn nullifying_key(&self) -> U256 {
+        self.nullifying_key
+    }
+
+    fn blinded_commitment(&self) -> U256 {
+        self.blinded_commitment
     }
 }
 
-#[cfg(test)]
-impl UtxoNote {
-    /// Creates a test note with fixed parameters
-    pub fn new_test_note(spending_key: SpendingKey, viewing_key: ViewingKey) -> Self {
-        UtxoNote::new(
-            spending_key,
-            viewing_key,
-            1,
-            0,
-            AssetId::Erc20(alloy::primitives::address!(
-                "0x1234567890123456789012345678901234567890"
-            )),
-            100u128,
-            &[3u8; 16],
-            "test memo",
-            UtxoType::Transact,
-        )
+impl SignableNote for UtxoNote<Arc<dyn Signer>> {
+    fn sign(&self, inputs: &[U256]) -> [U256; 3] {
+        let sig_hash = poseidon_hash(inputs).unwrap();
+        let signature = self.signer.sign(sig_hash);
+        [signature.r8_x, signature.r8_y, signature.s]
     }
 }
+
+impl Debug for UtxoNote<()> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UtxoNote")
+            .field("tree_number", &self.tree_number)
+            .field("leaf_index", &self.leaf_index)
+            .field("asset", &self.asset)
+            .field("value", &self.value)
+            .field("random", &self.random)
+            .field("memo", &self.memo)
+            .field("type_", &self.type_)
+            .finish()
+    }
+}
+
+impl PartialEq for UtxoNote<()> {
+    fn eq(&self, other: &Self) -> bool {
+        self.tree_number == other.tree_number
+            && self.leaf_index == other.leaf_index
+            && self.hash == other.hash
+    }
+}
+
+impl Eq for UtxoNote<()> {}
+
+impl Debug for UtxoNote<Arc<dyn Signer>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignableUtxoNote")
+            .field("signer", &self.signer.address())
+            .field("tree_number", &self.tree_number)
+            .field("leaf_index", &self.leaf_index)
+            .field("asset", &self.asset)
+            .field("value", &self.value)
+            .field("random", &self.random)
+            .field("memo", &self.memo)
+            .field("type", &self.type_)
+            .finish()
+    }
+}
+
+impl PartialEq for UtxoNote<Arc<dyn Signer>> {
+    fn eq(&self, other: &Self) -> bool {
+        self.tree_number == other.tree_number
+            && self.leaf_index == other.leaf_index
+            && self.hash == other.hash
+            && self.signer.viewing_key() == other.signer.viewing_key()
+            && self.signer.spending_key() == other.signer.spending_key()
+    }
+}
+
+impl Eq for UtxoNote<Arc<dyn Signer>> {}
 
 impl From<UtxoType> for BlindedCommitmentType {
     fn from(utxo_type: UtxoType) -> Self {
@@ -304,6 +348,79 @@ impl From<UtxoType> for BlindedCommitmentType {
             UtxoType::Transact => BlindedCommitmentType::Transact,
         }
     }
+}
+
+fn note_hash(
+    sk: &dyn SpendingKeyProvider,
+    vk: &dyn ViewingKeyProvider,
+    asset: AssetId,
+    value: u128,
+    random: &[u8; 16],
+) -> UtxoLeafHash {
+    poseidon_hash(&[
+        note_public_key(sk, vk, random),
+        asset.hash(),
+        U256::from(value),
+    ])
+    .unwrap()
+    .into()
+}
+
+fn note_public_key(
+    sk: &dyn SpendingKeyProvider,
+    vk: &dyn ViewingKeyProvider,
+    random: &[u8; 16],
+) -> U256 {
+    let master_key = MasterPublicKey::new(
+        sk.spending_key().public_key(),
+        vk.viewing_key().nullifying_key(),
+    );
+
+    poseidon_hash(&[master_key.to_u256(), U256::from_be_slice(random)]).unwrap()
+}
+
+fn spending_pubkey(sk: &dyn SpendingKeyProvider) -> [U256; 2] {
+    let pubkey = sk.spending_key().public_key();
+    [pubkey.x_u256(), pubkey.y_u256()]
+}
+
+fn nullifying_key(vk: &dyn ViewingKeyProvider) -> U256 {
+    poseidon_hash(&[vk.viewing_key().to_u256()]).unwrap()
+}
+
+fn blinded_commitment(hash: U256, npk: U256, tree_number: u32, leaf_index: u32) -> U256 {
+    poseidon_hash(&[
+        hash,
+        npk,
+        U256::from((tree_number as u128) * 65536 + (leaf_index as u128)),
+    ])
+    .unwrap()
+}
+
+#[cfg(test)]
+pub fn test_note() -> UtxoNote<Arc<dyn Signer>> {
+    use crate::{
+        crypto::keys::{SpendingKey, ViewingKey},
+        railgun::signer::PrivateKeySigner,
+    };
+
+    let signer = PrivateKeySigner::new_evm(
+        SpendingKey::from_bytes([1u8; 32]),
+        ViewingKey::from_bytes([2u8; 32]),
+        1,
+    );
+    UtxoNote::new(
+        1,
+        0,
+        signer,
+        AssetId::Erc20(alloy::primitives::address!(
+            "0x1234567890123456789012345678901234567890"
+        )),
+        100u128,
+        [3u8; 16],
+        "test memo",
+        UtxoType::Transact,
+    )
 }
 
 #[cfg(test)]
@@ -366,12 +483,5 @@ mod tests {
         let pub_key = note.note_public_key();
 
         insta::assert_debug_snapshot!(pub_key);
-    }
-
-    fn test_note() -> UtxoNote {
-        UtxoNote::new_test_note(
-            SpendingKey::from_bytes([1u8; 32]),
-            ViewingKey::from_bytes([2u8; 32]),
-        )
     }
 }

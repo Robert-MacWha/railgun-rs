@@ -16,7 +16,7 @@ use crate::{
             UtxoIndexer, UtxoIndexerState,
             syncer::{ChainedSyncer, NoteSyncer, RpcSyncer, SubsquidSyncer},
         },
-        merkle_tree::{MerkleRoot, MerkleTreeVerifier, VerificationError},
+        merkle_tree::{MerkleRoot, MerkleTreeVerifier},
     },
     wasm::JsRailgunAccount,
 };

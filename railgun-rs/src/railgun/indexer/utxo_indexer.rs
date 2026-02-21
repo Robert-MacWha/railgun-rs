@@ -12,26 +12,29 @@ use tracing::info;
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
-    account::RailgunAccount,
     caip::AssetId,
-    chain_config::ChainConfig,
     crypto::poseidon::poseidon_hash,
     railgun::{
         address::RailgunAddress,
         indexer::{
             indexed_account::IndexedAccount,
-            syncer::{NoteSyncer, SyncEvent},
+            syncer::{LegacyCommitment, NoteSyncer, SyncEvent},
         },
         merkle_tree::{
             MerkleTreeState, MerkleTreeVerifier, TOTAL_LEAVES, UtxoLeafHash, UtxoMerkleTree,
             VerificationError,
         },
         note::utxo::{NoteError, UtxoNote},
+        signer::Signer,
     },
 };
 
 /// Utxo indexer that maintains the set of UTXO merkle trees and tracks accounts
 /// and account notes / balances.
+///
+/// While accounts are not persisted, matched events are. This allows the indexer
+/// to rebuild account state for previously synced accounts when they are re-added
+/// after a restart.
 pub struct UtxoIndexer {
     pub utxo_trees: BTreeMap<u32, UtxoMerkleTree>,
     pub synced_block: u64,
@@ -40,13 +43,14 @@ pub struct UtxoIndexer {
     utxo_verifier: Arc<dyn MerkleTreeVerifier>,
 
     accounts: Vec<IndexedAccount>,
+    matched_events: Vec<SyncEvent>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct UtxoIndexerState {
     pub utxo_trees: BTreeMap<u32, MerkleTreeState>,
     pub synced_block: u64,
-    pub accounts: Vec<IndexedAccount>,
+    pub matched_events: Vec<SyncEvent>,
 }
 
 #[derive(Debug, Error)]
@@ -70,6 +74,7 @@ impl UtxoIndexer {
             utxo_syncer,
             utxo_verifier,
             accounts: vec![],
+            matched_events: vec![],
         }
     }
 
@@ -92,6 +97,7 @@ impl UtxoIndexer {
             utxo_syncer,
             utxo_verifier,
             accounts: vec![],
+            matched_events: state.matched_events,
         }
     }
 
@@ -105,7 +111,7 @@ impl UtxoIndexer {
         UtxoIndexerState {
             utxo_trees,
             synced_block: self.synced_block,
-            accounts: self.accounts.clone(),
+            matched_events: self.matched_events.clone(),
         }
     }
 
@@ -115,15 +121,29 @@ impl UtxoIndexer {
 
     /// Adds an account to the indexer. The indexer will track the balance and
     /// transactions for this account as it syncs.
+    pub fn add_account(&mut self, signer: Arc<dyn Signer>) {
+        let account = IndexedAccount::new(signer.clone());
+        self.accounts.push(account);
+
+        //? Replay matched events to populate account state
+        for event in self.matched_events.clone() {
+            if let Err(e) = self.handle_event(&event) {
+                tracing::error!("Error handling event for new account: {}", e);
+            }
+        }
+    }
+
+    /// Adds an account to the indexer and immediately resync to populate its state.
     ///
-    /// NOTE: This does not trigger a resync, so it should be called before the
-    /// first sync.
-    ///
-    /// NOTE: Because accounts contain private key material, the indexer
-    /// does not persist them. If an indexer is initialized from a saved states,
-    /// accounts will need to be re-added before continuing to sync.
-    pub fn add_account(&mut self, account: &RailgunAccount) {
-        self.accounts.push(account.into());
+    /// Resyncing is necessary to initially populate an account's state. Resyncing
+    /// can be skipped if an account is being added after a restart, since matched
+    /// events are persisted and will be replayed to populate the account's state.
+    pub async fn add_account_and_resync(
+        &mut self,
+        signer: Arc<dyn Signer>,
+        from_block: Option<u64>,
+    ) -> Result<(), UtxoIndexerError> {
+        todo!()
     }
 
     /// Returns a list of unspent notes for a given address
@@ -186,11 +206,9 @@ impl UtxoIndexer {
             .map_err(UtxoIndexerError::SyncerError)?;
 
         while let Some(event) = stream.next().await {
-            match event {
-                SyncEvent::Shield(shield, block) => self.handle_shield(&shield, block)?,
-                SyncEvent::Transact(transact, block) => self.handle_transact(&transact, block)?,
-                SyncEvent::Nullified(nullified, block) => self.handle_nullified(&nullified, block),
-                SyncEvent::Legacy(legacy, block) => self.handle_legacy(legacy, block),
+            let matched = self.handle_event(&event)?;
+            if matched {
+                self.matched_events.push(event);
             }
         }
 
@@ -206,11 +224,23 @@ impl UtxoIndexer {
         Ok(())
     }
 
+    /// Handles a sync event. Returns true if the event was matched to any account.
+    fn handle_event(&mut self, event: &SyncEvent) -> Result<bool, UtxoIndexerError> {
+        let matched = match event {
+            SyncEvent::Shield(shield, _) => self.handle_shield(shield)?,
+            SyncEvent::Transact(transact, _) => self.handle_transact(transact)?,
+            SyncEvent::Nullified(nullified, ts) => self.handle_nullified(nullified, *ts),
+            SyncEvent::Legacy(legacy, _) => self.handle_legacy(legacy),
+        };
+
+        Ok(matched)
+    }
+
+    /// Handles a shield event. Returns true if the event was matched to any account.
     fn handle_shield(
         &mut self,
         event: &RailgunSmartWallet::Shield,
-        block_number: u64,
-    ) -> Result<(), UtxoIndexerError> {
+    ) -> Result<bool, UtxoIndexerError> {
         let leaves: Vec<UtxoLeafHash> = event
             .commitments
             .iter()
@@ -232,18 +262,19 @@ impl UtxoIndexer {
             self.utxo_verifier.clone(),
         );
 
+        let mut matched = false;
         for account in self.accounts.iter_mut() {
-            account.handle_shield_event(event, block_number)?;
+            matched |= account.handle_shield_event(event)?;
         }
 
-        Ok(())
+        Ok(matched)
     }
 
+    /// Handles a transact event. Returns true if the event was matched to any account.
     fn handle_transact(
         &mut self,
         event: &RailgunSmartWallet::Transact,
-        block_number: u64,
-    ) -> Result<(), UtxoIndexerError> {
+    ) -> Result<bool, UtxoIndexerError> {
         let leaves: Vec<UtxoLeafHash> = event
             .hash
             .iter()
@@ -258,24 +289,25 @@ impl UtxoIndexer {
             self.utxo_verifier.clone(),
         );
 
+        let mut matched = false;
         for account in self.accounts.iter_mut() {
-            account.handle_transact_event(event, block_number)?;
+            matched |= account.handle_transact_event(event)?;
         }
 
-        Ok(())
+        Ok(matched)
     }
 
-    fn handle_nullified(&mut self, event: &RailgunSmartWallet::Nullified, timestamp: u64) {
+    /// Handles a nullified event. Returns true if the event was matched to any account.
+    fn handle_nullified(&mut self, event: &RailgunSmartWallet::Nullified, timestamp: u64) -> bool {
+        let mut matched = false;
         for account in self.accounts.iter_mut() {
-            account.handle_nullified_event(event, timestamp);
+            matched |= account.handle_nullified_event(event, timestamp);
         }
+        matched
     }
 
-    fn handle_legacy(
-        &mut self,
-        event: crate::railgun::indexer::syncer::LegacyCommitment,
-        _block_number: u64,
-    ) {
+    /// Handles a legacy commitment event. Returns true if the event was matched to any account.
+    fn handle_legacy(&mut self, event: &LegacyCommitment) -> bool {
         insert_utxo_leaves(
             &mut self.utxo_trees,
             event.tree_number,
@@ -285,6 +317,7 @@ impl UtxoIndexer {
         );
 
         // TODO: Handle legacy events for accounts.
+        false
     }
 
     async fn verify(&self) -> Result<(), VerificationError> {

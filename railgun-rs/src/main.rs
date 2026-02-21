@@ -11,7 +11,6 @@ use alloy::{
 use async_trait::async_trait;
 use railgun_rs::{
     abis::erc20::ERC20,
-    account::RailgunAccount,
     caip::AssetId,
     chain_config::{ChainConfig, SEPOLIA_CONFIG},
     circuit::native::Groth16Prover,
@@ -24,7 +23,8 @@ use railgun_rs::{
         indexer::{UtxoIndexer, syncer},
         merkle_tree::SmartWalletUtxoVerifier,
         poi::PoiClient,
-        transaction::{TransactionBuilder, PoiProvedTransaction},
+        signer::Signer,
+        transaction::{PoiProvedTransaction, TransactionBuilder},
     },
 };
 use rand::{Rng, SeedableRng};
@@ -65,9 +65,18 @@ async fn main() {
 
     let spending_key = SpendingKey::from_hex(&spending_key).unwrap();
     let viewing_key = ViewingKey::from_hex(&viewing_key).unwrap();
-    let account1 = RailgunAccount::new(spending_key, viewing_key, CHAIN.id);
-    let account2 = RailgunAccount::new(rand.random(), rand.random(), CHAIN.id);
-    let account3 = RailgunAccount::new(rand.random(), rand.random(), CHAIN.id);
+    let account1 =
+        railgun_rs::railgun::signer::PrivateKeySigner::new_evm(spending_key, viewing_key, CHAIN.id);
+    let account2 = railgun_rs::railgun::signer::PrivateKeySigner::new_evm(
+        rand.random(),
+        rand.random(),
+        CHAIN.id,
+    );
+    let account3 = railgun_rs::railgun::signer::PrivateKeySigner::new_evm(
+        rand.random(),
+        rand.random(),
+        CHAIN.id,
+    );
 
     info!("Account 1: {}", account1.address());
     info!("Account 2: {}", account2.address());
@@ -88,7 +97,7 @@ async fn main() {
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
     let mut indexer = UtxoIndexer::from_state(chained, smart_wallet_verifier, indexer_state);
     // let mut indexer = UtxoIndexer::new(chained, smart_wallet_verifier);
-    indexer.add_account(&account1);
+    indexer.add_account(account1.clone());
 
     info!("Syncing indexer");
     indexer.sync().await.unwrap();

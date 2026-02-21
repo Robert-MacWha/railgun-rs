@@ -1,12 +1,13 @@
-use std::collections::{BTreeMap, HashMap};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use ruint::aliases::U256;
-use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 use crate::{
     abis::railgun::{RailgunSmartWallet, ShieldRequest},
-    account::RailgunAccount,
     caip::AssetId,
     railgun::{
         address::RailgunAddress,
@@ -16,33 +17,31 @@ use crate::{
             Note,
             utxo::{NoteError, UtxoNote},
         },
+        signer::Signer,
     },
 };
 
 /// IndexerAccount represents a Railgun account being tracked by the indexer.
 ///
-/// The indexer will use the held keys to decrypt notes from shield and transact events,
-/// storing them in the notebook for reference.
-#[derive(Clone, Serialize, Deserialize)]
+/// The indexer will use the contained signer to decrypt notes and track the
+/// account's balance and UTXOs.
 pub struct IndexedAccount {
-    inner: RailgunAccount,
+    signer: Arc<dyn Signer>,
 
     /// The latest block number that has been processed for this account
-    synced_block: u64,
     notebooks: BTreeMap<u32, Notebook>,
 }
 
 impl IndexedAccount {
-    pub fn new(inner: RailgunAccount) -> Self {
+    pub fn new(signer: Arc<dyn Signer>) -> Self {
         IndexedAccount {
-            inner,
-            synced_block: 0,
+            signer,
             notebooks: BTreeMap::new(),
         }
     }
 
     pub fn address(&self) -> RailgunAddress {
-        self.inner.address()
+        self.signer.address()
     }
 
     pub fn notebooks(&self) -> BTreeMap<u32, Notebook> {
@@ -78,14 +77,15 @@ impl IndexedAccount {
         balances
     }
 
+    /// Handles a Shield event for this account. Returns true if any new notes were added.
     pub fn handle_shield_event(
         &mut self,
         event: &RailgunSmartWallet::Shield,
-        block_number: u64,
-    ) -> Result<(), NoteError> {
+    ) -> Result<bool, NoteError> {
         let tree_number: u32 = event.treeNumber.saturating_to();
         let start_position: u32 = event.startPosition.saturating_to();
 
+        let mut added = false;
         for (index, ciphertext) in event.shieldCiphertext.iter().enumerate() {
             let shield_request = ShieldRequest {
                 preimage: event.commitments[index].clone(),
@@ -104,8 +104,7 @@ impl IndexedAccount {
             };
 
             let note = UtxoNote::decrypt_shield_request(
-                self.inner.spending_key(),
-                self.inner.viewing_key(),
+                self.signer.clone(),
                 tree_number,
                 leaf_index,
                 shield_request,
@@ -126,30 +125,30 @@ impl IndexedAccount {
             };
 
             info!(
-                "Decrypted Shield Note: index={}, value={}, asset={:?}, account={}",
+                "Decrypted Shield Note: index={}, value={}, asset={}",
                 index,
                 note.value(),
                 note.asset(),
-                self.inner.address()
             );
             self.notebooks
                 .entry(tree_number)
                 .or_default()
                 .add(leaf_index, note);
+            added = true;
         }
 
-        self.synced_block = self.synced_block.max(block_number);
-        Ok(())
+        Ok(added)
     }
 
+    /// Handles a Transact event for this account. Returns true if any new notes were added.
     pub fn handle_transact_event(
         &mut self,
         event: &RailgunSmartWallet::Transact,
-        block_number: u64,
-    ) -> Result<(), NoteError> {
+    ) -> Result<bool, NoteError> {
         let tree_number: u32 = event.treeNumber.saturating_to();
         let start_position: u32 = event.startPosition.saturating_to();
 
+        let mut added = false;
         for (index, ciphertext) in event.ciphertext.iter().enumerate() {
             let is_crossing_tree = start_position as usize + index >= TOTAL_LEAVES;
             let index = index as u32;
@@ -162,13 +161,7 @@ impl IndexedAccount {
                 (tree_number, start_position + index)
             };
 
-            let note = UtxoNote::decrypt(
-                self.inner.spending_key(),
-                self.inner.viewing_key(),
-                tree_number,
-                leaf_index,
-                ciphertext,
-            );
+            let note = UtxoNote::decrypt(self.signer.clone(), tree_number, leaf_index, ciphertext);
 
             let note = match note {
                 Err(NoteError::Aes(_)) => continue,
@@ -183,7 +176,7 @@ impl IndexedAccount {
             };
 
             info!(
-                "Decrypted Transact Note: index={}, value={}, asset={:?}",
+                "Decrypted Transact Note: index={}, value={}, asset={}",
                 index,
                 note.value(),
                 note.asset()
@@ -192,30 +185,31 @@ impl IndexedAccount {
                 .entry(tree_number)
                 .or_default()
                 .add(leaf_index, note);
+            added = true;
         }
 
-        self.synced_block = self.synced_block.max(block_number);
-        Ok(())
+        Ok(added)
     }
 
+    /// Handles a nullified event for this account. Returns true if any notes were nullified.
     pub fn handle_nullified_event(
         &mut self,
         event: &RailgunSmartWallet::Nullified,
         timestamp: u64,
-    ) {
+    ) -> bool {
         let tree_number: u32 = event.treeNumber as u32;
 
+        let mut matched = false;
         for nullifier in event.nullifier.iter() {
-            self.notebooks
+            let spent = self
+                .notebooks
                 .entry(tree_number)
                 .or_default()
                 .nullify(U256::from_be_bytes(**nullifier), timestamp);
-        }
-    }
-}
 
-impl From<&RailgunAccount> for IndexedAccount {
-    fn from(account: &RailgunAccount) -> Self {
-        IndexedAccount::new(account.clone())
+            matched |= spent.is_some();
+        }
+
+        matched
     }
 }

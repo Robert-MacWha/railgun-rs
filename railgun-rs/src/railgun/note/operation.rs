@@ -1,14 +1,16 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::Arc};
 
 use ruint::aliases::U256;
 use thiserror::Error;
 
 use crate::{
-    account::RailgunAccount,
     caip::AssetId,
     railgun::{
-        note::{EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote},
+        note::{
+            EncryptableNote, Note, transfer::TransferNote, unshield::UnshieldNote, utxo::UtxoNote,
+        },
         poi::PoiNote,
+        signer::Signer,
     },
 };
 
@@ -34,7 +36,7 @@ pub struct Operation<N> {
     pub utxo_tree_number: u32,
 
     /// The holder of the assets being spent.
-    pub from: RailgunAccount,
+    pub from: Arc<dyn Signer>,
 
     /// The asset this operation is spending.
     pub asset: AssetId,
@@ -66,7 +68,7 @@ impl<N: Note> Operation<N> {
     /// - notes_out.len() + unshield_note.is_some() <= 13
     pub fn new(
         tree_number: u32,
-        from: RailgunAccount,
+        from: Arc<dyn Signer>,
         asset: AssetId,
         in_notes: Vec<N>,
         out_notes: Vec<TransferNote>,
@@ -84,7 +86,7 @@ impl<N: Note> Operation<N> {
         }
     }
 
-    pub fn new_empty(tree_number: u32, from: RailgunAccount, asset: AssetId) -> Self {
+    pub fn new_empty(tree_number: u32, from: Arc<dyn Signer>, asset: AssetId) -> Self {
         Operation {
             utxo_tree_number: tree_number,
             from,
@@ -217,20 +219,23 @@ impl<N: Note> Display for Operation<N> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use alloy::primitives::address;
-    use rand::random;
     use tracing_test::traced_test;
 
     use crate::{
-        account::RailgunAccount,
         caip::AssetId,
         crypto::keys::{ByteKey, SpendingKey, ViewingKey},
-        railgun::note::{
-            Note,
-            operation::{self},
-            transfer::TransferNote,
-            unshield::UnshieldNote,
-            utxo::UtxoNote,
+        railgun::{
+            note::{
+                Note,
+                operation::{self},
+                transfer::TransferNote,
+                unshield::UnshieldNote,
+                utxo::test_note,
+            },
+            signer::{PrivateKeySigner, Signer},
         },
     };
 
@@ -238,13 +243,13 @@ mod tests {
     #[test]
     #[traced_test]
     fn test_operation_ordering() {
-        let from_account = RailgunAccount::new(
+        let from_account = PrivateKeySigner::new_evm(
             SpendingKey::from_bytes([1u8; 32]),
             ViewingKey::from_bytes([2u8; 32]),
             1,
         );
 
-        let in_note = UtxoNote::new_test_note(random(), random());
+        let in_note = test_note();
         let fee_note = TransferNote::new(
             ViewingKey::from_bytes([3u8; 32]),
             from_account.address(),

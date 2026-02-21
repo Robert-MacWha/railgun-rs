@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ruint::aliases::U256;
+use serde::{Deserialize, Serialize};
 
 use crate::railgun::merkle_tree::{
     MerkleProof, MerkleRoot, MerkleTree, MerkleTreeError, MerkleTreeState, MerkleTreeVerifier,
@@ -14,7 +15,7 @@ pub struct UtxoMerkleTree {
     verifier: Option<Arc<dyn MerkleTreeVerifier>>,
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 pub struct UtxoLeafHash(U256);
 
 impl UtxoMerkleTree {
