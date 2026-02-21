@@ -22,7 +22,7 @@
 - [ ] Implement a json-rpc txid syncer
   - Needs to do call trace, parsing logs by hand since each `transaction` is the group of all operations in a given block.
 - [ ] Refactor and tidy up
-
+- [ ] Seperate private key management into a seperate signer struct + trait, so we can stop passing private keys around everywhere.
 
 
 - Optimize performance / size

@@ -4,6 +4,7 @@ use curve25519_dalek::{EdwardsPoint, Scalar, edwards::CompressedEdwardsY};
 use ed25519_dalek::SigningKey;
 use rand::Rng;
 use ruint::aliases::U256;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256, Sha512};
 use thiserror::Error;
 
@@ -17,7 +18,7 @@ use crate::crypto::{
 /// Private key for signing transactions (BabyJubJub curve).
 #[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct SpendingKey([u8; 32]);
-#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Copy, Clone, Eq, PartialEq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct SpendingPublicKey {
     x: [u8; 32],
     y: [u8; 32],

@@ -9,7 +9,7 @@ use tracing::{info, warn};
 use crate::{
     abis::railgun::RailgunSmartWallet,
     chain_config::ChainConfig,
-    railgun::indexer::syncer::{SyncEvent, Syncer, compat::BoxedSyncStream},
+    railgun::indexer::syncer::{compat::BoxedSyncStream, syncer::{NoteSyncer, SyncEvent}},
     sleep::sleep,
 };
 
@@ -49,7 +49,7 @@ impl RpcSyncer {
 
 #[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
 #[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
-impl Syncer for RpcSyncer {
+impl NoteSyncer for RpcSyncer {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let block_number = self.provider.get_block_number().await?;
         Ok(block_number)

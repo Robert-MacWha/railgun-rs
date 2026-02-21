@@ -1,32 +1,50 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use alloy::{
     network::Ethereum,
     providers::{Provider, ProviderBuilder},
 };
+use async_trait::async_trait;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 
 use crate::{
     caip::AssetId,
-    chain_config::get_chain_config,
+    chain_config::{ChainConfig, get_chain_config},
     railgun::{
         address::RailgunAddress,
         indexer::{
-            indexer::{Indexer, IndexerState},
-            syncer::{ChainedSyncer, RpcSyncer, SubsquidSyncer, Syncer},
+            UtxoIndexer, UtxoIndexerState,
+            syncer::{ChainedSyncer, NoteSyncer, RpcSyncer, SubsquidSyncer},
         },
+        merkle_tree::{MerkleRoot, MerkleTreeVerifier, VerificationError},
     },
     wasm::JsRailgunAccount,
 };
 
+/// A no-op verifier used in WASM context where on-chain verification is unavailable.
+struct NoopVerifier;
+
+#[async_trait(?Send)]
+impl MerkleTreeVerifier for NoopVerifier {
+    async fn verify_root(
+        &self,
+        _tree_number: u32,
+        _tree_index: u64,
+        _root: MerkleRoot,
+    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(true)
+    }
+}
+
 #[wasm_bindgen]
 pub struct JsIndexer {
-    inner: Indexer,
+    inner: UtxoIndexer,
+    chain: ChainConfig,
 }
 
 #[wasm_bindgen]
 pub struct JsSyncer {
-    inner: Box<dyn Syncer>,
+    inner: Box<dyn NoteSyncer>,
 }
 
 #[wasm_bindgen]
@@ -82,19 +100,33 @@ impl JsIndexer {
         let chain = get_chain_config(chain_id)
             .ok_or_else(|| JsError::new(&format!("Unsupported chain ID: {}", chain_id)))?;
 
+        let syncer: Arc<dyn NoteSyncer> = Arc::from(syncer.inner);
+        let verifier: Arc<dyn MerkleTreeVerifier> = Arc::new(NoopVerifier);
+
         Ok(Self {
-            inner: Indexer::new(syncer.inner, chain),
+            inner: UtxoIndexer::new(syncer, verifier),
+            chain,
         })
     }
 
-    pub async fn from_state(syncer: JsSyncer, state: &[u8]) -> Result<Self, JsError> {
-        let state: IndexerState = bitcode::deserialize(state)
+    pub async fn from_state(
+        syncer: JsSyncer,
+        chain_id: u64,
+        state: &[u8],
+    ) -> Result<Self, JsError> {
+        let chain = get_chain_config(chain_id)
+            .ok_or_else(|| JsError::new(&format!("Unsupported chain ID: {}", chain_id)))?;
+
+        let state: UtxoIndexerState = bitcode::deserialize(state)
             .map_err(|e| JsError::new(&format!("Failed to deserialize state: {}", e)))?;
 
-        let inner = Indexer::from_state(syncer.inner, state)
-            .ok_or(JsError::new("Failed to initialize indexer from state"))?;
+        let syncer: Arc<dyn NoteSyncer> = Arc::from(syncer.inner);
+        let verifier: Arc<dyn MerkleTreeVerifier> = Arc::new(NoopVerifier);
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner: UtxoIndexer::from_state(syncer, verifier, state),
+            chain,
+        })
     }
 
     pub fn add_account(&mut self, account: &JsRailgunAccount) {
@@ -125,15 +157,15 @@ impl JsIndexer {
 }
 
 impl JsIndexer {
-    pub fn chain(&self) -> crate::chain_config::ChainConfig {
-        self.inner.chain()
+    pub fn chain(&self) -> ChainConfig {
+        self.chain
     }
 
-    pub fn inner_mut(&mut self) -> &mut Indexer {
+    pub fn inner_mut(&mut self) -> &mut UtxoIndexer {
         &mut self.inner
     }
 
-    pub fn inner(&self) -> &Indexer {
+    pub fn inner(&self) -> &UtxoIndexer {
         &self.inner
     }
 }

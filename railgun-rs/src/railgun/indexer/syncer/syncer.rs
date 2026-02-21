@@ -1,4 +1,5 @@
 use ruint::aliases::U256;
+use serde::{Deserialize, Serialize};
 
 use super::compat::BoxedSyncStream;
 use crate::abis::railgun::RailgunSmartWallet;
@@ -9,10 +10,10 @@ pub enum SyncEvent {
     Shield(RailgunSmartWallet::Shield, u64),
     Transact(RailgunSmartWallet::Transact, u64),
     Nullified(RailgunSmartWallet::Nullified, u64),
-    Operation(Operation),
     Legacy(LegacyCommitment, u64),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Operation {
     pub nullifiers: Vec<U256>,
     pub commitment_hashes: Vec<U256>,
@@ -28,13 +29,27 @@ pub struct LegacyCommitment {
     pub leaf_index: u32,
 }
 
+/// Trait for syncers that emit note-level blockchain events (Shield, Transact, Nullified).
 #[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
 #[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
-pub trait Syncer: Send + Sync {
+pub trait NoteSyncer: Send + Sync {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>>;
     async fn sync(
         &self,
         from_block: u64,
         to_block: u64,
     ) -> Result<BoxedSyncStream<'_>, Box<dyn std::error::Error>>;
+}
+
+/// Trait for syncers that fetch full operation data (nullifiers + commitments + tree positions).
+/// Used to build the TXID tree for post-transaction POI submission.
+#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
+#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
+pub trait TransactionSyncer: Send + Sync {
+    async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>>;
+    async fn sync(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<(Operation, u64)>, Box<dyn std::error::Error>>;
 }

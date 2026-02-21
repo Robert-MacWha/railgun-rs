@@ -8,9 +8,10 @@ mod utxo_tree;
 
 pub use merkle_proof::{MerkleProof, MerkleRoot};
 pub use merkle_tree::{
-    MerkleTree, MerkleTreeError, MerkleTreeState, TREE_DEPTH, railgun_merkle_tree_zero,
+    MerkleTree, MerkleTreeError, MerkleTreeState, TOTAL_LEAVES, TREE_DEPTH,
+    railgun_merkle_tree_zero,
 };
-pub use smart_wallet_verifier::SmartWalletVerifier;
+pub use smart_wallet_verifier::SmartWalletUtxoVerifier;
 pub use txid_tree::{TxidLeafHash, TxidMerkleTree, UtxoTreeIndex};
 pub use utxo_tree::{UtxoLeafHash, UtxoMerkleTree};
 pub use verifier::{MerkleTreeVerifier, VerificationError};

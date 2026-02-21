@@ -1,24 +1,24 @@
 use futures::{StreamExt, stream};
 
-use super::{compat::BoxedSyncStream, syncer::Syncer};
+use super::{compat::BoxedSyncStream, syncer::NoteSyncer};
 
 /// A syncer that chains multiple syncers in priority order.
 pub struct ChainedSyncer {
-    syncers: Vec<Box<dyn Syncer>>,
+    syncers: Vec<Box<dyn NoteSyncer>>,
 }
 
 impl ChainedSyncer {
     /// Creates a new ChainedSyncer with the given syncers in priority order.
     ///
     /// Syncers will be queried in the order they are provided, first to last.
-    pub fn new(syncers: Vec<Box<dyn Syncer>>) -> Self {
+    pub fn new(syncers: Vec<Box<dyn NoteSyncer>>) -> Self {
         Self { syncers }
     }
 }
 
 #[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
 #[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
-impl Syncer for ChainedSyncer {
+impl NoteSyncer for ChainedSyncer {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let mut max_block = 0u64;
         for syncer in &self.syncers {

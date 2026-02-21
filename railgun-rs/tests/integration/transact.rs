@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use alloy::{
     network::Ethereum,
@@ -13,8 +13,9 @@ use railgun_rs::{
     chain_config::{ChainConfig, MAINNET_CONFIG},
     circuit::native::Groth16Prover,
     railgun::{
-        indexer::{indexer::Indexer, syncer},
-        transaction::{operation_builder::OperationBuilder, shield_builder::ShieldBuilder},
+        indexer::{UtxoIndexer, syncer},
+        merkle_tree::SmartWalletUtxoVerifier,
+        transaction::{ShieldBuilder, TransactionBuilder},
     },
 };
 use rand::random;
@@ -55,10 +56,19 @@ async fn test_transact() {
     let usdc_contract = ERC20::new(USDC_ADDRESS, provider.clone());
 
     info!("Setting up indexer");
-    let rpc_syncer = Box::new(syncer::RpcSyncer::new(provider.clone(), CHAIN));
+    let rpc_syncer = Arc::new(syncer::RpcSyncer::new(provider.clone(), CHAIN));
+    let smart_wallet_verifier = Arc::new(SmartWalletUtxoVerifier::new(
+        CHAIN.railgun_smart_wallet,
+        provider.clone(),
+    ));
+
     let indexer_state = std::fs::read("./tests/fixtures/indexer_state.bincode").unwrap();
     let indexer_state = bitcode::deserialize(&indexer_state).unwrap();
-    let mut indexer = Indexer::from_state(rpc_syncer, indexer_state).unwrap();
+    let mut indexer = UtxoIndexer::from_state(
+        rpc_syncer.clone(),
+        smart_wallet_verifier.clone(),
+        indexer_state,
+    );
 
     info!("Setting up accounts");
     let account_1 = RailgunAccount::new(random(), random(), CHAIN.id);
@@ -89,7 +99,7 @@ async fn test_transact() {
 
     // Test Transfer
     info!("Testing transfer");
-    let mut builder = OperationBuilder::new();
+    let mut builder = TransactionBuilder::new();
     builder.transfer(
         account_1.clone(),
         account_2.address(),
@@ -119,7 +129,7 @@ async fn test_transact() {
 
     // Test Unshielding
     info!("Testing unshielding");
-    let mut builder = OperationBuilder::new();
+    let mut builder = TransactionBuilder::new();
     builder.set_unshield(
         account_1.clone(),
         address!("0xe03747a83E600c3ab6C2e16dd1989C9b419D3a86"),

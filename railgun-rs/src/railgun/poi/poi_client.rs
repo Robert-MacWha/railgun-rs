@@ -10,7 +10,7 @@ use thiserror::Error;
 use tracing::info;
 
 use crate::railgun::{
-    merkle_tree::{MerkleProof, MerkleRoot, MerkleTreeVerifier, TxidLeafHash},
+    merkle_tree::{MerkleProof, MerkleRoot, MerkleTreeVerifier},
     note::utxo::UtxoNote,
     poi::{
         poi_note::PoiNote,
@@ -21,7 +21,6 @@ use crate::railgun::{
             ValidatePoiMerklerootsParams, ValidateTxidMerklerootParams, ValidatedRailgunTxidStatus,
         },
     },
-    transaction::broadcaster_data,
 };
 
 pub struct PoiClient {
@@ -304,7 +303,7 @@ async fn call<P: Serialize, R: DeserializeOwned>(
 
 #[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
 #[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
-impl MerkleTreeVerifier<TxidLeafHash> for PoiClient {
+impl MerkleTreeVerifier for PoiClient {
     async fn verify_root(
         &self,
         tree_number: u32,

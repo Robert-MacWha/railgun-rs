@@ -11,10 +11,7 @@ use crate::{
     railgun::{
         address::RailgunAddress,
         note::shield::create_shield_request,
-        transaction::{
-            broadcaster_data::PoiProvedTransaction, operation_builder::OperationBuilder,
-            tx_data::TxData,
-        },
+        transaction::{PoiProvedTransaction, TransactionBuilder, TxData},
     },
     wasm::{
         JsProver, JsRailgunAccount, broadcaster::JsFee, indexer::JsIndexer,
@@ -141,7 +138,7 @@ impl JsShieldBuilder {
 /// ```
 #[wasm_bindgen]
 pub struct JsTransactionBuilder {
-    inner: RefCell<OperationBuilder>,
+    inner: RefCell<TransactionBuilder>,
 }
 
 #[wasm_bindgen]
@@ -149,7 +146,7 @@ impl JsTransactionBuilder {
     #[wasm_bindgen(constructor)]
     pub fn new() -> JsTransactionBuilder {
         JsTransactionBuilder {
-            inner: RefCell::new(OperationBuilder::new()),
+            inner: RefCell::new(TransactionBuilder::new()),
         }
     }
 

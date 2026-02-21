@@ -3,9 +3,9 @@ mod compat;
 mod decimal_bigint;
 mod rpc_syncer;
 mod subsquid_syncer;
-mod syncer;
+pub(super) mod syncer;
 
 pub use chained_syncer::ChainedSyncer;
 pub use rpc_syncer::RpcSyncer;
 pub use subsquid_syncer::SubsquidSyncer;
-pub use syncer::{LegacyCommitment, Operation, SyncEvent, Syncer};
+pub use syncer::{LegacyCommitment, NoteSyncer, Operation, SyncEvent, TransactionSyncer};

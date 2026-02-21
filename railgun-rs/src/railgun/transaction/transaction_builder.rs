@@ -32,7 +32,7 @@ use crate::{
     railgun::{
         address::RailgunAddress,
         broadcaster::broadcaster::Fee,
-        indexer::indexer::Indexer,
+        indexer::UtxoIndexer,
         merkle_tree::{MerkleRoot, UtxoMerkleTree},
         note::{
             IncludedNote,
@@ -44,19 +44,15 @@ use crate::{
         },
         poi::{ListKey, PoiClient, PoiClientError},
         transaction::{
-            broadcaster_data::{
-                PoiProvedOperation, PoiProvedOperationError, PoiProvedTransaction, ProvedOperation,
-                ProvedTransaction,
-            },
-            gas_estimator::GasEstimator,
-            tx_data::TxData,
+            GasEstimator, PoiProvedOperation, PoiProvedOperationError, PoiProvedTransaction,
+            ProvedOperation, ProvedTransaction, TxData,
         },
     },
 };
 
-/// A builder for construction railgun operations (transfers, unshields)
+/// A builder for constructing railgun transactions (transfers, unshields)
 #[derive(Clone)]
-pub struct OperationBuilder {
+pub struct TransactionBuilder {
     transfers: Vec<TransferData>,
     unshields: BTreeMap<AssetId, UnshieldData>,
     broadcaster_fee: Option<TransferData>,
@@ -108,7 +104,7 @@ pub enum BuildError {
 
 const FEE_BUFFER: f64 = 1.3;
 
-impl OperationBuilder {
+impl TransactionBuilder {
     pub fn new() -> Self {
         Self {
             transfers: Vec::new(),
@@ -183,7 +179,7 @@ impl OperationBuilder {
     /// any POI proofs.
     pub async fn build<R: Rng>(
         &self,
-        indexer: &Indexer,
+        indexer: &UtxoIndexer,
         prover: &impl TransactProver,
         chain: ChainConfig,
         rng: &mut R,
@@ -201,7 +197,7 @@ impl OperationBuilder {
     /// Builds and proves a transaction for railgun with POI proofs.
     pub async fn build_with_poi<R: Rng>(
         &self,
-        indexer: &mut Indexer,
+        indexer: &UtxoIndexer,
         prover: &(impl TransactProver + PoiProver),
         poi_client: &PoiClient,
         chain: ChainConfig,
@@ -211,7 +207,7 @@ impl OperationBuilder {
         let operations = self.build_operations(in_notes, rng)?;
 
         let proved = self
-            .prove_operations(prover, &mut indexer.utxo_trees, &operations, chain, 0, rng)
+            .prove_operations(prover, &indexer.utxo_trees, &operations, chain, 0, rng)
             .await?;
 
         let list_keys = poi_client.list_keys();
@@ -219,7 +215,7 @@ impl OperationBuilder {
             prover,
             poi_client,
             proved,
-            &mut indexer.utxo_trees,
+            &indexer.utxo_trees,
             &list_keys,
             None,
         )
@@ -232,7 +228,7 @@ impl OperationBuilder {
     /// and generates POI proofs.
     pub async fn build_with_broadcast<R: Rng>(
         &self,
-        indexer: &Indexer,
+        indexer: &UtxoIndexer,
         prover: &(impl TransactProver + PoiProver),
         poi_client: &PoiClient,
         estimator: &impl GasEstimator,
@@ -434,6 +430,7 @@ impl OperationBuilder {
                 transaction: operation.transaction,
                 pois: HashMap::new(),
                 txid_leaf_hash: None,
+                txid: None,
             });
         }
 
@@ -546,7 +543,7 @@ fn add_change_note<R: Rng, N: IncludedNote>(operation: Operation<N>, rng: &mut R
 /// Calculate fee iteratively until convergence. It iteratively builds and proves
 /// transactions until the fee converges to a stable value.
 async fn calculate_fee_to_convergence<R: Rng>(
-    builder: &OperationBuilder,
+    builder: &TransactionBuilder,
     in_notes: &[UtxoNote],
     prover: &impl TransactProver,
     utxo_trees: &BTreeMap<u32, UtxoMerkleTree>,

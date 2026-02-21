@@ -5,16 +5,16 @@ use alloy::{
 
 use crate::{
     abis::railgun::RailgunSmartWallet,
-    railgun::merkle_tree::{MerkleRoot, UtxoLeafHash, verifier::MerkleTreeVerifier},
+    railgun::merkle_tree::{MerkleRoot, verifier::MerkleTreeVerifier},
 };
 
 /// Verifies UTXO Merkle roots against the deployed `RailgunSmartWallet` contract.
-pub struct SmartWalletVerifier {
+pub struct SmartWalletUtxoVerifier {
     address: Address,
     provider: DynProvider,
 }
 
-impl SmartWalletVerifier {
+impl SmartWalletUtxoVerifier {
     pub fn new(address: Address, provider: DynProvider) -> Self {
         Self { address, provider }
     }
@@ -22,7 +22,7 @@ impl SmartWalletVerifier {
 
 #[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
 #[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
-impl MerkleTreeVerifier<UtxoLeafHash> for SmartWalletVerifier {
+impl MerkleTreeVerifier for SmartWalletUtxoVerifier {
     async fn verify_root(
         &self,
         tree_number: u32,

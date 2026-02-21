@@ -39,6 +39,7 @@ pub enum MerkleTreeError {
 }
 
 pub const TREE_DEPTH: usize = 16;
+pub const TOTAL_LEAVES: usize = 1 << TREE_DEPTH;
 
 impl MerkleTree {
     pub fn new(tree_number: u32) -> Self {

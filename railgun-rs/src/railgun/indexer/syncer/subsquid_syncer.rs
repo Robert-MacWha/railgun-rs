@@ -13,7 +13,9 @@ use crate::{
         TokenType,
     },
     railgun::indexer::syncer::{
-        LegacyCommitment, Operation, SyncEvent, Syncer, compat::BoxedSyncStream, decimal_bigint,
+        compat::BoxedSyncStream,
+        decimal_bigint,
+        syncer::{LegacyCommitment, NoteSyncer, Operation, SyncEvent, TransactionSyncer},
     },
     sleep::sleep,
 };
@@ -101,7 +103,7 @@ impl SubsquidSyncer {
 
 #[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
 #[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
-impl Syncer for SubsquidSyncer {
+impl NoteSyncer for SubsquidSyncer {
     async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
         let request_body = BlockNumberQuery::build_query(block_number_query::Variables {});
 
@@ -130,13 +132,58 @@ impl Syncer for SubsquidSyncer {
 
         let commitment_stream = self.commitment_stream(from_block, to_block);
         let nullified_stream = self.nullified_stream(from_block, to_block);
-        let operation_stream = self.operation_stream(from_block, to_block);
 
-        let stream = commitment_stream
-            .chain(nullified_stream)
-            .chain(operation_stream);
+        let stream = commitment_stream.chain(nullified_stream);
 
         Ok(Box::pin(stream))
+    }
+}
+
+#[cfg_attr(not(feature = "wasm"), async_trait::async_trait)]
+#[cfg_attr(feature = "wasm", async_trait::async_trait(?Send))]
+impl TransactionSyncer for SubsquidSyncer {
+    async fn latest_block(&self) -> Result<u64, Box<dyn std::error::Error>> {
+        let request_body = BlockNumberQuery::build_query(block_number_query::Variables {});
+
+        let data: block_number_query::ResponseData =
+            self.post_graphql("latest_block", request_body).await?;
+
+        let block_number = data
+            .transactions
+            .into_iter()
+            .next()
+            .map(|t| t.block_number.0.saturating_to::<u64>())
+            .unwrap_or(0);
+
+        Ok(block_number)
+    }
+
+    // TODO: Refactor me to use streams like the other sync methods
+    async fn sync(
+        &self,
+        from_block: u64,
+        to_block: u64,
+    ) -> Result<Vec<(Operation, u64)>, Box<dyn std::error::Error>> {
+        info!(
+            "Fetching operations from block {} to block {}",
+            from_block, to_block
+        );
+
+        let mut all_operations = Vec::new();
+        let mut last_id = String::new();
+
+        loop {
+            let (ops, next_id) = self
+                .fetch_operations(from_block, to_block, &last_id)
+                .await?;
+            if ops.is_empty() {
+                break;
+            }
+            last_id = next_id;
+            all_operations.extend(ops);
+        }
+
+        Ok(all_operations)
     }
 }
 
@@ -256,53 +303,6 @@ impl SubsquidSyncer {
         .flatten()
     }
 
-    #[cfg(not(feature = "wasm"))]
-    fn operation_stream(
-        &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> impl Stream<Item = SyncEvent> + Send + '_ {
-        self.operation_stream_inner(from_block, to_block)
-    }
-
-    #[cfg(feature = "wasm")]
-    fn operation_stream(
-        &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> impl Stream<Item = SyncEvent> + '_ {
-        self.operation_stream_inner(from_block, to_block)
-    }
-
-    fn operation_stream_inner(
-        &self,
-        from_block: u64,
-        to_block: u64,
-    ) -> impl Stream<Item = SyncEvent> + '_ {
-        stream::unfold(String::new(), move |last_id| async move {
-            info!("Fetching operations");
-
-            let batch = match self.fetch_operations(from_block, to_block, &last_id).await {
-                Ok(batch) => batch,
-                Err(e) => {
-                    warn!("Failed to fetch operations: {}", e);
-                    return None;
-                }
-            };
-
-            if batch.0.is_empty() {
-                info!("Synced operations up to block {}", to_block);
-                return None;
-            }
-
-            info!("Fetched batch of operations: {}", batch.0.len());
-            let events: Vec<SyncEvent> = batch.0.into_iter().map(SyncEvent::Operation).collect();
-
-            Some((stream::iter(events), batch.1))
-        })
-        .flatten()
-    }
-
     pub async fn fetch_commitment_events(
         &self,
         from_block: u64,
@@ -402,7 +402,7 @@ impl SubsquidSyncer {
         from_block: u64,
         to_block: u64,
         after_id: &str,
-    ) -> Result<(Vec<Operation>, String), SubsquidError> {
+    ) -> Result<(Vec<(Operation, u64)>, String), SubsquidError> {
         let request_body = OperationsQuery::build_query(operations_query::Variables {
             id_gt: Some(after_id.to_string()),
             block_number_gte: Some(U256::from(from_block).into()),
@@ -421,6 +421,7 @@ impl SubsquidSyncer {
 
         let mut operations = Vec::new();
         for op in operations_data.into_iter() {
+            let block_number = op.block_number.0.saturating_to::<u64>();
             let operation = Operation {
                 nullifiers: op
                     .nullifiers
@@ -437,7 +438,7 @@ impl SubsquidSyncer {
                 utxo_tree_out: op.utxo_tree_out.0.saturating_to(),
                 utxo_out_start_index: op.utxo_batch_start_position_out.0.saturating_to(),
             };
-            operations.push(operation);
+            operations.push((operation, block_number));
         }
 
         Ok((operations, last_id))

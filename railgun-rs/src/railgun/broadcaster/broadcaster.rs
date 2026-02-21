@@ -19,7 +19,7 @@ use crate::{
             transport::{WakuTransport, WakuTransportError},
         },
         poi::{ListKey, PreTransactionPoisPerTxidLeafPerList, TxidVersion},
-        transaction::broadcaster_data::PoiProvedTransaction,
+        transaction::PoiProvedTransaction,
     },
     sleep::sleep,
 };

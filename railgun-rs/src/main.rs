@@ -1,6 +1,6 @@
 #![cfg(not(feature = "wasm"))]
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use alloy::{
     network::Ethereum,
@@ -21,11 +21,10 @@ use railgun_rs::{
             transport::{MessageStream, WakuTransport, WakuTransportError},
             types::WakuMessage,
         },
-        indexer::{indexer::Indexer, syncer},
+        indexer::{UtxoIndexer, syncer},
+        merkle_tree::SmartWalletUtxoVerifier,
         poi::PoiClient,
-        transaction::{
-            broadcaster_data::PoiProvedTransaction, operation_builder::OperationBuilder,
-        },
+        transaction::{TransactionBuilder, PoiProvedTransaction},
     },
 };
 use rand::{Rng, SeedableRng};
@@ -79,10 +78,16 @@ async fn main() {
         CHAIN.subsquid_endpoint.unwrap(),
     ));
     let rpc = Box::new(syncer::RpcSyncer::new(provider.clone(), CHAIN).with_batch_size(10));
-    let chained = Box::new(syncer::ChainedSyncer::new(vec![subsquid, rpc]));
+    let chained = Arc::new(syncer::ChainedSyncer::new(vec![subsquid, rpc]));
+
+    let smart_wallet_verifier = Arc::new(SmartWalletUtxoVerifier::new(
+        CHAIN.railgun_smart_wallet,
+        provider.clone(),
+    ));
+
     let indexer_state = bitcode::deserialize(&std::fs::read(INDEXER_STATE).unwrap()).unwrap();
-    let mut indexer = Indexer::from_state(chained, indexer_state).unwrap();
-    // let mut indexer = Indexer::new(chained, CHAIN);
+    let mut indexer = UtxoIndexer::from_state(chained, smart_wallet_verifier, indexer_state);
+    // let mut indexer = UtxoIndexer::new(chained, smart_wallet_verifier);
     indexer.add_account(&account1);
 
     info!("Syncing indexer");
@@ -124,7 +129,7 @@ async fn main() {
     //     list_keys: vec!["efc6ddb59c098a13fb2b618fdae94c1c3a807abc8fb1837c93620c9143ee9e88".into()],
     // };
 
-    let mut builder = OperationBuilder::new();
+    let mut builder = TransactionBuilder::new();
     // builder.transfer(account1.clone(), account2.address(), USDC, 100, "");
     builder.set_unshield(account1.clone(), address, USDC, 100);
     let prepared: PoiProvedTransaction = builder

@@ -1,16 +1,17 @@
+use std::sync::Arc;
+
 use ruint::aliases::U256;
 
 use crate::railgun::merkle_tree::{
-    merkle_proof::{MerkleProof, MerkleRoot},
-    merkle_tree::{MerkleTree, MerkleTreeError, MerkleTreeState},
-    verifier::{ErasedMerkleVerifier, VerificationError},
+    MerkleProof, MerkleRoot, MerkleTree, MerkleTreeError, MerkleTreeState, MerkleTreeVerifier,
+    VerificationError,
 };
 
 /// UTXO trees track the state of all notes in Railgun. New UTXOs are added as
 /// leaves whenever new commitments are observed from the Railgun smart contracts.
 pub struct UtxoMerkleTree {
     inner: MerkleTree,
-    verifier: Option<ErasedMerkleVerifier>,
+    verifier: Option<Arc<dyn MerkleTreeVerifier>>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -31,8 +32,8 @@ impl UtxoMerkleTree {
         }
     }
 
-    pub fn with_verifier(mut self, verifier: Option<ErasedMerkleVerifier>) -> Self {
-        self.verifier = verifier;
+    pub fn with_verifier(mut self, verifier: Arc<dyn MerkleTreeVerifier>) -> Self {
+        self.verifier = Some(verifier);
         self
     }
 

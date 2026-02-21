@@ -3,13 +3,8 @@ use serde::{Serialize, Serializer};
 
 use crate::{
     crypto::{poseidon::poseidon_hash, railgun_txid::Txid},
-    railgun::{
-        indexer::indexer::TOTAL_LEAVES,
-        merkle_tree::{
-            merkle_proof::{MerkleProof, MerkleRoot},
-            merkle_tree::{MerkleTree, MerkleTreeError, MerkleTreeState},
-            verifier::{ErasedMerkleVerifier, VerificationError},
-        },
+    railgun::merkle_tree::{
+        MerkleProof, MerkleRoot, MerkleTree, MerkleTreeError, MerkleTreeState, TOTAL_LEAVES,
     },
 };
 
@@ -20,7 +15,6 @@ use crate::{
 /// POI nodes.
 pub struct TxidMerkleTree {
     inner: MerkleTree,
-    verifier: Option<ErasedMerkleVerifier>,
 }
 
 /// Txid leaf hash.  Dependant on the TxID and the position of the TxID in the
@@ -35,6 +29,7 @@ pub struct TxidLeafHash(U256);
 ///
 /// Included TxIDs have defined positions based on the index of their first UTXO
 /// note in the on-chain UTXO tree. They are used when submitting to POI nodes.
+#[derive(Clone, Copy)]
 pub enum UtxoTreeIndex {
     /// Transactions that have been generated but not yet included on-chain (
     /// IE those being prepared for POI proof generation) use the pre-inclusion
@@ -58,20 +53,13 @@ impl TxidMerkleTree {
     pub fn new(number: u32) -> Self {
         TxidMerkleTree {
             inner: MerkleTree::new(number),
-            verifier: None,
         }
     }
 
     pub fn from_state(state: MerkleTreeState) -> Self {
         TxidMerkleTree {
             inner: MerkleTree::from_state(state),
-            verifier: None,
         }
-    }
-
-    pub fn with_verifier(mut self, verifier: Option<ErasedMerkleVerifier>) -> Self {
-        self.verifier = verifier;
-        self
     }
 
     pub fn number(&self) -> u32 {
@@ -111,35 +99,6 @@ impl TxidMerkleTree {
 
     pub fn rebuild(&mut self) {
         self.inner.rebuild();
-    }
-
-    /// Validates this tree's root against the embedded verifier, if any.
-    /// Returns `Ok(())` immediately if no verifier is set or the tree is empty.
-    pub async fn verify(&self) -> Result<(), VerificationError> {
-        let Some(verifier) = &self.verifier else {
-            return Ok(());
-        };
-
-        let leaves_len = self.inner.leaves_len();
-        if leaves_len == 0 {
-            return Ok(());
-        }
-
-        let tree_number = self.inner.number();
-        let tree_index = leaves_len as u64 - 1;
-        let root = self.inner.root();
-
-        verifier
-            .verify_root(tree_number, tree_index, root)
-            .await
-            .map_err(VerificationError::VerifierError)
-            .and_then(|valid| {
-                if valid {
-                    Ok(())
-                } else {
-                    Err(VerificationError::InvalidRoot { tree_number, root })
-                }
-            })
     }
 }
 

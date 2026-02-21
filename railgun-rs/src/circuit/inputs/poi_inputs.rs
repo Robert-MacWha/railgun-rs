@@ -13,10 +13,10 @@ use crate::{
     },
     railgun::{
         merkle_tree::{
-            MerkleProof, MerkleRoot, MerkleTreeError, TREE_DEPTH, TxidLeafHash, UtxoMerkleTree,
-            UtxoTreeIndex, railgun_merkle_tree_zero,
+            MerkleProof, MerkleRoot, MerkleTreeError, TREE_DEPTH, TxidLeafHash, TxidMerkleTree,
+            UtxoMerkleTree, UtxoTreeIndex, railgun_merkle_tree_zero,
         },
-        note::{IncludedNote, Note, operation::Operation},
+        note::{IncludedNote, Note},
         poi::{ListKey, PoiNote},
     },
 };
@@ -134,46 +134,130 @@ where
 }
 
 impl PoiCircuitInputs {
+    /// Builds POI circuit inputs for the pre-transaction proof using dummy
+    /// pre-inclusion TXID values. Used when submitting to the broadcaster.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_inputs(
         spending_pubkey: SpendingPublicKey,
-        nullifying_pubkey: NullifyingKey,
+        nullifying_key: NullifyingKey,
         utxo_merkle_tree: &UtxoMerkleTree,
+        utxo_tree_in: u32,
         bound_params_hash: U256,
-        operation: &Operation<PoiNote>,
+        in_notes: &[PoiNote],
+        out_commitments: &[U256],
+        out_npks: &[U256],
+        out_values: &[U256],
+        token: U256,
+        has_unshield: bool,
         list_key: ListKey,
     ) -> Result<Self, PoiCircuitInputsError> {
+        let nullifiers = Self::compute_nullifiers(utxo_merkle_tree, in_notes)?;
+        let txid = Txid::new(&nullifiers, out_commitments, bound_params_hash);
+        let tree_index = UtxoTreeIndex::PreInclusion;
+        let txid_leaf_hash = TxidLeafHash::new(txid, utxo_tree_in, tree_index);
+        let txid_proof = MerkleProof::new_pre_inclusion(txid_leaf_hash.into());
+        Self::assemble(
+            spending_pubkey,
+            nullifying_key,
+            bound_params_hash,
+            utxo_tree_in,
+            in_notes,
+            out_commitments,
+            out_npks,
+            out_values,
+            token,
+            has_unshield,
+            list_key,
+            nullifiers,
+            txid,
+            txid_leaf_hash,
+            tree_index,
+            txid_proof,
+        )
+    }
+
+    /// Builds POI circuit inputs for the post-transaction re-proof using the
+    /// actual on-chain TXID position. Used when submitting to the POI aggregator.
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_inputs_included(
+        spending_pubkey: SpendingPublicKey,
+        nullifying_key: NullifyingKey,
+        utxo_merkle_tree: &UtxoMerkleTree,
+        utxo_tree_in: u32,
+        bound_params_hash: U256,
+        in_notes: &[PoiNote],
+        out_commitments: &[U256],
+        out_npks: &[U256],
+        out_values: &[U256],
+        token: U256,
+        has_unshield: bool,
+        list_key: ListKey,
+        included_index: UtxoTreeIndex,
+        txid_tree: &TxidMerkleTree,
+    ) -> Result<Self, PoiCircuitInputsError> {
+        let nullifiers = Self::compute_nullifiers(utxo_merkle_tree, in_notes)?;
+        let txid = Txid::new(&nullifiers, out_commitments, bound_params_hash);
+        let txid_leaf_hash = TxidLeafHash::new(txid, utxo_tree_in, included_index);
+        let txid_proof = txid_tree.generate_proof(txid_leaf_hash)?;
+        Self::assemble(
+            spending_pubkey,
+            nullifying_key,
+            bound_params_hash,
+            utxo_tree_in,
+            in_notes,
+            out_commitments,
+            out_npks,
+            out_values,
+            token,
+            has_unshield,
+            list_key,
+            nullifiers,
+            txid,
+            txid_leaf_hash,
+            included_index,
+            txid_proof,
+        )
+    }
+
+    fn compute_nullifiers(
+        utxo_merkle_tree: &UtxoMerkleTree,
+        in_notes: &[PoiNote],
+    ) -> Result<Vec<U256>, PoiCircuitInputsError> {
         info!("UTXO proofs");
-        let utxo_proofs: Vec<_> = operation
-            .in_notes()
+        let utxo_proofs: Vec<_> = in_notes
             .iter()
             .map(|note| utxo_merkle_tree.generate_proof(note.hash()))
             .collect::<Result<_, _>>()?;
-
-        info!("Nullifiers and commitments");
-        let nullifiers: Vec<U256> = operation
-            .in_notes()
+        Ok(in_notes
             .iter()
             .zip(utxo_proofs.iter())
             .map(|(note, proof)| note.nullifier(proof.indices))
-            .collect();
-        let commitments: Vec<U256> = operation
-            .out_notes()
-            .iter()
-            .map(|note| note.hash().into())
-            .collect();
+            .collect())
+    }
 
-        let txid = Txid::new(&nullifiers, &commitments, bound_params_hash);
-        let txid_leaf_hash = TxidLeafHash::new(
-            txid,
-            operation.utxo_tree_number(),
-            UtxoTreeIndex::PreInclusion,
-        );
-        let txid_proof = MerkleProof::new_pre_inclusion(txid_leaf_hash.into());
-
+    #[allow(clippy::too_many_arguments)]
+    fn assemble(
+        spending_pubkey: SpendingPublicKey,
+        nullifying_pubkey: NullifyingKey,
+        bound_params_hash: U256,
+        utxo_tree_in: u32,
+        in_notes: &[PoiNote],
+        out_commitments: &[U256],
+        out_npks: &[U256],
+        out_values: &[U256],
+        token: U256,
+        has_unshield: bool,
+        list_key: ListKey,
+        nullifiers: Vec<U256>,
+        txid: Txid,
+        txid_leaf_hash: TxidLeafHash,
+        tree_index: UtxoTreeIndex,
+        txid_proof: MerkleProof,
+    ) -> Result<Self, PoiCircuitInputsError> {
         // Per-note POI proofs
         info!("Generating POI proofs");
-        let poi_proofs = operation
-            .in_notes()
+        // TODO: POI Merkle roots are not generating correctly.
+        let poi_proofs = in_notes
             .iter()
             .map(|n| {
                 n.poi_merkle_proofs()
@@ -183,71 +267,49 @@ impl PoiCircuitInputs {
             .collect::<Result<Vec<_>, _>>()?;
 
         info!("Assembling circuit inputs");
-        // TODO: POI Merkle roots are not generating correctly.
         let poi_merkleroots: Vec<MerkleRoot> = poi_proofs.iter().map(|p| p.root).collect();
         let poi_in_merkle_proof_indices =
             poi_proofs.iter().map(|p| U256::from(p.indices)).collect();
         let poi_in_merkle_proof_path_elements =
             poi_proofs.iter().map(|p| p.elements.clone()).collect();
 
-        let asset = operation.asset;
-        let randoms_in = operation
-            .in_notes()
+        //? Only include output note data for commitment notes. Unshield note
+        //? data is included separately.
+        let randoms_in = in_notes
             .iter()
             .map(|n| U256::from_be_slice(&n.random()))
             .collect();
-        let values_in = operation
-            .in_notes()
-            .iter()
-            .map(|n| U256::from(n.value()))
-            .collect();
-        let utxo_positions_in = operation
-            .in_notes()
+        let values_in = in_notes.iter().map(|n| U256::from(n.value())).collect();
+        let utxo_positions_in = in_notes
             .iter()
             .map(|n| U256::from(n.leaf_index()))
             .collect();
-        let utxo_tree_in = U256::from(operation.utxo_tree_number());
 
-        //? Only include output note data for commitment notes. Unshield note
-        //? data is included separately.
-        let npks_out = operation
-            .out_encryptable_notes()
-            .iter()
-            .map(|n| n.note_public_key())
-            .collect();
-        let values_out = operation
-            .out_encryptable_notes()
-            .iter()
-            .map(|n| U256::from(n.value()))
-            .collect();
-
-        let txid_if_has_unshield = match &operation.unshield_note() {
-            Some(_) => txid,
-            None => U256::from(0).into(),
+        let txid_if_has_unshield = if has_unshield {
+            txid
+        } else {
+            U256::from(0).into()
         };
 
-        // Determine circuit size and apply padding
-        let max_size = circuit_size(nullifiers.len(), commitments.len());
+        let max_size = circuit_size(nullifiers.len(), out_commitments.len());
 
         Ok(PoiCircuitInputs {
             railgun_txid_merkleroot_after_transaction: txid_proof.root,
             poi_merkleroots: poi_merkleroots.clone(),
             poi_merkleroots_padded: pad_with_zero_value(poi_merkleroots, max_size),
-            bound_params_hash: bound_params_hash,
+            bound_params_hash,
             nullifiers: pad_with_zero_value(nullifiers, max_size),
-            commitments: pad_with_zero_value(commitments, max_size),
+            commitments: pad_with_zero_value(out_commitments.to_vec(), max_size),
             spending_public_key: [spending_pubkey.x_u256(), spending_pubkey.y_u256()],
             nullifying_key: nullifying_pubkey.to_u256(),
-            token: asset.hash(),
+            token,
             randoms_in: pad_with_zero_value(randoms_in, max_size),
             values_in: pad_with_zero(values_in, max_size),
             utxo_positions_in: pad_with_zero_value(utxo_positions_in, max_size),
-            utxo_tree_in,
-            npks_out: pad_with_zero_value(npks_out, max_size),
-            values_out: pad_with_zero(values_out, max_size),
-            utxo_batch_global_start_position_out: U256::from(
-                UtxoTreeIndex::PreInclusion.global_index(),
-            ),
+            utxo_tree_in: U256::from(utxo_tree_in),
+            npks_out: pad_with_zero_value(out_npks.to_vec(), max_size),
+            values_out: pad_with_zero(out_values.to_vec(), max_size),
+            utxo_batch_global_start_position_out: U256::from(tree_index.global_index()),
             railgun_txid_if_has_unshield: txid_if_has_unshield,
             railgun_txid_merkle_proof_indices: U256::from(txid_proof.indices),
             railgun_txid_merkle_proof_path_elements: txid_proof.elements,

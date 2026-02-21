@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use alloy::{
     network::Ethereum,
     providers::{DynProvider, Provider, ProviderBuilder},
@@ -5,9 +7,8 @@ use alloy::{
 use railgun_rs::{
     chain_config::{ChainConfig, MAINNET_CONFIG},
     railgun::{
-        indexer::{indexer::Indexer, syncer},
-        merkle_tree::SmartWalletVerifier,
-        poi::PoiClient,
+        indexer::{UtxoIndexer, syncer::SubsquidSyncer},
+        merkle_tree::SmartWalletUtxoVerifier,
     },
 };
 use tracing::info;
@@ -19,17 +20,12 @@ const FORK_BLOCK: u64 = 24379760;
 #[tokio::test]
 #[serial_test::serial]
 #[ignore]
-async fn test_sync() {
+async fn test_sync_utxo() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_test_writer()
         .try_init()
         .ok();
-
-    info!("Setting up POI client");
-    let poi_client = PoiClient::new(CHAIN.poi_endpoint.unwrap(), CHAIN.id)
-        .await
-        .unwrap();
 
     info!("Setting up chain client");
     let fork_url = std::env::var("FORK_URL_MAINNET").expect("Fork URL Must be set");
@@ -40,18 +36,20 @@ async fn test_sync() {
         .unwrap()
         .erased();
 
-    let smart_wallet_verifier =
-        SmartWalletVerifier::new(CHAIN.railgun_smart_wallet, provider.clone());
+    let smart_wallet_verifier = Arc::new(SmartWalletUtxoVerifier::new(
+        CHAIN.railgun_smart_wallet,
+        provider.clone(),
+    ));
 
     info!("Setting up indexer");
     let endpoint = CHAIN
         .subsquid_endpoint
         .expect("Subsquid endpoint must be set");
-    let syncer = Box::new(syncer::SubsquidSyncer::new(endpoint));
-    let mut indexer =
-        Indexer::new_with_verifiers(syncer, CHAIN, smart_wallet_verifier, poi_client);
 
-    info!("Syncing indexer (verification happens inside sync_to)");
+    let subsquid_syncer = Arc::new(SubsquidSyncer::new(endpoint));
+    let mut indexer = UtxoIndexer::new(subsquid_syncer, smart_wallet_verifier);
+
+    info!("Syncing indexer");
     indexer.sync_to(FORK_BLOCK).await.unwrap();
 
     let state = bitcode::serialize(&indexer.state()).unwrap();

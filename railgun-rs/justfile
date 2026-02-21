@@ -26,10 +26,13 @@ snapshot:
 test: 
     cargo test
 
-integration: integration-sync integration-transact
+integration: integration-sync-txid integration-sync-utxo integration-transact
 
-integration-sync:
-    RUST_LOG=info cargo test --release -- test_sync --ignored --nocapture
+integration-sync-txid:
+    RUST_LOG=info cargo test --release -- test_sync_txid --ignored --nocapture
+
+integration-sync-utxo:
+    RUST_LOG=info cargo test --release -- test_sync_utxo --ignored --nocapture
 
 integration-transact:
     #!/usr/bin/env bash

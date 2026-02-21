@@ -10,7 +10,8 @@ use crate::{
     caip::AssetId,
     railgun::{
         address::RailgunAddress,
-        indexer::{indexer::TOTAL_LEAVES, notebook::Notebook},
+        indexer::notebook::Notebook,
+        merkle_tree::TOTAL_LEAVES,
         note::{
             Note,
             utxo::{NoteError, UtxoNote},
